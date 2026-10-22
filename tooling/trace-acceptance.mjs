@@ -81,11 +81,18 @@ export const defaultCases = [
 ];
 
 async function api(path, method = "GET", body) {
-  const response = await fetch(API + path, {
-    method,
-    headers: clientHeader,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetch(API + path, {
+      method,
+      headers: clientHeader,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (error) {
+    throw new Error(
+      `无法连接 Runtime（${API}）：${error.cause?.code || error.message}。请先启动 Runtime（npm run runtime），确认 4313 端口在监听。`,
+    );
+  }
   const text = await response.text();
   let data;
   try {
@@ -129,7 +136,12 @@ async function waitFor(runId, predicate, label, timeoutMs = 180000) {
 }
 
 async function download(url, target) {
-  const response = await fetch(url);
+  let response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    throw new Error(`无法连接 Runtime 下载档案（${API}）：${error.cause?.code || error.message}`);
+  }
   if (!response.ok) throw new Error(`下载失败 HTTP ${response.status}：${target}`);
   const buffer = Buffer.from(await response.arrayBuffer());
   await writeFile(target, buffer);
@@ -221,19 +233,27 @@ async function runCase(project, testCase) {
   return record;
 }
 
-const casesPath = process.argv[2];
-const cases = casesPath ? JSON.parse(await readFile(casesPath, "utf8")) : defaultCases;
-await mkdir(OUT, { recursive: true });
-const project = await ensureProject();
-const catalog = await api("/v1/catalog");
-const provider = catalog.providers.find((item) => item.id === "tencent-wsa-search");
-if (!provider?.available) {
-  console.error("阻塞：元宝搜索不可用 →", provider?.reason);
-  console.error("请先在 .env.platform 配置 PLATFORM_WSA_API_KEY 并重启 Runtime；脚本不会伪造检索结果。");
-  process.exit(2);
-}
+try {
+  const casesPath = process.argv[2];
+  const cases = casesPath ? JSON.parse(await readFile(casesPath, "utf8")) : defaultCases;
+  await mkdir(OUT, { recursive: true });
+  const project = await ensureProject();
+  const catalog = await api("/v1/catalog");
+  const provider = catalog.providers.find((item) => item.id === "tencent-wsa-search");
+  if (!provider?.available) {
+    console.error("阻塞：元宝搜索不可用 →", provider?.reason);
+    console.error(
+      "请先在 .env.platform 取消注释并填写 PLATFORM_WSA_API_KEY=sk-...（不要加引号），再重启 Runtime；脚本不会伪造检索结果。",
+    );
+    process.exit(2);
+  }
+  console.log(`检索能力已配置：${provider.endpointHost || "元宝搜索"}，开始 ${cases.length} 个真实案例`);
 
-const results = [];
-for (const testCase of cases) results.push(await runCase(project, testCase));
-await writeFile(join(OUT, "summary.json"), JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2));
-console.log("\n汇总：", join(OUT, "summary.json"));
+  const results = [];
+  for (const testCase of cases) results.push(await runCase(project, testCase));
+  await writeFile(join(OUT, "summary.json"), JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2));
+  console.log("\n汇总：", join(OUT, "summary.json"));
+} catch (error) {
+  console.error("\n验收中止：" + (error instanceof Error ? error.message : String(error)));
+  process.exit(3);
+}
