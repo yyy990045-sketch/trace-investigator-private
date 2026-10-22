@@ -1,3 +1,4 @@
+import { searchConfiguration } from "../adapters/trace/searchpro.ts";
 import Fastify from "fastify";
 import { resolve, join } from "node:path";
 import { readFile, readdir, unlink } from "node:fs/promises";
@@ -171,6 +172,14 @@ export async function createPlatform(
         reason: "仅检索本次授权上传资料；词项匹配，无远程知识库和向量检索。",
       },
       { id: "platform-model", ...modelConfiguration() },
+      // 元宝搜索：可用性来自服务端进程配置，前端只读，不接触密钥。
+      {
+        id: "tencent-wsa-search",
+        available: searchConfiguration().available,
+        reason: searchConfiguration().reason,
+        provider: searchConfiguration().provider,
+        endpointHost: searchConfiguration().endpointHost,
+      },
       {
         id: "historical-remote-rag",
         available: false,

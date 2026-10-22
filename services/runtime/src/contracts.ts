@@ -13,6 +13,11 @@ export const uploadSchema: Schema = {
     filename: { type: "string", minLength: 1, maxLength: 180 },
     text: { type: "string", minLength: 1, maxLength: 262144 },
     modelConsent: { type: "boolean" },
+    // 最小适配：允许业务应用把结构化载荷随本次任务一起提交，
+    // 第一步骤自行校验，公共运行时只负责透传与授权判定。
+    payload: { type: "object" },
+    // 明确区分「发往外部模型」与「发往外部检索服务」两类外发授权。
+    dataConsent: { type: "boolean" },
   },
   additionalProperties: false,
 };

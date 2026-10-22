@@ -36,6 +36,10 @@ export interface UploadInput {
   filename: string;
   text: string;
   modelConsent?: boolean;
+  /** 结构化业务载荷（如调查案件）；由第一步骤按自己的 schema 校验。 */
+  payload?: Record<string, unknown>;
+  /** 是否授权本次任务把检索式发送给外部检索服务。 */
+  dataConsent?: boolean;
 }
 export interface DocumentItem {
   id: string;

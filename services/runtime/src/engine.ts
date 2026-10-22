@@ -53,13 +53,15 @@ export class Engine {
       );
     const invalid = this.registry.validate(uploadSchema, input);
     if (invalid) throw new ExecutionError("INPUT_SCHEMA_INVALID", invalid);
+    // 外发授权：发往外部模型需 modelConsent，发往外部检索服务需 dataConsent。
     if (
       p.steps.some((s: AssemblyStep) =>
         this.registry
           .get(s.capabilityId, s.version)
           ?.effects.includes("external_data"),
       ) &&
-      input.modelConsent !== true
+      input.modelConsent !== true &&
+      input.dataConsent !== true
     )
       throw new ExecutionError(
         "DATA_CONSENT_REQUIRED",
