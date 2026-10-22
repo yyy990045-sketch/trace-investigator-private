@@ -4,7 +4,9 @@
 
 0.3.0历史基线见 [0.3.0最终验收说明](docs/0.3.0-final-acceptance.md)。本轮CAP-08使用体验、第二项目复用与390px实际操作结果见 [后续交付记录](docs/2026-10-22-cap08-usable-reuse.md)；模型仍待本地私密配置。
 
-本机单用户能力装配与执行工作台。Studio、独立Agent应用和独立商业应用共享真实SQLite运行记录，未使用固定演示记录冒充执行。模型未配置，AI核验尚未验收。
+侦察赛道产品「溯证 TRACE」见 [调查产品交付记录](docs/2026-10-22-trace-investigation-product.md)：独立应用 `apps/trace`，用元宝搜索做真实联网取证。**元宝搜索密钥未配置，联网检索与真实案例验收当前为阻塞状态**，产品如实显示阻塞、不伪造搜索结果。
+
+本机单用户能力装配与执行工作台。Studio、独立Agent应用、独立商业应用与TRACE调查应用共享真实SQLite运行记录，未使用固定演示记录冒充执行。模型未配置，AI核验尚未验收。
 
 ## 启动与使用
 
@@ -19,9 +21,12 @@ npm run start:local
 - Studio http://127.0.0.1:4310 ：新建项目、检索能力、保存组合、上传资料、执行。
 - Agent http://127.0.0.1:4311 ：真实任务、当前步骤、输入输出、证据、取消/拒绝/审批。
 - 商业应用 http://127.0.0.1:4312 ：资料对象、待确认事项、成果与下载。
+- TRACE 调查应用 http://127.0.0.1:4316 ：调查入口、调查过程、调查档案。
 - Runtime http://127.0.0.1:4313/v1/health ：本机Fastify服务。
 
 先创建项目，在能力库检索CAP编号或Runtime ID。选择目标项目后加入能力，配置执行顺序/权限并保存。标准组合可直接上传 `examples/authorized-inputs/资料处理测试.txt`，勾选本机处理授权，执行后停在人工确认。审阅来源后批准生成真实Markdown和JSON文件；拒绝或取消不会生成正式交付。冲突和范围拒绝样例在同一目录。项目/步骤/审批/证据保存在 `data/platform.sqlite`；停止服务不会删除历史记录。
+
+TRACE 应用首次打开会按固定能力序列创建「溯证 TRACE 调查流程」项目；未配置元宝搜索时入口直接显示「检索不可用」并禁用开始按钮。密钥就绪后的三案例验收：`node tooling/trace-acceptance.mjs`。
 
 ## 源码边界
 
@@ -29,13 +34,15 @@ npm run start:local
 apps/studio                   项目/能力装配管理，自有路由
 apps/agent-example            任务工作区，自有 /new /missions/:runId /sources
 apps/business-example         成果工作区，自有 /intake /deliverables/:runId /materials
+apps/trace                    溯证TRACE调查应用，自有 / /cases/:runId /archive/:runId
 packages/app-shell            配置式导航、路由容器、主题，不定义业务路由
 packages/ui-core              基础组件、状态和设计令牌
 packages/agent-ui              真实执行表单、过程/步骤/证据交互
 packages/business-ui           成果、引用、审批与交付交互
 packages/capability-sdk        Schema/状态契约、版本化装配与HTTP SDK
 services/runtime              注册、SQLite、执行、审批、Provider、文件生成
-services/runtime/plugins      受信任本地能力扩展
+services/runtime/plugins      受信任本地能力扩展（含trace.*调查能力）
+services/runtime/adapters/trace  元宝搜索SearchPro适配器、原文抓取、证据核验规则
  templates/agent-app           独立Agent应用模板
  templates/business-app        独立商业应用模板
  tooling/create-app.mjs        应用生成器，拒绝覆盖已有应用
@@ -57,6 +64,11 @@ services/runtime/plugins      受信任本地能力扩展
 |text.metrics|独立插件计算资料字符数|扩展接口验证|
 |model.verify|明确配置后的真实OpenAI兼容调用|当前缺模型配置，不可用|
 |knowledge.remote.search|历史远端RAG接口|未适配、未授权，不可用|
+|trace.case.intake|调查立案：规范化问题与人工确认的事实/检索式|TRACE新实现|
+|trace.facts.confirm|检索式校验与检索预算冻结|TRACE新实现|
+|trace.web.search|元宝搜索真实多轮检索+原文取证|TRACE新实现，需密钥|
+|trace.evidence.verify|同源合并、支持/反对判定、保守结论|TRACE新实现|
+|trace.archive.export|人工确认后生成调查档案md/json|TRACE新实现|
 
 CAP-01/04/08只复用设计语义，没有复制历史代码；本地词项检索不是历史RAG接通或向量搜索。未形成运行Adapter的CAP/UI登记仅保留来源，不能执行。历史ID和Runtime ID独立，来源映射包括正式登记源摘要、文件路径/提交锚点、当前文件摘要、Adapter和关系类型。
 

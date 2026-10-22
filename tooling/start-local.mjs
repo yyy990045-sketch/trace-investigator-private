@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 const root = new URL("..", import.meta.url).pathname;
-const commands = ["runtime", "dev", "dev:agent", "dev:business"];
+const commands = ["runtime", "dev", "dev:agent", "dev:business", "dev:trace"];
 const children = commands.map((command) =>
   spawn("npm", ["run", command], { cwd: root, stdio: "inherit" }),
 );
