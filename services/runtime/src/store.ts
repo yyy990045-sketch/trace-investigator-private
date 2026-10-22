@@ -18,8 +18,12 @@ export class Store {
  CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES runs(id),step_id TEXT NOT NULL REFERENCES steps(id),filename TEXT NOT NULL,mime TEXT NOT NULL,sha256 TEXT NOT NULL,bytes INTEGER NOT NULL,path TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(run_id,filename));
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL REFERENCES runs(id),type TEXT NOT NULL,data TEXT NOT NULL,at TEXT NOT NULL,previous_hash TEXT NOT NULL,hash TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS model_calls(id TEXT PRIMARY KEY,run_id TEXT NOT NULL REFERENCES runs(id),step_id TEXT NOT NULL REFERENCES steps(id),model TEXT NOT NULL,status TEXT NOT NULL,duration_ms INTEGER NOT NULL,request_hash TEXT NOT NULL,response TEXT,error TEXT);
- CREATE TABLE IF NOT EXISTS capability_settings(capability_id TEXT NOT NULL,version TEXT NOT NULL,enabled INTEGER NOT NULL,PRIMARY KEY(capability_id,version));
- `);
+CREATE TABLE IF NOT EXISTS capability_settings(capability_id TEXT NOT NULL,version TEXT NOT NULL,enabled INTEGER NOT NULL,PRIMARY KEY(capability_id,version));
+CREATE TABLE IF NOT EXISTS compositions(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,layout TEXT NOT NULL,permissions TEXT NOT NULL,steps TEXT NOT NULL,source_project_id TEXT,source_project_name TEXT,created_by TEXT NOT NULL,reuse_count INTEGER NOT NULL DEFAULT 0,last_reused_at TEXT,last_reused_project_id TEXT,last_reused_project_name TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS run_feedback(id TEXT PRIMARY KEY,run_id TEXT NOT NULL UNIQUE REFERENCES runs(id),project_id TEXT NOT NULL,project_name TEXT NOT NULL,outcome TEXT NOT NULL,correction TEXT NOT NULL,reusable INTEGER NOT NULL,reference_value TEXT NOT NULL,author TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,title TEXT NOT NULL,kind TEXT NOT NULL,problem TEXT NOT NULL,resolution TEXT NOT NULL,project_id TEXT,project_name TEXT,run_id TEXT,capabilities TEXT NOT NULL,tags TEXT NOT NULL,source_feedback_id TEXT,verified_run_id TEXT,verified_project_name TEXT,verified_at TEXT,author TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS project_applications(project_id TEXT PRIMARY KEY REFERENCES projects(id),app_name TEXT NOT NULL,title TEXT NOT NULL,layout TEXT NOT NULL,port INTEGER NOT NULL,path TEXT NOT NULL,status TEXT NOT NULL,message TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+`);
   }
   get(sql: string, ...args: any[]): any {
     return this.db.prepare(sql).get(...args);

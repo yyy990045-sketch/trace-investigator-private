@@ -1893,3 +1893,97 @@ textarea {
 .execution-submit{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-top:22px}.execution-submit>span{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.execution-submit>.ui-button{width:100%}
 .runtime-task-actions{display:flex;gap:8px;align-items:center;margin:18px 0;flex-wrap:wrap}.actual-checks{list-style:none;padding:0;margin:12px 0 20px}.actual-checks li{padding:12px 0;border-bottom:1px solid var(--line)}.actual-checks p{font-size:13px;color:var(--muted);margin-top:5px}.actual-documents details{padding:14px 0;border-bottom:1px solid var(--line)}.actual-documents summary{font-size:14px;font-weight:550;overflow-wrap:anywhere}.actual-documents details p{font-size:13px;color:var(--muted);white-space:pre-wrap;margin-top:12px;overflow-wrap:anywhere}.actual-documents .input-preview{max-height:400px;overflow:auto}.actual-files{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:22px}.runtime-run-reference{font-size:12px;color:var(--muted);margin:12px 0 24px;overflow-wrap:anywhere}.citation-results{padding:0;list-style:none}.citation-results li{padding:16px 0;border-top:1px solid var(--line)}.citation-source{font-size:13px;color:var(--accent);font-weight:550}.citation-results p{font-size:14px;margin:8px 0;line-height:1.8}.citation-results small{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.outcome-entry{padding:22px 0;border-top:1px solid var(--line)}.outcome-entry h2{margin:6px 0}.outcome-entry p{font-size:14px;color:var(--muted);margin:8px 0}.runtime-issues+.agent-workspace{margin-top:18px}
 @media(min-width:760px){.real-project-list article,.real-capability-list article{display:flex;align-items:center;gap:24px;justify-content:space-between}.real-project-list article>div,.real-capability-list article>div{flex:1;min-width:0}.real-project-list article>.plain-link,.real-capability-list article>.ui-button{margin-top:0;flex-shrink:0}.execution-submit>.ui-button{width:auto}}
+
+/* 产品化页面：运行概览、能力组合、运行反馈与经验。移动端优先，桌面端两列。 */
+.runtime-overview{margin-top:36px;border-top:1px solid var(--line);padding-top:24px}
+.overview-filter{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:center;min-height:32px}
+.overview-filter input{accent-color:var(--accent)}
+.project-run-list{list-style:none;padding:0;margin:8px 0 0}
+.project-run-list li{display:flex;flex-direction:column;gap:8px;padding:16px 0;border-top:1px solid var(--line)}
+.project-run-main{display:flex;flex-direction:column;gap:4px;min-width:0}
+.project-run-main a strong{font-size:15px;overflow-wrap:anywhere}
+.project-run-tally{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+.project-run-extra{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.project-run-extra a{color:var(--accent)}
+.overview-columns{display:grid;gap:26px;margin-top:28px}
+.overview-columns h3,.overview-delivery h3{font-size:14px;margin-bottom:10px}
+.failure-list,.correction-feed,.delivery-list{list-style:none;padding:0;margin:0}
+.failure-list li,.correction-feed li{padding:12px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:5px;min-width:0}
+.failure-list a{font-size:13px;color:var(--accent);overflow-wrap:anywhere}
+.failure-list p,.correction-feed p{font-size:13px;color:var(--muted);line-height:1.7;overflow-wrap:anywhere;margin:0}
+.correction-feed a{font-size:13.5px;font-weight:550;overflow-wrap:anywhere}
+.overview-delivery{margin-top:28px}
+.delivery-list li{display:flex;flex-direction:column;gap:3px;padding:11px 0;border-top:1px solid var(--line);font-size:13px;overflow-wrap:anywhere}
+.runtime-run-row{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line)}
+.runtime-run-row .runtime-run-link{border-top:0}
+.run-review-entry{align-self:flex-start;font-size:12px;padding:0 0 14px}
+.application-panel,.composition-panel,.project-experience{margin-top:36px;border-top:1px solid var(--line);padding-top:26px}
+.application-record{margin-top:14px;font-size:14px}
+.application-actions{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.application-form{margin-top:18px}
+.composition-columns{display:grid;gap:26px;margin-top:8px}
+.composition-columns h3{font-size:14px;margin:6px 0 10px}
+.composition-mode{border:0;padding:0;margin:12px 0;display:flex;flex-direction:column;gap:8px}
+.composition-mode legend{font-size:12px;color:var(--muted);padding:0;margin-bottom:6px}
+.composition-mode label{font-size:13px;display:flex;gap:8px;align-items:center}
+.composition-list{margin-top:16px}
+.composition-card{display:flex;flex-direction:column;gap:14px;padding:20px 0;border-top:1px solid var(--line);min-width:0}
+.composition-card h2{font-size:17px;margin:5px 0}
+.composition-card p{font-size:13px;color:var(--muted);line-height:1.75;overflow-wrap:anywhere}
+.composition-steps,.review-capabilities{list-style:none;padding:0;margin:10px 0;display:flex;flex-direction:column;gap:7px}
+.composition-steps li,.review-capabilities li{display:flex;gap:9px;align-items:baseline;font-size:13.5px;flex-wrap:wrap}
+.composition-actions{display:flex;gap:8px;flex-wrap:wrap}
+.experience-list{display:flex;flex-direction:column;gap:0;margin-top:10px}
+.experience-card{padding:18px 0;border-top:1px solid var(--line);min-width:0}
+.experience-card h3{font-size:15.5px;margin:8px 0 6px}
+.experience-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.experience-problem{font-size:13.5px;line-height:1.75;color:var(--muted);overflow-wrap:anywhere}
+.experience-resolution{background:var(--surface-soft);border-left:2px solid var(--accent);padding:10px 12px;margin:10px 0}
+.experience-resolution p{font-size:13.5px;line-height:1.75;overflow-wrap:anywhere;margin-top:4px}
+.experience-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:12.5px}
+.experience-created{margin-top:14px}
+.capability-experience{border-top:1px solid var(--line);padding:14px 0;margin:12px 0}
+.capability-experience summary{display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:13px;color:var(--accent);min-height:28px;flex-wrap:wrap}
+.capability-experience-item{padding:10px 0;display:flex;flex-direction:column;gap:5px;min-width:0}
+.capability-experience-item strong{font-size:13.5px;overflow-wrap:anywhere}
+.capability-experience-item p{font-size:13px;color:var(--muted);line-height:1.7;overflow-wrap:anywhere}
+.run-review .workspace-heading{flex-direction:column;align-items:flex-start;gap:14px}
+.run-review-links{display:flex;gap:16px;flex-wrap:wrap;font-size:13px}
+.run-review-facts,.feedback-form,.experience-create,.related-experience{margin-top:32px;border-top:1px solid var(--line);padding-top:24px}
+.run-review-facts h2,.feedback-form h2,.experience-create h2,.related-experience h2{font-size:17px;margin-bottom:10px}
+.feedback-outcome{border:0;padding:0;margin:12px 0;display:flex;flex-direction:column;gap:9px}
+.feedback-outcome legend{font-size:12px;color:var(--muted);padding:0;margin-bottom:6px}
+.feedback-outcome label{font-size:13.5px;display:flex;gap:8px;align-items:center}
+.experience-library .kind-tabs{display:flex;gap:18px;overflow-x:auto;border-bottom:1px solid var(--line);margin-top:12px}
+.experience-library .kind-tabs button{font-size:13px;min-height:44px;padding:8px 0;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;background:none}
+.experience-library .kind-tabs button.active{border-color:var(--accent);color:var(--accent)}
+.verify-inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;width:100%}
+.verify-inline select{min-width:0;flex:1;font-size:12.5px}
+.portfolio-suggestion{margin-top:30px;border-top:1px solid var(--line);padding-top:20px}
+.portfolio-suggestion h2{font-size:17px;margin-bottom:8px}
+@media(min-width:760px){
+  .project-run-list li{flex-direction:row;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .project-run-main{flex:1}
+  .overview-columns{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .composition-columns{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:36px}
+  .composition-card{flex-direction:row;align-items:flex-start;justify-content:space-between;gap:28px}
+  .composition-card>div{flex:1;min-width:0}
+  .composition-actions{flex-shrink:0;flex-direction:column;align-items:flex-end}
+  .run-review .workspace-heading{flex-direction:row;align-items:flex-end;justify-content:space-between}
+  .feedback-outcome{flex-direction:row;gap:20px}
+  .runtime-run-row{flex-direction:row;align-items:center;justify-content:space-between;gap:16px}
+  .run-review-entry{padding:0;flex-shrink:0}
+  .application-form{max-width:520px}
+}
+
+/* 移动端溢出修正：网格容器显式 minmax(0,1fr)，下拉与长文本不撑破视口。 */
+.page-title-row{flex-wrap:wrap}
+.project-picker{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);min-width:0;max-width:100%;flex-wrap:wrap}
+.project-picker select{max-width:100%;min-width:0;flex:1 1 150px}
+.composition-columns,.overview-columns{grid-template-columns:minmax(0,1fr)}
+.composition-columns>div,.overview-columns>div,.composition-card>div,.runtime-overview{min-width:0}
+.composition-columns input,.composition-columns textarea,.composition-columns select,.experience-create input,.experience-create textarea,.experience-create select,.feedback-form input,.feedback-form textarea{max-width:100%}
+.application-record pre,.experience-card pre,.portfolio-suggestion pre{max-width:100%;overflow-x:auto}
+@media(min-width:760px){
+  .composition-columns,.overview-columns{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+}

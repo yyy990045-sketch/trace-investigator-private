@@ -28,7 +28,6 @@ import {
 } from "@personal/agent-ui";
 import { RuntimeResultWorkspace } from "@personal/business-ui";
 import {
-  createRuntimeClient,
   standardAssembly,
   standardPermissions,
   type ProjectDraft,
@@ -49,9 +48,17 @@ import {
   Search,
 } from "lucide-react";
 import "@personal/ui-core/styles.css";
-const client = createRuntimeClient(
-  import.meta.env.VITE_RUNTIME_API_URL || "/api",
-);
+import { client } from "./platform-client";
+import {
+  ApplicationPanel,
+  CapabilityExperienceHints,
+  CompositionPanel,
+  CompositionsPage,
+  ExperienceLibraryPage,
+  ProjectExperienceHints,
+  RunReviewPage,
+  RuntimeOverview,
+} from "./product-pages";
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
@@ -139,10 +146,12 @@ function Home() {
               {title:"执行任务", detail:"提交资料，按已保存流程实际处理。", to:"/projects/" + current.id + "#execute"},
               {title:current.layout === "business" ? "成果与待办" : "任务与步骤", detail:"打开此项目的真实运行，处理当前需要确认的事项。", to:layoutRoute + "?project=" + current.id},
               {title:"能力装配", detail:"选择能力、核对来源和权限，保存执行顺序。", to:"/capabilities?project=" + current.id},
+              {title:"运行反馈与经验", detail:projectRuns[0] ? "打开最近一次运行，记录人工修正并保存为经验条目。" : "还没有运行；先执行一次，或直接查看跨项目经验。", to:projectRuns[0] ? "/runs/" + projectRuns[0].id + "/review" : "/experiences"},
             ].map((m) => <Link className="workspace-entry" key={m.title} to={m.to}><span className="entry-content"><strong>{m.title}</strong><p>{m.detail}</p></span><span className="entry-action">打开 <ArrowRight size={14} /></span></Link>)}
           </nav>
+          <RuntimeOverview />
           <section className="recent-executions"><div className="section-heading"><h2>最近运行</h2><Link className="plain-link" to={layoutRoute + "?project=" + current.id}>全部记录</Link></div>
-            {runs.isError ? <ErrorNotice error={runs.error} retry={() => runs.refetch()} /> : projectRuns.length ? projectRuns.slice(0,3).map((r) => <Link className="runtime-run-link" key={r.id} to={layoutRoute + "?run=" + r.id}><div><strong>{r.input.filename}</strong><small>{new Date(r.createdAt).toLocaleString("zh-CN")} · {r.id}</small></div><Badge tone={r.status === "completed" ? "green" : r.status === "failed" ? "red" : "neutral"}>{runLabels[r.status]}</Badge></Link>) : <p className="muted-note">此项目尚无运行。先提交有权处理的资料。</p>}
+            {runs.isError ? <ErrorNotice error={runs.error} retry={() => runs.refetch()} /> : projectRuns.length ? projectRuns.slice(0,3).map((r) => <div className="runtime-run-row" key={r.id}><Link className="runtime-run-link" to={layoutRoute + "?run=" + r.id}><div><strong>{r.input.filename}</strong><small>{new Date(r.createdAt).toLocaleString("zh-CN")} · {r.id}</small></div><Badge tone={r.status === "completed" ? "green" : r.status === "failed" ? "red" : "neutral"}>{runLabels[r.status]}</Badge></Link><Link className="plain-link run-review-entry" to={"/runs/" + r.id + "/review"}>反馈与经验</Link></div>) : <p className="muted-note">此项目尚无运行。先提交有权处理的资料。</p>}
           </section>
           <section className="capability-library"><div className="section-heading"><h2>为当前项目查找能力</h2><Link className="plain-link" to={"/capabilities?project=" + current.id}>完整目录 <ArrowRight size={14} /></Link></div>
             <label className="search-field"><Search size={16}/><input aria-label="搜索当前项目能力" value={capQuery} onChange={(e) => setCapQuery(e.target.value)} placeholder="能力名称、Runtime ID或CAP编号" /></label>
@@ -292,6 +301,7 @@ function CapabilityDetail({
     <p><Badge tone={ready ? "green" : "amber"}>{statusName[cap.status]}</Badge></p>
     {!ready && <p className="error-text" role="status">{!cap.enabled ? "此能力已禁用。" : cap.dependencies.filter((d) => !d.ready).map((d) => d.reason).join("；")}</p>}
     {cap.acceptance && <Link className="plain-link" to={"/agent?run=" + cap.acceptance.runId} onClick={onClose}>查看已验证的运行</Link>}
+    <CapabilityExperienceHints cap={cap} />
     {workflow && <section className="capability-use-guide"><h3>需要准备什么</h3><ul>
       <li>按顺序填写2—200个状态，并说明资料来源。</li>
       <li>文件格式为UTF-8 JSON，文件名以 .json 结尾；填写状态可自动生成内容结构。</li>
@@ -833,19 +843,14 @@ function ProjectPage() {
           />
         )}
       </section>
-      <details className="source-disclosure">
-        <summary>生成独立应用并连接此项目</summary>
-        <p className="field-help">
-          在平台根目录运行，目录名需唯一；生成后由SDK调用本项目的真实API。
-        </p>
-        <pre className="input-preview">
-          npm run create:app -- {project.layout} my-{project.layout}-app --port
-          4316 --title '{project.name.replaceAll("'", "")}' --project-id{" "}
-          {project.id}
-          {"\n"}npm install{"\n"}npm run dev --workspace @personal/my-
-          {project.layout}-app
-        </pre>
-      </details>
+      <ApplicationPanel project={project} />
+      <CompositionPanel
+        project={project}
+        steps={draft.steps}
+        permissions={draft.permissions}
+        dirty={dirty || hasInvalidDraft}
+      />
+      <ProjectExperienceHints steps={project.steps} />
     </div>
   );
 }
@@ -954,7 +959,7 @@ function Studio() {
     mark: business ? "成" : "序",
     home: "/",
     contextLabel: business ? "实际成果" : "个人工作区",
-    pageLabel: loc.pathname.startsWith("/projects/") ? "能力装配与执行" : undefined,
+    pageLabel: loc.pathname.startsWith("/projects/") ? "能力装配与执行" : loc.pathname.startsWith("/runs/") ? "运行反馈与经验" : undefined,
     navigation: business
       ? [
           { to: "/business", label: "成果与交付", icon: Layers3, end: true },
@@ -965,6 +970,8 @@ function Studio() {
           { to: "/capabilities", label: "能力与来源", icon: Boxes },
           { to: "/agent", label: "任务与运行", icon: Workflow },
           { to: "/business", label: "实际成果", icon: Layers3 },
+          { to: "/compositions", label: "能力组合", icon: Boxes },
+          { to: "/experiences", label: "经验与反馈", icon: History },
         ],
     theme: business
       ? { accent: "#315f52", accentSoft: "#edf3f0", sidebar: "#f4f6f5" }
@@ -979,6 +986,9 @@ function Studio() {
         <Route path="/projects/:id" element={<ProjectPage />} />
         <Route path="/capabilities" element={<CatalogPage />} />
         <Route path="/agent" element={<RunPage />} />
+        <Route path="/compositions" element={<CompositionsPage />} />
+        <Route path="/experiences" element={<ExperienceLibraryPage />} />
+        <Route path="/runs/:id/review" element={<RunReviewPage />} />
         <Route path="/tasks" element={<RunPage />} />
         <Route path="/history" element={<RunPage />} />
         <Route path="/business" element={<RunPage business />} />

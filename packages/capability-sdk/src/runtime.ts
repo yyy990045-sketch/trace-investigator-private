@@ -122,6 +122,177 @@ export interface Catalog {
     model?: string;
   }[];
 }
+export type ExperienceKind =
+  | "verified_solution"
+  | "unverified_suggestion"
+  | "known_failure";
+export interface CapabilityRef {
+  capabilityId: string;
+  version: string;
+  name: string;
+}
+/** 保存下来的能力组合：一段可复用的执行顺序。 */
+export interface CompositionRecord {
+  id: string;
+  name: string;
+  description: string;
+  layout: "agent" | "business";
+  permissions: string[];
+  steps: AssemblyStep[];
+  capabilities: CapabilityRef[];
+  sourceProjectId: string | null;
+  sourceProjectName: string | null;
+  createdBy: string;
+  reuseCount: number;
+  lastReusedAt: string | null;
+  lastReusedProjectName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  validation: { ready: boolean; issues: ValidationIssue[] };
+}
+export type FeedbackOutcome = "worked" | "partly" | "failed";
+export interface RunFeedbackRecord {
+  id: string;
+  runId: string;
+  projectId: string;
+  projectName: string;
+  outcome: FeedbackOutcome;
+  correction: string;
+  reusable: boolean;
+  referenceValue: string;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ExperienceRecord {
+  id: string;
+  title: string;
+  kind: ExperienceKind;
+  problem: string;
+  resolution: string;
+  projectId: string | null;
+  projectName: string | null;
+  runId: string | null;
+  capabilities: CapabilityRef[];
+  tags: string[];
+  sourceFeedbackId: string | null;
+  verifiedRunId: string | null;
+  verifiedProjectName: string | null;
+  verifiedAt: string | null;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+/** 一次运行的可反馈摘要：项目、能力、失败步骤与真实交付。 */
+export interface RunFeedbackBundle {
+  run: {
+    id: string;
+    projectId: string;
+    projectName: string;
+    status: RunStatus;
+    createdAt: string;
+    inputFilename: string;
+    capabilities: CapabilityRef[];
+    failures: {
+      position: number;
+      capabilityId: string;
+      name: string;
+      code: string;
+      message: string;
+      attempts: number;
+      durationMs: number | null;
+    }[];
+    artifacts: ArtifactRecord[];
+  };
+  feedback: RunFeedbackRecord | null;
+  experiences: ExperienceRecord[];
+}
+export interface ProjectApplication {
+  projectId: string;
+  appName: string;
+  title: string;
+  layout: "agent" | "business";
+  port: number;
+  relativePath: string;
+  status: "generated" | "failed";
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
+  devUrl: string;
+  commands: { dev: string; build: string };
+}
+export interface ApplicationManifest {
+  application: ProjectApplication;
+  files: string[];
+  entry: { readable: boolean; bindsProject: boolean };
+}
+export interface PortfolioSuggestion {
+  registry: { version: string; sha256: string; path: string };
+  appliesTo: string;
+  writeBack: false;
+  reason: string;
+  suggestion: {
+    action: string;
+    entry: {
+      name: string;
+      kind: ExperienceKind;
+      summary: string;
+      resolution: string;
+      capabilities: string[];
+      evidenceRunId: string | null;
+      sourceProject: string | null;
+    };
+  };
+}
+export interface OverviewProject {
+  id: string;
+  name: string;
+  layout: "agent" | "business";
+  revision: number;
+  updatedAt: string;
+  ready: boolean;
+  issueCount: number;
+  capabilities: (CapabilityRef & { status: CapabilityInfo["status"] | "unregistered" })[];
+  runs: { completed: number; failed: number; pending: number; total: number };
+  lastRun: { id: string; status: RunStatus; createdAt: string; filename: string } | null;
+  feedbackCount: number;
+  experienceCount: number;
+  artifacts: number;
+  application: ProjectApplication | null;
+}
+export interface OverviewRecord {
+  generatedAt: string;
+  projects: OverviewProject[];
+  runs: {
+    total: number;
+    byStatus: Record<string, number>;
+    recent: {
+      id: string;
+      projectId: string;
+      projectName: string;
+      status: RunStatus;
+      createdAt: string;
+      filename: string;
+      failedStep: { position: number; capability: string; message: string } | null;
+    }[];
+    failures: {
+      code: string;
+      message: string;
+      count: number;
+      lastRunId: string;
+      projectName: string;
+      capability: string;
+      at: string;
+    }[];
+  };
+  feedback: { total: number; recent: RunFeedbackRecord[] };
+  experiences: { total: number; byKind: Record<string, number>; recent: ExperienceRecord[] };
+  artifacts: {
+    total: number;
+    recent: { runId: string; projectName: string; filename: string; bytes: number; createdAt: string }[];
+  };
+  models: { calls: number; durationMs: number; cost: "not_tracked"; note: string };
+}
 export interface RunStepRecord {
   id: string;
   position: number;
@@ -227,8 +398,8 @@ export function createRuntimeClient(base = "/api") {
       );
     }
     const raw = await response.text();
-    let data;
-    try { data = JSON.parse(raw); } catch {
+    let data: any = null;
+    if (raw) try { data = JSON.parse(raw); } catch {
       throw new RuntimeApiError(response.status, "RUNTIME_RESPONSE_INVALID",
         `运行服务返回异常（HTTP ${response.status}），请确认Runtime已启动后重试。`);
     }
@@ -314,6 +485,96 @@ export function createRuntimeClient(base = "/api") {
       "/artifacts/" +
       encodeURIComponent(id),
     receiptUrl: (runId: string) => root + "/v1/runs/" + encodeURIComponent(runId) + "/receipt",
+    // 项目应用：复用现有应用生成器，不另写一套项目管理。
+    overview: () => request<OverviewRecord>("/overview"),
+    application: (projectId: string) =>
+      request<ProjectApplication | null>(
+        "/projects/" + encodeURIComponent(projectId) + "/application",
+      ),
+    createApplication: (
+      projectId: string,
+      value: { appName: string; port: number; title?: string },
+    ) =>
+      request<ProjectApplication>(
+        "/projects/" + encodeURIComponent(projectId) + "/application",
+        "POST",
+        value,
+      ),
+    applicationManifest: (projectId: string) =>
+      request<ApplicationManifest>(
+        "/projects/" + encodeURIComponent(projectId) + "/application/manifest",
+      ),
+    // 能力组合：保存、复用、删除。
+    compositions: () => request<CompositionRecord[]>("/compositions"),
+    createComposition: (value: {
+      name: string;
+      description?: string;
+      layout?: "agent" | "business";
+      permissions?: string[];
+      steps: AssemblyStep[];
+      sourceProjectId?: string;
+      createdBy?: string;
+    }) => request<CompositionRecord>("/compositions", "POST", value),
+    deleteComposition: (id: string) =>
+      request<null>("/compositions/" + encodeURIComponent(id), "DELETE"),
+    applyComposition: (
+      projectId: string,
+      value: { compositionId: string; revision: number; mode?: "append" | "replace" },
+    ) =>
+      request<ProjectRecord>(
+        "/projects/" + encodeURIComponent(projectId) + "/compositions",
+        "POST",
+        value,
+      ),
+    // 运行反馈与经验沉淀。
+    feedback: (runId: string) =>
+      request<RunFeedbackBundle>("/runs/" + encodeURIComponent(runId) + "/feedback"),
+    saveFeedback: (
+      runId: string,
+      value: {
+        outcome: FeedbackOutcome;
+        correction: string;
+        reusable: boolean;
+        referenceValue?: string;
+        author: string;
+      },
+    ) =>
+      request<RunFeedbackBundle>(
+        "/runs/" + encodeURIComponent(runId) + "/feedback",
+        "POST",
+        value,
+      ),
+    experiences: (query: { q?: string; kind?: string; capability?: string } = {}) => {
+      const search = new URLSearchParams();
+      if (query.q) search.set("q", query.q);
+      if (query.kind) search.set("kind", query.kind);
+      if (query.capability) search.set("capability", query.capability);
+      const suffix = search.toString();
+      return request<ExperienceRecord[]>("/experiences" + (suffix ? "?" + suffix : ""));
+    },
+    createExperience: (value: {
+      title: string;
+      kind: ExperienceKind;
+      problem: string;
+      resolution: string;
+      capabilities?: { capabilityId: string; version: string }[];
+      tags?: string[];
+      projectId?: string;
+      runId?: string;
+      sourceFeedbackId?: string;
+      author: string;
+      confirmed: boolean;
+    }) => request<ExperienceRecord>("/experiences", "POST", value),
+    verifyExperience: (id: string, verifiedByRunId: string) =>
+      request<ExperienceRecord>(
+        "/experiences/" + encodeURIComponent(id),
+        "PATCH",
+        { verifiedByRunId },
+      ),
+    portfolioSuggestion: (id: string) =>
+      request<PortfolioSuggestion>(
+        "/experiences/" + encodeURIComponent(id) + "/portfolio-suggestion",
+      ),
   };
 }
 export type RuntimeApi = ReturnType<typeof createRuntimeClient>;
