@@ -249,7 +249,10 @@ export class Registry {
           runtimeCapabilities: linked,
           status: !linked.length
             ? "source_only"
-            : linked.some((c) => c.status === "verified")
+            : linked.some((c) => c.status === "verified" &&
+                c.assets.some((link) => link.assetId === a.cid && link.relation === "code_migration"))
+              ? "code_migration_verified"
+              : linked.some((c) => c.status === "verified")
               ? "independent_implementation_verified"
               : linked.some(
                     (c) => c.status === "registered_missing_dependencies",

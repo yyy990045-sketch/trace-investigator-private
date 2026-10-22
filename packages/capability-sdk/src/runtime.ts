@@ -67,7 +67,7 @@ export interface AssetLink {
   registrySha256?: string;
   assetVersion?: null;
   relation:
-    "design_reference" | "independent_implementation" | "code_adaptation";
+    "design_reference" | "independent_implementation" | "code_adaptation" | "code_migration";
   adapter: string;
   sourceFiles: { path: string; commit: string | null; sha256: string | null }[];
   note: string;

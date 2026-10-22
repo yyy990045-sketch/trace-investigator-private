@@ -1,0 +1,19 @@
+{
+  "documents": [
+    {
+      "id": "workflow",
+      "source": "本轮授权非敏感合成轨迹，不是实际派发记录",
+      "scope": "general",
+      "text": "{\"states\":[\"PENDING\",\"PROCESSING\",\"SUSPENDED_HITL\",\"PROCESSING\",\"SUCCEEDED\"]}"
+    },
+    {
+      "id": "instruction",
+      "source": "本轮授权合成说明",
+      "scope": "general",
+      "text": "工作流轨迹包含人工介入挂起，恢复执行后完成。本资料仅用于本机算法适配验收，不含客户数据，不连接外部服务。"
+    }
+  ],
+  "claims": [
+    { "key": "验收范围", "value": "本机算法适配验收", "source": "instruction" }
+  ]
+}

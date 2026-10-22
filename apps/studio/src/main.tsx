@@ -257,9 +257,11 @@ function CapabilityDetail({
             <div key={a.assetId}>
               <h3>
                 {a.assetId} ·{" "}
-                {a.relation === "code_adaptation"
-                  ? "历史代码适配"
-                  : "历史设计参考，新实现"}
+                {a.relation === "code_migration"
+                  ? "历史代码迁移（本机授权）"
+                  : a.relation === "code_adaptation"
+                    ? "历史代码适配"
+                    : "历史设计参考，新实现"}
               </h3>
               <p>{a.note}</p>
               <p className="field-help">
@@ -272,7 +274,7 @@ function CapabilityDetail({
                   <br />
                   提交锚点：{s.commit}
                   <br />
-                  当前文件摘要：{s.sha256}
+                  来源文件摘要：{s.sha256}
                 </p>
               ))}
             </div>

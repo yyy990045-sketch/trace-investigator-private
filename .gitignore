@@ -9,3 +9,9 @@ __pycache__/
 artifacts/
 
 !.env.platform.example
+uploads/
+logs/
+*.log
+*.pem
+*.key
+.DS_Store

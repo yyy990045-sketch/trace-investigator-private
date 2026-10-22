@@ -77,6 +77,12 @@ npm run dev --workspace @personal/my-agent
 
 商业应用把agent换成business。应用各自拥有导航、主题、路由和dist构建，使用同一SDK；固定项目ID后只读写该项目的运行页面。`apps/agent-example/src/modules/sources.tsx` 是应用自有模块示例：新增路由和模块不改Shell或Engine。生成器只新增apps目录；npm install更新工作区链接及lockfile。当前为monorepo内独立构建与部署，不声称共享包已可脱仓发布。静态部署需配置HTML深链回退及Runtime代理，但本阶段不部署公网。
 
+## 2026-10-22 本机适配补充
+
+本轮已建立原版0.3.0安全Git基线，并将CAP-08纯状态转换原算法通过独立插件 `workflow.transition-check@1.0.0` 接入现有Runtime。Studio可选装配，独立Agent创建任务、Business同run确认并下载真实报告；示例为 `examples/authorized-inputs/工作流轨迹测试.json`。仅本轮授权私人本机复用，不代表旧派发系统或外部服务已迁移。
+
+完整来源、8次新运行、备份校验和真实阻塞见 `docs/2026-10-22-local-capability-integration.md`。模型未配置仍不可用；Ego实际操作已执行，但截图接口超时/原生窗口未获准，**没有成功截图，桌面与390px视觉验收尚未完成**。旧0.3.0结果原样保留。
+
 ## 当前平台模型配置
 
 复制 `.env.platform.example` 为 `.env.platform`，填写当前平台明确授权的OpenAI兼容地址、模型、密钥，并启用。启动命令只加载此文件，不读历史项目凭证。把model.verify加到检索之后/确认之前，授予model:invoke与data:external权限；执行时还必须勾选本次资料外发授权。实际返回、耗时、请求摘要与错误写入model_calls。默认无配置即阻止AI步骤执行，不生成替代AI结果。当前交付只验收规则流程，AI验收明确阻塞。
