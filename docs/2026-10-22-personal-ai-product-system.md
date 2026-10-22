@@ -34,3 +34,26 @@
 6. 项目页「独立应用」可生成 `apps/<名称>`，`npm run build --workspace @personal/<名称>` 独立构建。
 
 本轮真实操作结果见 `docs/screenshots/studio-*.png`。
+
+## 项目B的真实运行结果（本轮唯一一次补跑）
+
+- 运行 `run_a3729da8-37b1-4b00-8059-6c4062a1713d`，项目 `project_6a864b76-cc9c-4736-9fae-8f779e70ca43`「复用验证B · 复用A的组合 20261022」，组合修订 2。
+- 7 个步骤全部 `completed`，各 1 次尝试：documents.parse → documents.scope-check → knowledge.search → evidence.record → runtime.snapshot → human.confirm → report.export。
+- 人工确认：`approved by 叶炜楷`；最终状态 `completed`；事件链完整（run.created → … → approval.approve → run.completed）。
+- 真实产出：`核验报告.md`（1119 B，sha256 `edbb090b83f3…`）、`核验数据.json`（2586 B，sha256 `9ea1465266c9…`），evidence 记录 10 条，`model_calls` 0（模型未配置，链路不依赖模型）。
+- 输入资料为公开合成示例，`scope` 与真实分类一致（general），未通过改标签通过校验。
+
+## SCOPE_DENIED 经验的修正原则
+
+原经验条目写成「把 documents[].scope 改成项目允许的范围」，容易被当成绕过授权的操作，本轮已按下列原则重写（经验条目与对应运行反馈均已更正，保留修正说明）：
+
+- 先判断资料的**真实分类**；project 的 `allowedScopes` 是**授权范围**，两者不一致时必须走授权，不是改字段。
+- 原标记有误（如本次合成测试资料真实分类就是 general）→ 如实更正并写明误标原因，这属于纠正错误标注。
+- 资料真实属于受限分类（医疗、客户资料等）→ 不得修改 scope；须由项目授权方在 `allowedScopes` 显式加入该分类并记录授权依据，否则该资料不进入处理。
+- 不允许用改标签的方式扩大处理范围；扩大 allowedScopes 必须有真实授权来源。
+
+## 并行提交与分支隔离记录
+
+- `a6eb3e2 fix(trace): 修复长摘录/长标题撑破移动端布局，刷新最终截图` 由另一个并行会话写入本分支（TRACE 截图任务），非本轮内容；按要求保留，未修改、未回退。
+- 此后不同项目开发使用独立 Git worktree + 独立分支，避免同一工作树被并行会话共用而互相覆盖。
+
