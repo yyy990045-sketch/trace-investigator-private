@@ -168,9 +168,8 @@ export function RuntimeResultWorkspace({
         >
           {panel === "review" && (
             <>
-              <p>
-                确认范围：{run.input.filename}。审批摘要：{approval?.inputHash}
-              </p>
+              <p>确认范围：{run.input.filename}。</p>
+              <details className="source-disclosure"><summary>高级：本次审批绑定的输入摘要</summary><p className="source-path">{approval?.inputHash}</p></details>
               <div className="actual-documents">
                 {output?.documents.map((d) => (
                   <details key={d.id}>

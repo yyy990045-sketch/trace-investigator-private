@@ -154,6 +154,26 @@ export function Modal({
       ref={ref}
       aria-labelledby={id}
       onCancel={onClose}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+        )).filter((element) => {
+          if (!element.getClientRects().length || element.closest('[inert]')) return false;
+          for (let parent = element.parentElement; parent && parent !== event.currentTarget; parent = parent.parentElement) {
+            if (parent instanceof HTMLDetailsElement && !parent.open &&
+                !parent.querySelector(':scope > summary')?.contains(element)) return false;
+          }
+          return true;
+        });
+        const first = controls[0], last = controls.at(-1);
+        if (!first || !last) return;
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first.focus();
+        }
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

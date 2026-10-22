@@ -1,5 +1,43 @@
 /* Keep the current task action reachable without pinning its source material. */
+.workflow-editor, .input-mode {
+  min-width: 0;
+  margin: 18px 0;
+  padding: 0;
+  border: 0;
+}
+.workflow-editor legend, .input-mode legend { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.input-mode { display: flex; flex-wrap: wrap; gap: 14px; }
+.input-mode label { display: flex; gap: 8px; align-items: center; font-size: 14px; min-height: 38px; flex: 1 0 auto; }
+.execution-form .input-mode input[type="radio"] { width: 16px; min-width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
+.workflow-state-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+.workflow-state-list li { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.workflow-state-list label { font-size: 13px; flex-shrink: 0; }
+.workflow-state-list select { flex: 1; min-width: 0; }
+.workflow-state-list .ui-button { flex-shrink: 0; }
+.capability-config-fields { display: grid; gap: 10px; }
+.capability-config-fields .field-label { display: block; margin: 8px 0 0; }
+.capability-config-fields .field-label input, .capability-config-fields .field-label select {
+  display: block; width: 100%; max-width: 100%; min-height: 44px; margin-top: 8px;
+  border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px;
+  font: inherit; background: var(--surface); color: var(--ink);
+}
+.capability-config-fields .review-checkbox { display: flex; flex-wrap: wrap; }
+.capability-config-fields .review-checkbox small { display: block; width: 100%; color: var(--muted); font-weight: 400; line-height: 1.7; }
+.capability-use-guide, .capability-use-config, .capability-trial-entry, .capability-project-target { margin: 22px 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.capability-use-guide ul { padding-left: 20px; font-size: 14px; line-height: 1.9; }
+.input-issues { padding-left: 20px; margin: 16px 0; color: #963e2b; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.execution-form, .capability-project-target { min-width: 0; }
+.dialog-actions { flex-wrap: wrap; }
+.ui-dialog .dialog-heading { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.ui-dialog { scroll-padding-top: 90px; }
+.ui-dialog input, .ui-dialog select, .ui-dialog textarea { scroll-margin-top: 100px; }
+.dialog-content > section, .dialog-content details, .dialog-content .source-path { overflow-wrap: anywhere; }
 @media (max-width: 640px) {
+  .dialog-content .dialog-actions { align-items: stretch; }
+  .dialog-content .dialog-actions .ui-button { white-space: normal; }
+  .execution-form .execution-submit { gap: 14px; }
+  .workflow-state-list select { min-height: 44px; }
+  .workflow-state-list .ui-button { min-height: 44px; }
   .runtime-confirmation {
     padding-bottom: 112px;
   }
@@ -17,3 +55,4 @@
     overflow-wrap: anywhere;
   }
 }
+.capability-config-lock { border: 0; margin: 0; padding: 0; min-width: 0; }

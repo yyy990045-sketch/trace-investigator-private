@@ -21,6 +21,10 @@ import {
   RuntimeAgentWorkspace,
   ProjectExecutionForm,
   runLabels,
+  CapabilityConfigFields,
+  schemaErrors,
+  withCapability,
+  workflowCapabilityId,
 } from "@personal/agent-ui";
 import { RuntimeResultWorkspace } from "@personal/business-ui";
 import {
@@ -228,30 +232,98 @@ function CapabilityDetail({
 }) {
   const qc = useQueryClient();
   const nav = useNavigate();
-  const [error, setError] = useState("");
-  return (
-    <Modal title={cap.name} wide onClose={onClose}>
-      <p>{cap.description}</p>
-      <p className="field-help">
-        {cap.id}@{cap.version} · {statusName[cap.status]}
-      </p>
-      <p className="field-help">
-        {cap.dependencies
-          .filter((d) => !d.ready)
-          .map((d) => d.reason)
-          .join("；")}
-      </p>
-      {cap.acceptance && (
-        <Link
-          className="plain-link"
-          to={"/agent?run=" + cap.acceptance.runId}
-          onClick={onClose}
-        >
-          打开真实验收运行 {cap.acceptance.runId}
-        </Link>
-      )}
+  const projects = useQuery({ queryKey: ["projects"], queryFn: client.projects });
+  const original = useQuery({ queryKey: ["project", targetProjectId], queryFn: () => client.project(targetProjectId!), enabled: !!targetProjectId });
+  const [target, setTarget] = useState(targetProjectId || "");
+  const [targetSnapshot, setTargetSnapshot] = useState<ProjectRecord | null>(null);
+  const [targetError, setTargetError] = useState("");
+  useEffect(() => {
+    let active = true; setTargetSnapshot(null); setTargetError("");
+    if (target) client.project(target).then((value) => { if (active) setTargetSnapshot(value); })
+      .catch((e) => { if (active) setTargetError(e instanceof Error ? e.message : "无法读取目标项目"); });
+    return () => { active = false; };
+  }, [target]);
+  const [config, setConfig] = useState<Record<string, unknown>>(() => structuredClone(cap.defaultConfig));
+  const [touched, setTouched] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(""), [trial, setTrial] = useState<ProjectRecord | null>(null);
+  const workflow = cap.id === workflowCapabilityId;
+  const contextLoading = !!targetProjectId && original.isPending;
+  const contextUnavailable = !!targetProjectId && original.isError;
+  const ready = cap.enabled && cap.dependencies.every((d) => d.ready);
+  const issues = schemaErrors(cap.configSchema, config);
+  useEffect(() => {
+    const existing = original.data?.steps.find((s) => s.capabilityId === cap.id && s.version === cap.version);
+    if (existing && !touched) setConfig(structuredClone(existing.config));
+  }, [original.data?.revision, cap.id, cap.version, touched]);
+  async function saveToProject() {
+    if (!targetSnapshot || targetSnapshot.id !== target || issues.length || !ready || contextLoading || contextUnavailable) return;
+    setBusy("save"); setError(""); setMessage("");
+    try {
+      const current = targetSnapshot;
+      const saved = await client.saveProject(target, {
+        name: current.name, layout: current.layout,
+        permissions: [...new Set([...current.permissions, ...cap.permissions])],
+        steps: withCapability(current.steps, cap, config), revision: current.revision,
+      });
+      setTargetSnapshot(saved);
+      qc.setQueryData(["project", target], saved);
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+      setMessage(`已保存到“${saved.name}”。${saved.validation.ready ? "组合可执行。" : "请打开项目处理剩余配置提示。"}`);
+    } catch (e) { setError(e instanceof Error ? e.message : "项目保存失败"); }
+    finally { setBusy(""); }
+  }
+  async function prepareTrial() {
+    if (!ready || issues.length || contextLoading || contextUnavailable) return;
+    setBusy("trial"); setError("");
+    try {
+      const saved = await client.createProject({
+        name: `工作流轨迹核验 · 试运行 ${new Date().toLocaleString("zh-CN")}`,
+        layout: "agent", permissions: [...new Set([...standardPermissions, ...cap.permissions])],
+        steps: withCapability(structuredClone(standardAssembly), cap, config),
+      });
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+      setTrial(saved);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>("#capability-trial input")?.focus());
+    } catch (e) { setError(e instanceof Error ? e.message : "无法准备真实试运行项目"); }
+    finally { setBusy(""); }
+  }
+  return <Modal title={workflow ? "工作流轨迹核验" : cap.name} wide onClose={onClose}>
+    <p>{workflow ? "核对你提供的工作流状态顺序，指出不允许的转换，并把结果和证据保存在真实运行中。不会启动外部任务，也不证明外部任务已完成。" : cap.description}</p>
+    <p><Badge tone={ready ? "green" : "amber"}>{statusName[cap.status]}</Badge></p>
+    {!ready && <p className="error-text" role="status">{!cap.enabled ? "此能力已禁用。" : cap.dependencies.filter((d) => !d.ready).map((d) => d.reason).join("；")}</p>}
+    {cap.acceptance && <Link className="plain-link" to={"/agent?run=" + cap.acceptance.runId} onClick={onClose}>查看已验证的运行</Link>}
+    {workflow && <section className="capability-use-guide"><h3>需要准备什么</h3><ul>
+      <li>按顺序填写2—200个状态，并说明资料来源。</li>
+      <li>文件格式为UTF-8 JSON，文件名以 .json 结尾；填写状态可自动生成内容结构。</li>
+      <li>上传已有文件时，需要轨迹资料和来源；执行前会检查文件结构，运行中核验转换规则。</li>
+    </ul></section>}
+    <section className="capability-use-config"><h3>本次能力配置</h3>
+      <fieldset className="capability-config-lock" disabled={!!busy || contextLoading || contextUnavailable}><CapabilityConfigFields cap={cap} value={config} onChange={(value) => { setTouched(true); setConfig(value); setTrial(null); setMessage(""); }} /></fieldset>
+      {contextLoading && <p aria-busy="true" className="field-help">正在读取当前项目的能力配置…</p>}
+      {contextUnavailable && <p role="alert" className="error-text">无法读取当前项目配置，请关闭后重试。</p>}
+      {issues.length > 0 && <ul className="input-issues" role="alert">{issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
+    </section>
+    {workflow && <section className="capability-trial-entry"><h3>先试运行一次</h3>
+      {!trial ? <><p className="field-help">创建独立试运行项目，保存当前配置。填写输入后真实调用Runtime，运行记录会保留，导出前需要确认。</p>
+        <Button disabled={!ready || !!busy || contextLoading || contextUnavailable || issues.length > 0} onClick={prepareTrial}>{busy === "trial" ? "正在准备项目…" : "开始试运行"}</Button></> :
+        <div id="capability-trial"><p className="field-help">已准备：{trial.name}</p><ProjectExecutionForm key={trial.id} project={trial} client={client} onCreated={(run) => { qc.setQueryData(["run", run.id], run); onClose(); nav("/agent?run=" + run.id); }} /></div>}
+    </section>}
+    <section className="capability-project-target"><h3>复用到项目</h3>
+      <label className="field-label" htmlFor="capability-target">选择当前项目或其他项目</label>
+      <select id="capability-target" disabled={!!busy} value={target} onChange={(e) => { setTarget(e.target.value); setMessage(""); }}><option value="">选择项目</option>{projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      <p className="field-help">保存此能力和上方配置；同版本已存在时更新配置，不重复添加。新增步骤放在人工确认、报告导出之前。</p>
+      {target && !targetSnapshot && !targetError && <p className="field-help" aria-busy="true">正在读取目标项目版本…</p>}
+      {targetError && <p className="error-text" role="alert">{targetError}。请关闭详情后重新核对。</p>}
+      <p className="field-help">按当前已读取的目标项目版本保存；若其他标签更新过项目，会阻止覆盖，请重新打开详情核对。</p>
+      {projects.isError && <p className="error-text" role="alert">无法读取项目列表，请关闭后重试。</p>}
+      <div className="dialog-actions"><Button disabled={!targetSnapshot || targetSnapshot.id !== target || !!targetError || !ready || !!busy || contextLoading || contextUnavailable || issues.length > 0} onClick={saveToProject}>{busy === "save" ? "正在保存…" : target === targetProjectId ? "加入并保存到当前项目" : "复制并保存到所选项目"}</Button>
+        {target && <Link className="plain-link" to={"/projects/" + target} onClick={onClose}>打开项目配置与执行</Link>}
+      </div>
+      {message && <p role="status" className="inline-note">{message}</p>}
+    </section>
+    {error && <p role="alert" className="error-text">{error}</p>}
       <details className="source-disclosure">
-        <summary>来源映射与版本证据</summary>
+        <summary>高级详情：技术来源与适配证据</summary>
         {cap.assets.length ? (
           cap.assets.map((a) => (
             <div key={a.assetId}>
@@ -284,7 +356,7 @@ function CapabilityDetail({
         )}
       </details>
       <details className="source-disclosure">
-        <summary>输入输出、配置、权限与副作用</summary>
+        <summary>高级详情：Schema、权限与实现</summary>
         <pre className="input-preview">
           {JSON.stringify(
             {
@@ -302,31 +374,16 @@ function CapabilityDetail({
           )}
         </pre>
       </details>
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
-      <div className="dialog-actions">
-        {targetProjectId && <Button disabled={!cap.enabled || cap.dependencies.some((d) => !d.ready)} title={cap.dependencies.find((d) => !d.ready)?.reason} onClick={() => { onClose(); nav("/projects/" + targetProjectId + "?add=" + encodeURIComponent(cap.id + "@" + cap.version)); }}>加入当前项目组合</Button>}
-        <Button
-          variant="secondary"
-          onClick={async () => {
-            try {
-              await client.setEnabled(cap.id, cap.version, !cap.enabled);
-              await qc.invalidateQueries({ queryKey: ["catalog"] });
-              await qc.invalidateQueries({ queryKey: ["projects"] });
-              onClose();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "更新失败");
-            }
-          }}
-        >
-          {cap.enabled ? "禁用此能力版本" : "启用此能力版本"}
-        </Button>
-      </div>
-    </Modal>
-  );
+
+    <details className="source-disclosure"><summary>高级管理：能力版本开关</summary><p className="field-help">{cap.id}@{cap.version}。开关影响使用此版本的所有项目。</p>
+      <Button variant="secondary" disabled={!!busy} onClick={async () => {
+        setBusy("toggle"); setError("");
+        try { await client.setEnabled(cap.id, cap.version, !cap.enabled); await qc.invalidateQueries({ queryKey: ["catalog"] }); await qc.invalidateQueries({ queryKey: ["projects"] }); onClose(); }
+        catch (e) { setError(e instanceof Error ? e.message : "更新失败"); }
+        finally { setBusy(""); }
+      }}>{cap.enabled ? "禁用此能力版本" : "启用此能力版本"}</Button>
+    </details>
+  </Modal>;
 }
 function CatalogPage() {
   const location = useLocation();
@@ -456,10 +513,7 @@ function CatalogPage() {
                 </details>
               ))}
           </section>
-          <p className="field-help">
-            正式Portfolio v{catalog.data?.registry.version} · SHA-256{" "}
-            {catalog.data?.registry.sha256}
-          </p>
+          <details className="source-disclosure"><summary>高级：Portfolio登记来源</summary><p className="source-path">正式Portfolio v{catalog.data?.registry.version} · SHA-256 {catalog.data?.registry.sha256}</p></details>
         </>
       )}
       {selected && (
@@ -478,7 +532,9 @@ function StepConfig({
   onDown,
   onValidity,
   structureLocked,
+  last,
 }: {
+  last: boolean;
   step: AssemblyStep;
   index: number;
   cap?: CapabilityInfo;
@@ -489,70 +545,39 @@ function StepConfig({
   onValidity: (valid: boolean) => void;
   structureLocked: boolean;
 }) {
-  const [text, setText] = useState(JSON.stringify(step.config, null, 2)),
-    [bad, setBad] = useState(false);
-  return (
-    <li className="assembly-step">
-      <div className="assembly-step-title">
-        <span className="row-index">{index + 1}</span>
-        <strong>{cap?.name || step.capabilityId}</strong>
-        <span className="field-help">v{step.version}</span>
-      </div>
-      <details>
-        <summary>配置此步骤</summary>
-        <label className="field-label" htmlFor={"config-" + index}>
-          能力配置（JSON）
-        </label>
-        <textarea
-          id={"config-" + index}
-          rows={4}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            try {
-              const config = JSON.parse(e.target.value);
-              if (
-                !config ||
-                Array.isArray(config) ||
-                typeof config !== "object"
-              )
-                throw new Error();
-              onChange({ ...step, config });
-              setBad(false);
-              onValidity(true);
-            } catch {
-              setBad(true);
-              onValidity(false);
-            }
-          }}
-        />
-        {bad && (
-          <p role="alert" className="error-text">
-            JSON无效；保存和执行已阻止，请修正配置。
-          </p>
-        )}
-        <p className="field-help">
-          {cap?.inputProtocol} → {cap?.outputProtocol}
-        </p>
-        <div className="assembly-step-actions">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={index === 0 || structureLocked}
-            onClick={onUp}
-          >
-            上移
-          </Button>
-          <Button size="sm" variant="ghost" disabled={structureLocked} onClick={onDown}>
-            下移
-          </Button>
-          <Button size="sm" variant="danger" disabled={structureLocked} onClick={onRemove}>
-            移除步骤
-          </Button>
-        </div>
+  const [text, setText] = useState(JSON.stringify(step.config, null, 2)), [bad, setBad] = useState(false);
+  const issues = cap ? schemaErrors(cap.configSchema, step.config) : [];
+  useEffect(() => { onValidity(!bad && issues.length === 0); }, [bad, JSON.stringify(step.config), JSON.stringify(cap?.configSchema)]);
+  function editConfig(config: Record<string, unknown>) {
+    setText(JSON.stringify(config, null, 2)); setBad(false); onChange({ ...step, config });
+  }
+  return <li className="assembly-step">
+    <div className="assembly-step-title"><span className="row-index">{index + 1}</span><strong>{cap?.name || step.capabilityId}</strong><span className="field-help">v{step.version}</span></div>
+    <details><summary>配置此步骤</summary>
+      {cap && <CapabilityConfigFields cap={cap} value={step.config} onChange={editConfig} />}
+      {cap && !Object.keys((cap.configSchema.properties || {}) as object).length && <p className="field-help">此步骤无需填写配置。</p>}
+      {issues.length > 0 && <ul className="input-issues" role="alert">{issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
+      <details className="source-disclosure"><summary>高级：编辑原始配置JSON</summary>
+        <label className="field-label" htmlFor={"config-" + index}>原始配置</label>
+        <textarea id={"config-" + index} rows={4} value={text} onChange={(e) => {
+          setText(e.target.value);
+          try {
+            const config = JSON.parse(e.target.value);
+            if (!config || Array.isArray(config) || typeof config !== "object") throw new Error();
+            onChange({ ...step, config }); setBad(false);
+            onValidity(!cap || schemaErrors(cap.configSchema, config).length === 0);
+          } catch { setBad(true); onValidity(false); }
+        }} />
+        {bad && <p role="alert" className="error-text">JSON无效；保存和执行已阻止，请修正配置。</p>}
+        <p className="field-help">{cap?.inputProtocol} → {cap?.outputProtocol}</p>
       </details>
-    </li>
-  );
+      <div className="assembly-step-actions">
+        <Button size="sm" variant="ghost" disabled={index === 0 || structureLocked} onClick={onUp}>上移</Button>
+        <Button size="sm" variant="ghost" disabled={structureLocked || last} onClick={onDown}>下移</Button>
+        <Button size="sm" variant="danger" disabled={structureLocked} onClick={onRemove}>移除步骤</Button>
+      </div>
+    </details>
+  </li>;
 }
 function ProjectPage() {
   const { id = "" } = useParams();
@@ -600,14 +625,7 @@ function ProjectPage() {
         d
           ? {
               ...d,
-              steps: [
-                ...d.steps,
-                {
-                  capabilityId: c.id,
-                  version: c.version,
-                  config: structuredClone(c.defaultConfig),
-                },
-              ],
+              steps: withCapability(d.steps, c, c.defaultConfig),
             }
           : d,
       );
@@ -684,6 +702,7 @@ function ProjectPage() {
             <StepConfig
               key={id + "-" + editingRevision + "-" + s.capabilityId + "-" + i + "-" + s.version}
               index={i}
+              last={i === draft.steps.length - 1}
               structureLocked={hasInvalidDraft}
               onValidity={(valid) => setInvalidDrafts((old) => ({ ...old, [i]: !valid }))}
               step={s}
@@ -743,14 +762,7 @@ function ProjectPage() {
               if (c)
                 change({
                   ...draft,
-                  steps: [
-                    ...draft.steps,
-                    {
-                      capabilityId: c.id,
-                      version: c.version,
-                      config: structuredClone(c.defaultConfig),
-                    },
-                  ],
+                  steps: withCapability(draft.steps, c, c.defaultConfig),
                 });
               setAdding("");
             }}

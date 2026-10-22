@@ -1,6 +1,6 @@
 # Personal AI Capability Platform 0.3.0
 
-当前唯一最终结论见 [0.3.0最终验收说明](docs/0.3.0-final-acceptance.md)；此前阶段说明及0.2预览资料不作为当前验收状态。
+0.3.0历史基线见 [0.3.0最终验收说明](docs/0.3.0-final-acceptance.md)。本轮CAP-08使用体验、第二项目复用与390px实际操作结果见 [后续交付记录](docs/2026-10-22-cap08-usable-reuse.md)；模型仍待本地私密配置。
 
 本机单用户能力装配与执行工作台。Studio、独立Agent应用和独立商业应用共享真实SQLite运行记录，未使用固定演示记录冒充执行。模型未配置，AI核验尚未验收。
 

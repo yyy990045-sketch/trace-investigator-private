@@ -1,0 +1,30 @@
+{
+  "id": "cap08-usable-reuse",
+  "title": "CAP-08可视化配置、真实试运行、项目复用与390px验收",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "本轮停止；等待操作者完成私密模型配置并通知后，再验证真实Provider",
+  "createdAt": "2026-10-22T10:54:07.864269+00:00",
+  "branch": "codex/local-capability-integration",
+  "scope": [
+    "Studio能力交互",
+    "共享输入表单",
+    "按实际问题修复390px",
+    "真实项目级复用"
+  ],
+  "nonGoals": [
+    "修改引擎",
+    "行业产品",
+    "历史源码修改",
+    "旧密钥",
+    "公网部署"
+  ],
+  "completedAt": "2026-10-22T11:37:59.404785+00:00",
+  "outstanding": [
+    "BLOCKED_MODEL_NOT_CONFIGURED"
+  ],
+  "acceptance": "UI、项目复用与390px核心流程完成；真实模型场景尚未验收"
+}
