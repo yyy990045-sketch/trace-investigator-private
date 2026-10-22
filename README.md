@@ -81,7 +81,7 @@ npm run dev --workspace @personal/my-agent
 
 本轮已建立原版0.3.0安全Git基线，并将CAP-08纯状态转换原算法通过独立插件 `workflow.transition-check@1.0.0` 接入现有Runtime。Studio可选装配，独立Agent创建任务、Business同run确认并下载真实报告；示例为 `examples/authorized-inputs/工作流轨迹测试.json`。仅本轮授权私人本机复用，不代表旧派发系统或外部服务已迁移。
 
-完整来源、8次新运行、备份校验和真实阻塞见 `docs/2026-10-22-local-capability-integration.md`。模型未配置仍不可用；Ego实际操作已执行，但截图接口超时/原生窗口未获准，**没有成功截图，桌面与390px视觉验收尚未完成**。旧0.3.0结果原样保留。
+完整来源、8次新运行、备份校验和真实阻塞见 `docs/2026-10-22-local-capability-integration.md`。父会话后续已获准通过原生CUA选择Ego Lite，完成Studio来源详情、Agent完成结果、Business同run交付结果的可见桌面截图及看图；清单见受限的 `data/local-integration-20261022/screenshots/manifest.json`。三文件沿用.png文件名，但文件头实际为JPEG，原文件未转换或覆盖；不是1440×900或390px定尺截图，不代表整体UI设计验收。**模型缺配置、390px手机视觉仍未验收，整体部分完成**。父会话重启的四服务已只读核对PID/cwd及health，本次未重启或终止服务。旧0.3.0结果原样保留。
 
 ## 当前平台模型配置
 

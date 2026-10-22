@@ -6,7 +6,7 @@
 
 **可使用**：Studio选择并装配CAP-08迁移能力，上传本轮明确授权的非敏感合成资料，执行轨迹核验、本地检索、人工确认及真实报告导出；Agent创建任务，Business审阅同一run，下载报告，再从Agent历史重开。
 
-**不宣称整体验收完成**：真实模型缺配置；Ego页面操作成功，但截图接口持续超时，原生窗口工具也未获准访问Ego。没有得到可查看的截图，桌面/390px视觉交付仍未完成。DOM/页面文本、构建成功均不替代截图或视觉验收。
+**不宣称整体验收完成**：真实模型缺配置，390px手机视觉尚未验收。父会话后续已获准通过原生CUA选择Ego Lite，完成三个入口的可见桌面窗口截图并实际看图；本会话只核对文件头、尺寸和摘要，补录父会话观察。桌面截图不是1440×900/390px定尺截图，也不代表总体UI设计验收通过。
 
 旧 `docs/0.3.0-final-acceptance.md` 原样保留。本记录补充本轮事实，不覆盖或改写旧结果。
 
@@ -25,7 +25,7 @@
 - 原版提交：`e44134dd6a97dc52fa482228ab9ade0f03cc8f0d`；tree `9f6dc7d5a02a9a59a4e0a41f7c4b142f7ef6d049`。
 - 本地标记：`baseline/0.3.0-local-20261022`；实施分支：`codex/local-capability-integration`。
 - Git最初被沙箱拒绝；恢复后通过正规逐项审批初始化。从原tar向Git对象/索引重建115个文件，逐项摘要确认后提交，**没有回滚工作区，没有把新适配代码或新增.gitignore规则伪装成原版**。证明见 `baseline/git-baseline-reconstruction.json`。
-- 实施提交及完整最终清单见 `evidence/git-final.json` 和本地 `git log`；不把提交本身的哈希写入其自身内容。
+- 实施提交及完整最终清单见 `evidence/git-final.json` 和本地 `git log`；implementationCommit保留 `5e6acf81b8fc2f2622b3fa5612e548ca274955d9`，本次补录另记documentationCommit；不把提交本身的哈希写入其自身内容。
 
 恢复时先停止本平台进程并保留当前新增记录；在本项目内新的受限恢复目录解包源码，再按清单校验。SQLite与原产物是分开的恢复材料，不能仅恢复源码就覆盖现存数据，也不能把旧SQLite直接覆盖正在运行的数据库。本轮未执行回滚或覆盖恢复。
 
@@ -37,12 +37,12 @@
 
 | 入口 | 端口 | 核对时PID | 实际cwd（相对正式根） |
 | --- | --- | --- | --- |
-| Studio | 4310 | 30218 | `apps/studio` |
-| Agent任务实验室 | 4311 | 30197 | `apps/agent-example` |
-| Business成果工作室 | 4312 | 30221 | `apps/business-example` |
-| Runtime | 4313 | 30234 | `services/runtime` |
+| Studio | 4310 | 40081 | `apps/studio` |
+| Agent任务实验室 | 4311 | 40084 | `apps/agent-example` |
+| Business成果工作室 | 4312 | 40088 | `apps/business-example` |
+| Runtime | 4313 | 40079 | `services/runtime` |
 
-额度中断后原服务已无监听；本次收尾通过正规审批从正式根重启原四服务，未新增验收运行。`lsof`、`ps`、Runtime health实际结果见 `evidence/preservation-and-listeners.json`、`evidence/health.json`；前次PID证据另存 `evidence/preservation-and-listeners-before-resume.json`。PID是记录时事实，不保证重启后不变。
+此前CLI服务随会话退出后监听确实消失；父会话随后在正式根按既有 `npm run start:local` 恢复四服务，exec session为27255。本次经批准只读核验上述PID、cwd、仅127.0.0.1监听及四入口HTTP 200，Runtime health标识为personal-capability-runtime/0.3.0/sqlite，未重启或终止服务，也未新增运行。当前证据见 `evidence/service-closeout.json`、`evidence/health.json`；此前历史保护及旧PID记录仍保留在 `evidence/preservation-and-listeners.json` 与 `evidence/preservation-and-listeners-before-resume.json`。PID是记录时事实，不保证重启后不变。
 
 ## CAP-08：真实代码迁移，不是历史系统整体复用
 
@@ -122,16 +122,18 @@ Ego任务空间2。真实页面新建项目 `project_38eb755f-0f48-4164-b26b-908
 4. 配置完成后，把model.verify置于检索之后、人工确认之前，明确授予 `model:invoke` 与 `data:external`，保存有效组合。每次执行还需本次资料外发授权，只用非敏感授权资料。
 5. 再真实检查Provider响应、来源引用与上述失败分支；supported须有提供过的引用，但引用存在不代表语义结论正确，仍需人工审阅。
 
-## 浏览器事实与截图阻塞
+## 浏览器事实与桌面截图补录
 
 - 已使用用户首选Ego，读取指定SKILL及当前v2.1.0指引，所有操作复用任务空间2和p1/p2/p3，没有启用Chrome、Chrome for Testing或Playwright Chromium。
 - 创建项目、Portfolio/CAP检索、加入能力、步骤调整、保存、上传、执行、批准、拒绝、取消、Agent历史重开、Business真实报告点击下载均已完成；原始页面文本证据在evidence目录。
 - Studio来源页已实际展开，显示“历史代码迁移（本机授权）”“来源文件摘要”、原commit/SHA和真实验收run链接；修复了把冻结历史摘要误叫“当前文件摘要”的文案。
-- 原生 `page.screenshot()`（默认、raw、清除尺寸模拟后）以及针对可见视口的 `Page.captureScreenshot` 均实际返回 `CdpRequestTimeoutError: CDP request timed out: Page.captureScreenshot`。激活当前页仍失败，未伪造PNG。
-- 窗口工具选择Ego Lite返回 `Computer Use was not approved to use ego lite`；没有通过别的GUI技术绕过该拒绝，也未擅自切换到Chrome。
-- `screenshots/` **没有成功截图**。Studio、Agent和Business的1440×900/390×844结构尺寸已记录，页面scrollWidth分别为1440/390；见 `evidence/responsive-structure-observations.json`，明确visualAcceptance=false，**不作为截图或视觉通过证明**。
-- 恢复条件：修复/批准Ego截图接口或明确授权可见Ego窗口截图，再对三入口逐张截图、实际看图并补主要流程视觉验收。此前不宣称前端视觉可交付。
-- 额度恢复后的唯一一次同空间诊断返回 `Error: task space not found: 2`，未另建空间、未重复无变化截图重试。本会话页面操作已停止；父会话后续如获准可独立做原生Ego视觉核验，结果不能预先算入本报告。
+- 过去自动化截图曾CDP超时，原生窗口访问曾未获准，恢复诊断曾显示TaskSpace 2不存在；这些旧事件保留在 `evidence/browser-capture-blocker.json`，不再作为当前桌面截图阻塞。本次没有重试浏览器或新建空间。
+- 父会话后续通过获准原生CUA选择Ego Lite，捕获真实可见桌面窗口并逐张实际看图。捕获及视觉观察均由父会话完成，本会话仅读取文件头、尺寸并计算SHA-256，不冒称重新看图。
+- `screenshots/native-studio-cap08.png`：父会话观察到CAP-08来源详情、真实验收run链接、原commit/摘要。
+- `screenshots/native-agent-completed.png`：父会话观察到已完成执行步骤和报告。
+- `screenshots/native-business-completed.png`：父会话观察到同 `run_8a5b5cb9-dcd6-488f-a18b-3e6333cf35a2`、已交付、核验结果和报告链接。
+- 文件头核对发现三文件实际为JPEG/JFIF，虽然扩展名为.png；均为2900×1642像素，原文件保持不变，未转换、重命名或覆盖。受限清单 `screenshots/manifest.json` 与 `evidence/native-ego-desktop-capture.json` 记录真实格式、大小、摘要、观察归属及边界。
+- 这些是原生桌面窗口截图，不是1440×900或390px定尺截图；不宣称总体UI设计验收通过。此前 `evidence/responsive-structure-observations.json` 仅为结构观察，不能替代视觉验收。**390px手机视觉仍未验收**。
 
 ## 历史保护与审查
 
@@ -141,4 +143,4 @@ Ego任务空间2。真实页面新建项目 `project_38eb755f-0f48-4164-b26b-908
 
 同Codex内部只读审查已执行；未授权把私人项目外传给antigravity/Claude等外部审查服务。finding逐项处置记录见归档任务的review.md：来源摘要文案已修并实际页面核对；终态FAILED语义保留并明确说明；登记源变更后迁移来源标签需重验的非关键增强作为已知边界记录，没有无关重构。
 
-**整体状态：部分完成，有明确阻塞**。安全基线、实际迁移及本机共享执行已交付；模型配置与真实Provider验收阻塞，截图与桌面/手机视觉验收阻塞。没有隐藏失败或用离线结果替代这些未完成项。
+**整体状态：部分完成，有明确阻塞**。安全基线、实际迁移、本机共享执行及父会话完成的三个可见桌面页面截图已记录；当前仅保留模型缺配置及390px手机视觉未验收两项阻塞。桌面截图补录不等于总体UI设计通过；没有隐藏失败或用离线结果替代未完成项。本次仅修改五份文档/归档记录，未改应用代码、未重跑测试、未新增项目或运行。

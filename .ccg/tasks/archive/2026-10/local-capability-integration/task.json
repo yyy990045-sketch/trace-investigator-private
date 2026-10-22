@@ -6,10 +6,11 @@
   "risk": "medium",
   "domain": "runtime",
   "currentPhase": "review",
-  "nextAction": "本轮已交付部分收尾归档；待操作者配置当前平台模型及修复或授权Ego截图，再补真实模型与视觉验收，不宣称整体完成",
+  "nextAction": "父会话已获准完成三张原生Ego桌面截图并看图，本次仅补录；待配置当前平台模型并补390px手机视觉验收，整体仍部分完成",
   "createdAt": "2026-10-22T08:00:00Z",
   "branch": "codex/local-capability-integration",
   "baselineCommit": "e44134dd6a97dc52fa482228ab9ade0f03cc8f0d",
-  "blockers": ["BLOCKED_MODEL_NOT_CONFIGURED", "BLOCKED_EGO_CAPTURE_TIMEOUT", "EGO_NATIVE_APP_NOT_APPROVED", "EGO_TASKSPACE_NOT_FOUND"],
+  "blockers": ["BLOCKED_MODEL_NOT_CONFIGURED", "MOBILE_390_VISUAL_NOT_VERIFIED"],
+  "desktopEvidence": "data/local-integration-20261022/evidence/native-ego-desktop-capture.json; 捕获及看图由获准原生CUA父会话完成，非定尺截图，不代表整体UI设计验收",
   "externalReview": "未授权外传私人源码，不调用外部模型"
 }
