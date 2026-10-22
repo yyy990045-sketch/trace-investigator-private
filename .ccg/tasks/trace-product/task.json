@@ -1,13 +1,17 @@
 {
   "id": "trace-product",
   "title": "溯证 TRACE 独立调查产品",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "high",
   "domain": "fullstack",
-  "currentPhase": "acceptance",
-  "nextAction": "配置 PLATFORM_WSA_API_KEY 后运行 node tooling/trace-acceptance.mjs 完成 A/B/C 真实案例",
-  "blockedOn": "PLATFORM_WSA_API_KEY 未配置：联网检索、真实来源与调查档案无法产出；产品如实显示阻塞，不伪造搜索结果",
+  "currentPhase": "delivered",
+  "nextAction": "可选：配置模型后再评估事实拆解自动化；当前人工确认模式已验收",
+  "acceptedCases": {
+    "A-original-source": "run_0330dd9d-71af-4f4c-a6a0-9b0a58f417d1",
+    "B-cross-check": "run_16cb3d6c-150e-4992-bcb9-b0ba4940561c",
+    "C-insufficient": "run_aa0d4cfe-8921-4728-89d0-c9ba62d2e5c6"
+  },
   "createdAt": "2026-10-22T12:18:25.603568+00:00",
   "branch": "codex/local-capability-integration"
 }

@@ -69,6 +69,8 @@ export interface FactAssessment {
   bodyBackedClusters: number;
   supports: number;
   contradicts: number;
+  /** 内容相关但时间要求不满足的来源数，用于区分「没有证据」与「证据过期」 */
+  outOfRangeSupports: number;
   sources: SourceAssessment[];
   reasons: string[];
 }
@@ -104,6 +106,20 @@ export function numbers(text: string): string[] {
   return [...new Set(found.map((s) => s.replace(/\s+/g, "")))];
 }
 
+/** 纯日期/年份不是"数量断言"：来源出现 2025年 不能算作与事实的数值一致。 */
+const DATE_TOKEN = /^\d{1,4}(?:年|月|日)$/;
+export function quantities(text: string): string[] {
+  return numbers(text).filter((token) => !DATE_TOKEN.test(token));
+}
+
+/** 汉字三元片段：比二元词更能代表"同一表述"，用于判断来源是否真的在说这件事。 */
+export function fragments(text: string): string[] {
+  const runs = text.normalize("NFKC").match(/\p{Script=Han}{3,}/gu) || [];
+  const out = new Set<string>();
+  for (const run of runs) for (let i = 0; i + 3 <= run.length; i++) out.add(run.slice(i, i + 3));
+  return [...out];
+}
+
 const NEGATIONS = ["不是", "并非", "并没有", "没有", "尚未", "未", "否认", "驳斥", "不实", "谣言", "错误", "质疑", "辟谣", "从未", "不属于"];
 
 function negationNear(text: string, needles: string[]) {
@@ -116,6 +132,80 @@ function negationNear(text: string, needles: string[]) {
     if (hit) return hit;
   }
   return null;
+}
+
+const UP_WORDS = /超过|逾|以上|至少|不低于|突破|多于|高于/;
+const DOWN_WORDS = /不足|低于|少于|至多|最多|以下|不超过/;
+
+function parseQuantity(token: string) {
+  const matched = token.match(/^(\d+(?:\.\d+)?)(.*)$/);
+  if (!matched) return null;
+  return { value: Number(matched[1]), unit: matched[2] || "" };
+}
+
+/**
+ * 数量断言比对。只比较同一计量单位的数字，并尊重事实里的比较方向：
+ *  - 「超过1200万辆」遇到来源的 1288.8万辆 是支持，不是反证；
+ *  - 单位不同（产量 vs 出口量 vs 增速百分比）一律不参与比对；
+ *  - 无法判定时返回 unclear，交给人看，绝不冒充反证。
+ */
+export function compareQuantities(factText: string, factQuantities: string[], pageQuantities: string[]) {
+  const factItems = factQuantities
+    .map(parseQuantity)
+    .filter((item): item is { value: number; unit: string } => !!item);
+  const pageItems = pageQuantities
+    .map(parseQuantity)
+    .filter((item): item is { value: number; unit: string } => !!item);
+  const up = UP_WORDS.test(factText);
+  const down = DOWN_WORDS.test(factText);
+  for (const factItem of factItems) {
+    if (!factItem.unit) continue;
+    const sameUnit = pageItems.filter((item) => item.unit === factItem.unit);
+    if (!sameUnit.length) continue;
+    const shown = sameUnit.slice(0, 3).map((item) => `${item.value}${item.unit}`).join("、");
+    if (sameUnit.some((item) => item.value === factItem.value))
+      return {
+        kind: "supports" as const,
+        exact: true,
+        reason: `同一计量单位下数量一致：${factItem.value}${factItem.unit}。`,
+      };
+    if (up) {
+      const larger = sameUnit.filter((item) => item.value > factItem.value).sort((a, b) => a.value - b.value);
+      if (larger.length)
+        return {
+          kind: "supports" as const,
+          exact: false,
+          reason: `事实为「超过 ${factItem.value}${factItem.unit}」，来源给出 ${larger
+            .slice(0, 2)
+            .map((item) => `${item.value}${item.unit}`)
+            .join("、")}，不违背该断言。`,
+        };
+      return {
+        kind: "contradicts" as const,
+        exact: false,
+        reason: `事实称超过 ${factItem.value}${factItem.unit}，但同单位来源均低于该值（${shown}）。`,
+      };
+    }
+    if (down) {
+      if (sameUnit.some((item) => item.value < factItem.value))
+        return {
+          kind: "supports" as const,
+          exact: false,
+          reason: `事实为「低于 ${factItem.value}${factItem.unit}」，来源给出 ${shown}，不违背该断言。`,
+        };
+      return {
+        kind: "contradicts" as const,
+        exact: false,
+        reason: `事实称低于 ${factItem.value}${factItem.unit}，但同单位来源均高于该值（${shown}）。`,
+      };
+    }
+    return {
+      kind: "unclear" as const,
+      exact: false,
+      reason: `同单位数量与事实不同：事实 ${factItem.value}${factItem.unit}，来源 ${shown}；可能是统计口径不同，需人工核对。`,
+    };
+  }
+  return { kind: null, exact: true, reason: "" };
 }
 
 export function parseDate(value: string): Date | null {
@@ -240,33 +330,50 @@ export function assessSource(
   const bodyText = body?.ok ? body.text : "";
   const bodyRelevance = body?.ok ? coverage(bodyText, factTerms) : 0;
   const negation = negationNear(scored, factTerms);
-  const factNumbers = numbers(options.fact.text);
-  const pageNumbers = numbers(scored);
-  const sharedNumbers = factNumbers.filter((n) => pageNumbers.some((p) => p.replace(/%$/, "") === n.replace(/%$/, "")));
+  // 只有"数量断言"参与数值比对：年份/月/日不算证据，出现"2025年"不代表说对了产量。
+  const factQuantities = quantities(options.fact.text);
+  const pageQuantities = quantities(scored + " " + bodyText);
+  // 数量断言比对：尊重「超过/以上/低于」的比较方向，单位不同不比较。
+  const numeric = compareQuantities(options.fact.text, factQuantities, pageQuantities);
+  // 同一表述片段：汉字三元片段命中，才认为来源真的在讲这件事（二元词重合太松）。
+  const factFragments = fragments(options.fact.text);
+  const sharedFragment = factFragments.find((fragment) => (scored + " " + bodyText).includes(fragment));
 
   if (relevance < 0.34) {
     reasons.push(`与事实主题的关键词重合度仅 ${(relevance * 100).toFixed(0)}%，不足以作为该事实的依据。`);
   } else if (negation) {
     relation = "contradicts";
     reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
-  } else if (factNumbers.length && sharedNumbers.length) {
-    relation = "supports";
-    reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，且关键数值一致：${sharedNumbers.join("、")}。`);
-  } else if (factNumbers.length && pageNumbers.length && !sharedNumbers.length) {
+  } else if (numeric.kind === "contradicts") {
     relation = "contradicts";
+    reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，${numeric.reason}`);
+  } else if (numeric.kind === "supports" && (numeric.exact || sharedFragment)) {
+    relation = "supports";
     reasons.push(
-      `关键词重合度 ${(relevance * 100).toFixed(0)}%，但数值与事实不一致：事实 ${factNumbers.join("、")}，来源 ${pageNumbers.slice(0, 4).join("、")}。`,
+      `关键词重合度 ${(relevance * 100).toFixed(0)}%，${numeric.reason}${
+        sharedFragment ? `同一表述片段「${sharedFragment}」。` : ""
+      }`,
+    );
+  } else if (numeric.kind === "supports") {
+    reasons.push(
+      `关键词重合度 ${(relevance * 100).toFixed(0)}%，${numeric.reason}但未出现事实中的同一表述片段，仅记为相关而非支持。`,
+    );
+  } else if (numeric.kind === "unclear" && relevance >= 0.6) {
+    reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%。${numeric.reason}`);
+  } else if (relevance >= 0.6 && sharedFragment) {
+    relation = "supports";
+    reasons.push(
+      `关键词重合度 ${(relevance * 100).toFixed(0)}%，且出现同一表述片段「${sharedFragment}」，未发现否定表述。`,
     );
   } else if (relevance >= 0.6) {
-    relation = "supports";
-    reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，且未发现否定表述。`);
+    reasons.push(
+      `关键词重合度 ${(relevance * 100).toFixed(0)}%，但未出现事实中的同一表述片段，仅记为相关而非支持。`,
+    );
   } else {
     reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，介于相关与无关之间，仅记为不确定。`);
   }
 
-  const reprintMarkers = body?.ok
-    ? body.reprintMarkers
-    : [];
+  const reprintMarkers = body?.ok ? body.reprintMarkers : [];
   let originality: SourceAssessment["originality"] = "unknown";
   if (body?.ok) {
     if (reprintMarkers.length) {
@@ -286,11 +393,24 @@ export function assessSource(
   let dateStatus: SourceAssessment["dateStatus"] = "unknown";
   let dateNote = page.date ? `来源标注时间 ${page.date}。` : "来源未提供发布时间。";
   const published = parseDate(page.date);
-  if (scope && published) {
+  // 区分两种时间要求：
+  //  期间型（如「2024年」）说的是事实讲的哪段时间，看内容是否涉及该期间，不看发布日；
+  //  时效型（如「最近一年」）说的是信息新鲜度，才用发布时间判断。
+  const periodYear = options.fact.timeScope?.match(/(\d{4})\s*年/)?.[1];
+  const freshness = /最近|近半年|近三个月|现行|当前|目前/.test(options.fact.timeScope || "");
+  if (scope && periodYear && !freshness) {
+    const mentioned =
+      (scored + " " + bodyText).includes(periodYear) ||
+      (published !== null && published.getUTCFullYear() === Number(periodYear));
+    dateStatus = mentioned ? "in_range" : "out_of_range";
+    dateNote += mentioned
+      ? ` 来源涉及事实所指期间（${periodYear}年）。`
+      : ` 来源未涉及事实所指期间（${periodYear}年）。`;
+  } else if (scope && published) {
     dateStatus = published >= scope.from && published <= scope.to ? "in_range" : "out_of_range";
-    dateNote += dateStatus === "in_range" ? " 落在适用时间范围内。" : " 落在适用时间范围之外。";
+    dateNote += dateStatus === "in_range" ? " 发布时间落在时效要求内。" : " 发布时间早于时效要求，可能已过期。";
   } else if (scope && !published) {
-    dateNote += " 事实限定了适用时间，但该来源没有可用发布时间，无法确认时效。";
+    dateNote += " 事实限定了时间要求，但该来源没有可用发布时间，无法确认时效。";
   }
 
   if (options.fact.subjectScope) {
@@ -341,10 +461,13 @@ export function assessFact(options: AssessOptions): FactAssessment {
   );
   const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts").map((s) => s.clusterId));
   const bodyBacked = new Set(
-    sources.filter((s) => s.relation === "supports" && s.bodyAvailable).map((s) => s.clusterId),
+    sources
+      .filter((s) => s.relation === "supports" && s.bodyAvailable && s.dateStatus !== "out_of_range")
+      .map((s) => s.clusterId),
   );
   const supports = sources.filter((s) => s.relation === "supports").length;
   const contradicts = sources.filter((s) => s.relation === "contradicts").length;
+  const outOfRangeSupports = sources.filter((s) => s.relation === "supports" && s.dateStatus === "out_of_range").length;
   const reasons: string[] = [];
 
   let relation: FactAssessment["relation"] = "none";
@@ -358,7 +481,11 @@ export function assessFact(options: AssessOptions): FactAssessment {
     reasons.push(`${supportClusters.size} 个独立来源支持该事实（其中 ${bodyBacked.size} 个取得原文正文）。`);
   if (relation === "contradicts") reasons.push(`${opposeClusters.size} 个独立来源对该事实给出相反说法。`);
   if (relation === "mixed") reasons.push("同时存在支持与相反说法，需要人工判断。");
-  if (relation === "none")
+  if (relation === "none" && outOfRangeSupports > 0)
+    reasons.push(
+      `${outOfRangeSupports} 条来源内容相关，但发布时间或所指期间不满足事实的时间要求，不能作为当前结论的依据。`,
+    );
+  if (relation === "none" && outOfRangeSupports === 0)
     reasons.push("没有来源与该事实形成可比对的表述，属于证据不足，不能给出确定结论。");
 
   return {
@@ -369,6 +496,7 @@ export function assessFact(options: AssessOptions): FactAssessment {
     bodyBackedClusters: bodyBacked.size,
     supports,
     contradicts,
+    outOfRangeSupports,
     sources,
     reasons,
   };
@@ -461,6 +589,20 @@ export function aggregateCase(input: {
     };
   }
   if (none.length && !supported.length) {
+    // 区分两种「没有支持」：真的没有相关来源，还是相关内容因时间要求被排除。
+    const staleCount = facts.reduce((n, f) => n + f.outOfRangeSupports, 0);
+    if (staleCount > 0) {
+      reasons.push(
+        `找到 ${staleCount} 条内容相关的来源，但都不满足事实的时间要求（期间不符或发布时间过旧），不能支撑当前结论。`,
+      );
+      return {
+        outcome: "outdated",
+        headline: "相关内容存在，但时效不满足，不能视为当前有效结论。",
+        confidence: "low",
+        reasons,
+        counts,
+      };
+    }
     reasons.push("没有任何来源与待核查事实形成可比对表述。");
     return {
       outcome: "insufficient",
@@ -470,22 +612,11 @@ export function aggregateCase(input: {
       counts,
     };
   }
-  const outOfRange = facts.filter((f) => f.relation === "supports" && f.bodyBackedClusters === 0 && f.supports > 0);
   if (supported.length && bodyBackedTotal === 0) {
     reasons.push("支持性来源只有搜索摘要，没有取得任何原文正文，按规则不作为确定结论的依据。");
     return {
       outcome: "insufficient",
       headline: "仅有搜索摘要，缺少原文依据，暂不下结论。",
-      confidence: "low",
-      reasons,
-      counts,
-    };
-  }
-  if (outOfRange.length && outOfRange.length === supported.length) {
-    reasons.push("支持性来源均未取得正文，无法复核原始表述。");
-    return {
-      outcome: "outdated",
-      headline: "现有来源时效或原文依据不足，不能视为当前有效结论。",
       confidence: "low",
       reasons,
       counts,

@@ -1,11 +1,25 @@
 import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createPlatform } from "./app.ts";
+// 配置边界：PLATFORM_DATA_DIR 若仍是模板占位值，直接给出可执行的说明，而不是抛出 ENOENT '/absolute'。
+const configuredDataDir = process.env.PLATFORM_DATA_DIR?.trim();
+if (configuredDataDir && /^\/(absolute|path\/to)(\/|$)/.test(configuredDataDir)) {
+  console.error(
+    `PLATFORM_DATA_DIR 仍是模板里的占位示例（${configuredDataDir}）。请在 .env.platform 中把它注释掉，或改成真实存在的绝对路径后重启 Runtime。`,
+  );
+  process.exit(1);
+}
 const data = resolve(
-  process.env.PLATFORM_DATA_DIR ||
-    new URL("../../../data", import.meta.url).pathname,
+  configuredDataDir || new URL("../../../data", import.meta.url).pathname,
 );
-await mkdir(data, { recursive: true });
+try {
+  await mkdir(data, { recursive: true });
+} catch (error) {
+  console.error(
+    `无法创建数据目录 ${data}：${error instanceof Error ? error.message : String(error)}。如果 PLATFORM_DATA_DIR 只是示例占位值，请把它注释掉。`,
+  );
+  process.exit(1);
+}
 const lock = join(data, "runtime.lock");
 try {
   const handle = await open(lock, "wx");

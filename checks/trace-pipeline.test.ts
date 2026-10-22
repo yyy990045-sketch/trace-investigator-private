@@ -259,6 +259,99 @@ describe("证据核验规则", () => {
       searchedOk: true,
     });
     expect(verdict.outcome).toBe("disputed");
+
+  });
+
+  it("年份不算数值证据：来源只是同年提到，不能判为支持", async () => {
+    const { assessFact, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const fact = {
+      id: "fact-1",
+      text: "2025年中国已建成覆盖全国主要干线的氢能长途重卡加氢网络",
+      queries: ["氢能重卡"],
+      timeScope: "2025年",
+    };
+    // 这条来源只说明「首条干线投运」，与「覆盖全国的加氢网络」不是同一件事；
+    // 它出现 2025年 不代表数量断言一致。
+    const pages = [
+      {
+        id: "a",
+        url: "https://news.example.com/h2.html",
+        site: "某媒体",
+        title: "我国首条跨区域氢能重卡干线投运",
+        date: "2025-04-15",
+        passage: "2025年4月14日，我国首条跨区域氢能重卡干线正式投运，全长1150公里。",
+        score: 0.8,
+      },
+    ];
+    const assessment = assessFact({
+      fact,
+      pages,
+      bodies: new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }])),
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    expect(assessment.relation).not.toBe("supports");
+    expect(assessment.sources[0].reasons.join(" ")).not.toContain("数量断言一致");
+  });
+
+  it("事实没有数量断言时，来源里的其他数字不构成反证", async () => {
+    const { assessFact, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const fact = {
+      id: "fact-1",
+      text: "2025年中国已建成覆盖全国主要干线的氢能长途重卡加氢网络",
+      queries: ["氢能重卡"],
+    };
+    const pages = [
+      {
+        id: "a",
+        url: "https://news.example.com/h3.html",
+        site: "某媒体",
+        title: "氢能重卡干线贯通",
+        date: "2025-04-15",
+        passage: "该干线全长1150公里，连接西部陆海新通道，共设10座加氢站。",
+        score: 0.8,
+      },
+    ];
+    const assessment = assessFact({
+      fact,
+      pages,
+      bodies: new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }])),
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    expect(assessment.relation).not.toBe("contradicts");
+  });
+
+  it("期间型时间要求看内容所指期间，不因发布在次年就被判为过期", async () => {
+    const { assessFact, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const fact = {
+      id: "fact-1",
+      text: "2024年中国新能源汽车产量超过1200万辆",
+      queries: ["2024年 新能源汽车 产量"],
+      timeScope: "2024年",
+    };
+    // 统计公报发表于 2025 年 1 月，内容讲的是 2024 年数据 —— 属于有效来源。
+    const pages = [
+      {
+        id: "a",
+        url: "https://www.gov.cn/stats.html",
+        site: "中国政府网",
+        title: "2024年我国新能源汽车产销量均超1200万辆",
+        date: "2025-01-13",
+        passage: "2024年我国新能源汽车产量1200万辆，同比增长明显。",
+        score: 0.9,
+      },
+    ];
+    const assessment = assessFact({
+      fact,
+      pages,
+      bodies: new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }])),
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    expect(assessment.sources[0].dateStatus).toBe("in_range");
+    expect(assessment.relation).toBe("supports");
+    expect(assessment.outOfRangeSupports).toBe(0);
   });
 });
 

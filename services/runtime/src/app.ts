@@ -338,7 +338,16 @@ export async function createPlatform(
     const run = store.run(req.params.id);
     if (!run) throw new ExecutionError("RUN_NOT_FOUND", "任务不存在。");
     const completion = run.events.findLast((e) => e.type === "run.completed");
-    const exports = run.steps.filter((s) => s.capabilityId === "report.export" && s.status === "completed");
+    // 导出步骤按「声明了本地文件副作用且已完成」识别，兼容 report.export 与业务自有导出（如 trace.archive.export）。
+    const exportSteps = run.steps.filter((s) => {
+      const manifest = run.assembly.find(
+        (a) => a.capabilityId === s.capabilityId && a.version === s.version,
+      )?.manifest;
+      return s.status === "completed" && (manifest?.effects || []).includes("local_file");
+    });
+    const exports = exportSteps.length
+      ? exportSteps
+      : run.steps.filter((s) => s.capabilityId === "report.export" && s.status === "completed");
     const exportEvents = run.events.filter((e) => e.type === "step.completed" &&
       exports.some((s) => s.id === (e.data as { stepId?: string }).stepId));
     const approved = run.approvals.filter((a) => a.status === "approved");
