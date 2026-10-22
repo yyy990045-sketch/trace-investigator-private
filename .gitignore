@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+.env*
+!.env.example
+data/
+*.sqlite*
+__pycache__/
+artifacts/
+
+!.env.platform.example

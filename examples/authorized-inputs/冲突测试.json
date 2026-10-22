@@ -1,0 +1,10 @@
+{
+  "documents": [
+    { "id": "source-a", "text": "本轮仅交付Markdown文件。", "source": "授权测试资料A", "scope": "general" },
+    { "id": "source-b", "text": "本轮仅交付PDF文件。", "source": "授权测试资料B", "scope": "general" }
+  ],
+  "claims": [
+    { "key": "唯一交付格式", "value": "Markdown", "source": "source-a" },
+    { "key": "唯一交付格式", "value": "PDF", "source": "source-b" }
+  ]
+}

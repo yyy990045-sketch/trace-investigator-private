@@ -1,0 +1,19 @@
+/* Keep the current task action reachable without pinning its source material. */
+@media (max-width: 640px) {
+  .runtime-confirmation {
+    padding-bottom: 112px;
+  }
+  .runtime-confirmation .decision-actions {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .runtime-agent .context-line {
+    overflow-wrap: anywhere;
+  }
+}

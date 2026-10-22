@@ -1,0 +1,27 @@
+{
+  "id": "real-capability-runtime",
+  "title": "真实能力映射、项目装配与执行闭环",
+  "complexity": "L+",
+  "risk": "high",
+  "status": "completed",
+  "currentPhase": "completed",
+  "nextAction": "本机规则闭环、真实运行/浏览器/恢复/应用复用已验证；AI未配置阻塞已明确交付，停止等待审查。",
+  "createdAt": "2026-10-21T12:24:38.982647+00:00",
+  "authorizations": [
+    "existing repository implementation",
+    "local SQLite",
+    "new dependencies in approved stack",
+    "current platform provider config only"
+  ],
+  "prohibited": [
+    "historical source writes",
+    "historical credentials or customer data",
+    "production service",
+    "public deployment"
+  ],
+  "updatedAt": "2026-10-21T23:21:01.125194+00:00",
+  "releaseStatus": "not_requested",
+  "evidence": "/Users/xieweikai/Documents/Codex/2026-10-21/new-chat/outputs/runtime-v0.3",
+  "aiAcceptance": "BLOCKED_MODEL_NOT_CONFIGURED",
+  "gitArchiveCommit": "not_created: existing project has no Git metadata; no Git repository initialized"
+}

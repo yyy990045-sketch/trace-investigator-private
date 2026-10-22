@@ -1,0 +1,16 @@
+{
+  "id": "integrate-0-3-frontend-ai",
+  "title": "0.3.0前端Runtime整合、证据澄清与真实模型验证",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "currentPhase": "completed",
+  "nextAction": "本轮停止，等待用户审查；真实AI待当前平台授权配置",
+  "createdAt": "2026-10-21T23:53:26.125640+00:00",
+  "baselineVersion": "0.3.0",
+  "backup": "/Users/xieweikai/Documents/Codex/2026-10-21/new-chat/work/integration-0.3/backup-before",
+  "completedAt": "2026-10-22T00:25:24.538663+00:00",
+  "modelAcceptanceStatus": "BLOCKED_MODEL_NOT_CONFIGURED",
+  "finalReport": "docs/0.3.0-final-acceptance.md",
+  "gitArchive": "Not committed: project has no Git metadata; file manifests and patch provided"
+}

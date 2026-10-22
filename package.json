@@ -1,0 +1,54 @@
+{
+  "name": "personal-ai-capability-platform",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "templates/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @personal/studio",
+    "dev:agent": "npm run dev --workspace @personal/agent-example",
+    "dev:business": "npm run dev --workspace @personal/business-example",
+    "build": "npm run build --workspace @personal/studio && npm run build --workspace @personal/agent-example && npm run build --workspace @personal/business-example",
+    "typecheck": "tsc --noEmit",
+    "create:app": "node tooling/create-app.mjs",
+    "check:frontend": "vitest run",
+    "runtime": "npm run start --workspace @personal/runtime",
+    "dev:runtime": "npm run dev --workspace @personal/runtime",
+    "start:local": "node tooling/start-local.mjs",
+    "test:runtime": "vitest run checks/runtime.test.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.3",
+    "@tanstack/react-query": "^5.90.5",
+    "ajv": "^8.20.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "fastify": "^5.12.7",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.4",
+    "tailwind-merge": "^3.3.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@tailwindcss/vite": "^4.1.15",
+    "@types/node": "^24.9.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.15",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "^5.0.5"
+  }
+}

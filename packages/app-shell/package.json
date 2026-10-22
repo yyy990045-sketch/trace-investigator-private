@@ -1,0 +1,15 @@
+{
+  "name": "@personal/app-shell",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "dependencies": {
+    "@personal/ui-core": "*",
+    "react": "^19.2.0",
+    "react-router-dom": "^7.9.4",
+    "lucide-react": "^0.468.0"
+  }
+}
