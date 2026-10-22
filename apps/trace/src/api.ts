@@ -130,6 +130,10 @@ export interface SourceAssessment {
   duplicate: boolean;
   dateStatus: "in_range" | "out_of_range" | "unknown";
   dateNote: string;
+  /** 人工修正后保留的系统自动判断 */
+  autoRelation?: Relation;
+  /** 有人工修正时才有；原始搜索返回与摘录不因此改变 */
+  manualCorrection?: { relation: Relation; note: string; actor: string; at: string } | null;
 }
 
 export interface FactAssessment {
@@ -207,6 +211,8 @@ export interface TraceBundleView {
     openQuestions?: string[];
     pageCount?: number;
     followupCount?: number;
+    correctionCount?: number;
+    corrections?: CorrectionRecord[];
   };
   checks: { name: string; passed: boolean; detail: string; status?: string }[];
 }
@@ -347,23 +353,95 @@ export function postReassess(runId: string) {
   );
 }
 
+/** 一条人工修正记录：只改证据关系，不改原始搜索返回与摘录。 */
+export interface CorrectionRecord {
+  pageId: string;
+  factId: string;
+  relation: Relation;
+  note: string;
+  actor: string;
+  at: string;
+}
+
+export interface RevisionSummary {
+  revision: number;
+  at: string;
+  actor: string;
+  artifacts: { id: string; filename: string; bytes: number; sha256: string }[];
+  verdict: { outcome: Verdict["outcome"]; headline: string; counts: Verdict["counts"] } | null;
+  followupCount: number;
+  correctionCount: number;
+  changes: string[];
+  assessment: NonNullable<TraceBundleView["assessment"]> | null;
+  derived: boolean;
+}
+
+export interface RevisionsView {
+  /** 最近一次已交付的版本号；0 表示还没有交付过 */
+  deliveredRevision: number;
+  /** 交付之后又有了新的追问/修正，当前结论尚未成档 */
+  dirty: boolean;
+  pendingFollowups: number;
+  pendingCorrections: number;
+  current: NonNullable<TraceBundleView["assessment"]>;
+  changes: string[];
+  revisions: RevisionSummary[];
+}
+
+/** 已交付版本、当前结论与版本之间的差异。 */
+export function fetchRevisions(runId: string) {
+  return traceRequest<RevisionsView>(`/v1/runs/${encodeURIComponent(runId)}/trace/revisions`);
+}
+
+/** 人工修正某条证据与事实的关系：只改判断，不动原始搜索返回与摘录。 */
+export function postCorrection(
+  runId: string,
+  input: { pageId: string; factId: string; relation: Relation; note: string; actor: string },
+) {
+  return traceRequest<{ correction: CorrectionRecord; correctionCount: number }>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace/correction`,
+    "POST",
+    input,
+  );
+}
+
+/** 重新确认：把当前结论固化成新的交付版本，旧版本文件保持原样。 */
+export function postRedeliver(runId: string, actor: string) {
+  return traceRequest<{
+    revision: number;
+    at: string;
+    actor: string;
+    artifacts: { id: string; filename: string; bytes: number; sha256: string }[];
+    changes: string[];
+    verdict: { outcome: Verdict["outcome"]; headline: string; counts: Verdict["counts"] };
+  }>(`/v1/runs/${encodeURIComponent(runId)}/trace/redeliver`, "POST", { actor });
+}
+
 /** 三个真实案例：点一下即可带入表单，用户也可以完全自己提问。 */
 export interface SampleCase {
   id: string;
+  /** 评委视角的三类定位：A 有明确原始证据 / B 需跨来源核查 / C 补充调查后仍可能证据不足 */
+  kind: "A" | "B" | "C";
   tag: string;
   question: string;
   claim: string;
   note: string;
+  /** 跑完之后应该看到什么（描述能力边界，不预设结论） */
+  expect: string;
+  /** 证据不足时的建议追问（只在 C 类给） */
+  followupHint?: string;
   facts: FactDraft[];
 }
 
 export const sampleCases: SampleCase[] = [
   {
     id: "A-original-source",
-    tag: "能找到原始出处",
+    kind: "A",
+    tag: "A · 有明确原始证据",
     question: "《中华人民共和国个人信息保护法》是什么时候通过、什么时候施行的？",
     claim: "《中华人民共和国个人信息保护法》自2021年11月1日起施行",
     note: "官方原文可查，适合看「原始出处 vs 转载」的差别",
+    expect: "能看到官方站点原文被取到、转载被合并成同一条独立证据，结论直接引到具体网址。",
     facts: [
       {
         id: "fact-1",
@@ -376,10 +454,12 @@ export const sampleCases: SampleCase[] = [
   },
   {
     id: "B-cross-check",
-    tag: "需要交叉验证",
+    kind: "B",
+    tag: "B · 需要跨来源核查",
     question: "2024年中国新能源汽车产量到底是多少？不同来源给出的数字一致吗？",
     claim: "2024年中国新能源汽车产量超过1200万辆",
     note: "多家统计口径不一，适合看「数量断言怎么比」",
+    expect: "能看到系统把「超过 1200 万辆」这类数量断言逐条对照来源数字，口径不一致时明确说明。",
     facts: [
       {
         id: "fact-1",
@@ -392,10 +472,13 @@ export const sampleCases: SampleCase[] = [
   },
   {
     id: "C-insufficient",
-    tag: "证据可能不足",
+    kind: "C",
+    tag: "C · 补充调查后仍可能证据不足",
     question: "2025年是否已经建成覆盖全国的氢能长途重卡加氢网络？",
     claim: "2025年中国已建成覆盖全国主要干线的氢能长途重卡加氢网络",
     note: "容易查到相关新闻但不足以支撑结论，适合看「拒绝下结论」",
+    expect: "相关新闻很多，但缺少能直接支撑该说法的原文，系统会保留证据不足并列出还缺什么。",
+    followupHint: "全国 氢能重卡 加氢站 干线 投运 里程",
     facts: [
       {
         id: "fact-1",

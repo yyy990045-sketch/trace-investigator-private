@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileJson, ShieldCheck } from "lucide-react";
@@ -6,6 +7,7 @@ import {
   bundleOf,
   client,
   fetchAssessment,
+  fetchRevisions,
   followupsOf,
   outcomeText,
   stepOf,
@@ -24,6 +26,12 @@ export function Archive() {
     queryFn: () => fetchAssessment(runId),
     enabled: !!runQuery.data,
   });
+  const revisionsQuery = useQuery({
+    queryKey: ["revisions", runId],
+    queryFn: () => fetchRevisions(runId),
+    enabled: !!runQuery.data,
+  });
+  const [pickedVersion, setPickedVersion] = useState<number | null>(null);
 
   if (runQuery.isError)
     return (
@@ -43,11 +51,21 @@ export function Archive() {
 
   const run = runQuery.data;
   const bundle = bundleOf(run);
-  const assessment = assessmentQuery.data?.assessment ?? bundle?.assessment;
+  const versions = revisionsQuery.data?.revisions || [];
+  const shown =
+    versions.find((item) => item.revision === pickedVersion) || versions[versions.length - 1] || null;
+  const latest = versions[versions.length - 1] || null;
+  const viewingLatest = !shown || !latest || shown.revision === latest.revision;
+  const pending = revisionsQuery.data?.dirty === true && !!latest;
+  // pickedVersion === 0 表示查看「当前结论」（重算后、还没成档的那一版）
+  const showCurrent = pickedVersion === 0 && pending;
+  const assessment = showCurrent
+    ? revisionsQuery.data?.current
+    : (shown?.assessment ?? assessmentQuery.data?.assessment ?? bundle?.assessment);
   const verdict = assessment?.verdict;
   const facts = (assessment?.facts || []) as FactAssessment[];
   const clusters: SourceCluster[] = assessment?.clusters || [];
-  const files = archiveArtifacts(run);
+  const files = shown ? shown.artifacts : archiveArtifacts(run);
   const followups = followupsOf(run);
   const intake = stepOf(run, "trace.case.intake")?.output as
     | { case?: { question?: string; claim?: string; createdAt?: string; modeNote?: string } }
@@ -95,9 +113,86 @@ export function Archive() {
         <p className="trace-lede">
           {caseInfo?.question && caseInfo.question !== caseInfo.claim ? `原始问题：${caseInfo.question} · ` : ""}
           {followups.length ? `追加检索 ${followups.length} 次 · ` : ""}
+          {shown ? `档案第 ${shown.revision} 版 · ` : ""}
           事实由人工确认（未使用 AI 拆解）
         </p>
       </header>
+
+      {versions.length ? (
+        <section className="trace-versionbar">
+          <div className="trace-versionbar-head">
+            <strong>
+              {showCurrent
+                ? "当前结论（尚未成档）"
+                : shown
+                  ? `档案第 ${shown.revision} 版`
+                  : "档案版本"}
+              {shown?.derived && !showCurrent ? "（历史记录）" : ""}
+            </strong>
+            <span>
+              {shown ? `${formatTime(shown.at)} · ${shown.actor}` : ""}
+              {shown ? ` · 追加检索 ${shown.followupCount} 次 · 人工修正 ${shown.correctionCount} 条` : ""}
+            </span>
+          </div>
+          <div className="trace-versionbar-chips" role="tablist" aria-label="调查档案版本">
+            {versions.map((item) => (
+              <button
+                key={item.revision}
+                type="button"
+                role="tab"
+                aria-selected={(shown?.revision ?? 0) === item.revision}
+                data-active={(shown?.revision ?? 0) === item.revision ? "true" : "false"}
+                className="trace-version-chip"
+                onClick={() => setPickedVersion(item.revision)}
+              >
+                第 {item.revision} 版
+                <small>{item.verdict ? outcomeText[item.verdict.outcome] : "记录"}</small>
+              </button>
+            ))}
+            {pending ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pickedVersion === 0}
+                data-active={pickedVersion === 0 ? "true" : "false"}
+                className="trace-version-chip trace-version-chip-current"
+                onClick={() => setPickedVersion(0)}
+              >
+                当前结论
+                <small>未成档</small>
+              </button>
+            ) : null}
+          </div>
+          {pickedVersion === 0 ? (
+            <p className="trace-hint">
+              这是第 {latest?.revision} 版交付之后、按新证据重算的结论，还没有生成档案。回到调查过程页点「重新确认」即可出新增版本。
+            </p>
+          ) : null}
+          {shown && shown.changes.length ? (
+            <details className="trace-version-changes" open={viewingLatest && shown.revision > 1}>
+              <summary>这一版为什么变化（相对第 {shown.revision - 1} 版）</summary>
+              <ul className="trace-verdict-changes">
+                {shown.changes.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          {pending && !pickedVersion ? (
+            <div className="trace-versionbar-pending">
+              <strong>首版之后又有新证据，当前结论尚未成档</strong>
+              <ul className="trace-verdict-changes">
+                {(revisionsQuery.data?.changes || []).map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <a className="trace-link" href={`/cases/${run.id}`}>
+                回到调查过程页重新确认
+              </a>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="trace-verdict trace-verdict-hero" data-outcome={verdict.outcome}>
         <div className="trace-verdict-head">
@@ -175,6 +270,24 @@ export function Archive() {
         ) : null}
       </section>
 
+      {(assessment?.corrections || []).length ? (
+        <section className="trace-block trace-block-warn">
+          <div className="trace-section-head">
+            <h2>人工修正记录</h2>
+            <span>{(assessment?.corrections || []).length} 条判断由人改过，系统自动判断同时保留</span>
+          </div>
+          <ul className="trace-notes">
+            {(assessment?.corrections || []).map((item, index) => (
+              <li key={index}>
+                来源 {item.pageId}（事实 {item.factId}）：修正为「{relationText[item.relation]}」；原因：
+                {item.note}；修正人 {item.actor}；{formatTime(item.at)}
+              </li>
+            ))}
+          </ul>
+          <p className="trace-hint">人工修正只改证据关系，不改原始搜索返回与网页摘录；原始判断在每条来源里同时保留。</p>
+        </section>
+      ) : null}
+
       <section className="trace-block">
         <div className="trace-section-head">
           <h2>来源清单</h2>
@@ -219,7 +332,9 @@ export function Archive() {
       <section className="trace-block">
         <div className="trace-section-head">
           <h2>下载与复查</h2>
-          <span>{files.length} 个文件</span>
+          <span>
+            {shown ? `第 ${shown.revision} 版` : ""} {files.length} 个文件
+          </span>
         </div>
         <div className="trace-downloads">
           {files.map((file) => (
@@ -239,7 +354,25 @@ export function Archive() {
         </div>
         <p className="trace-hint">
           档案在导出步骤生成并记录 SHA-256；最终完成状态以运行凭证为准，凭证会逐个校验文件摘要。
+          每个版本的档案一经生成即固定：这一版下载的永远是这一版的结论与来源。
         </p>
+        {versions.length > 1 ? (
+          <details className="trace-details">
+            <summary>全部版本的档案文件（{versions.length} 版）</summary>
+            <ul className="trace-version-files">
+              {versions.map((item) => (
+                <li key={item.revision}>
+                  <span>第 {item.revision} 版 · {formatTime(item.at)}</span>
+                  {item.artifacts.map((file) => (
+                    <a key={file.id} className="trace-link" href={client.artifactUrl(run.id, file.id)} download={file.filename}>
+                      {file.filename}
+                    </a>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
       </section>
 
       <details className="trace-details trace-tech">
@@ -314,6 +447,13 @@ function KeyEvidence({ source }: { source: SourceAssessment }) {
         <span>{source.bodyAvailable ? "原文正文" : "搜索摘要"}</span>
         {source.duplicate ? <span>同源转载</span> : null}
       </div>
+      {source.manualCorrection ? (
+        <p className="trace-evidence-reprint">
+          {source.autoRelation
+            ? `人工修正：系统自动判断为「${relationText[source.autoRelation]}」，${source.manualCorrection.actor} 改为「${relationText[source.relation]}」：${source.manualCorrection.note}`
+            : `人工修正：${source.manualCorrection.actor} 确认为「${relationText[source.relation]}」：${source.manualCorrection.note}`}
+        </p>
+      ) : null}
       {quote ? <blockquote className="trace-quote">{quote}</blockquote> : null}
     </article>
   );

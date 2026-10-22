@@ -593,8 +593,14 @@ export class Engine {
     content: string,
     mime: string,
     signal: AbortSignal,
+    // 已交付的调查允许在完成后再落一个新版本的文件；此时不再要求 run 处于 running。
+    options: { requireActive?: boolean } = {},
   ): Promise<ArtifactRecord> {
-    this.assertActive(rid, signal);
+    const guard = () => {
+      if (options.requireActive !== false) this.assertActive(rid, signal);
+      signal.throwIfAborted();
+    };
+    guard();
     if (
       filename !== basename(filename) ||
       /[\\/\x00-\x1f]/.test(filename) ||
@@ -634,9 +640,9 @@ export class Engine {
     await mkdir(dir, { recursive: true });
     await writeFile(temp, content, { flag: "wx" });
     try {
-      this.assertActive(rid, signal);
+      guard();
       await rename(temp, path);
-      this.assertActive(rid, signal);
+      guard();
       const at = now(),
         bytes = Buffer.byteLength(content);
       this.store.exec(

@@ -1444,3 +1444,215 @@
     gap: 10px;
   }
 }
+
+/* ── 版本与人工修正（本轮新增）────────────────────────────────
+   所有新块都按移动端 390px 先写：可换行、可断词、不撑宽。      */
+
+.trace-sample-expect,
+.trace-sample-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.trace-sample-expect {
+  color: var(--trace-ink);
+  opacity: 0.82;
+}
+.trace-sample-hint {
+  color: var(--trace-accent);
+  background: #f4f7f5;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.trace-sample-tag[data-kind="C"] {
+  color: var(--unclear);
+}
+
+.trace-versions {
+  border: 1px solid var(--trace-line);
+  border-radius: 12px;
+  padding: 14px;
+  background: #fdfcfa;
+  display: grid;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+.trace-versions[data-dirty="true"] {
+  border-color: #d8c9a8;
+  background: #fffdf6;
+}
+.trace-versions-head {
+  display: grid;
+  gap: 3px;
+}
+.trace-versions-head strong {
+  font-size: 14px;
+  color: var(--trace-ink);
+}
+.trace-versions-head span {
+  font-size: 12px;
+  color: var(--trace-sub);
+}
+.trace-versions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.trace-verdict-changes {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--trace-ink);
+  overflow-wrap: anywhere;
+}
+
+.trace-versionbar {
+  border: 1px solid var(--trace-line);
+  border-radius: 12px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--card);
+  overflow-wrap: anywhere;
+}
+.trace-versionbar-head {
+  display: grid;
+  gap: 3px;
+}
+.trace-versionbar-head strong {
+  font-size: 14px;
+}
+.trace-versionbar-head span {
+  font-size: 12px;
+  color: var(--trace-sub);
+}
+.trace-versionbar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.trace-version-chip {
+  display: inline-grid;
+  gap: 1px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--trace-line);
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--trace-ink);
+  cursor: pointer;
+}
+.trace-version-chip small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--trace-sub);
+}
+.trace-version-chip[data-active="true"] {
+  border-color: var(--trace-accent);
+  background: #f2f7f4;
+  color: var(--trace-accent);
+}
+.trace-version-chip-current {
+  border-style: dashed;
+}
+.trace-versionbar-pending {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fffaf0;
+  border: 1px solid #ecdcbd;
+}
+.trace-versionbar-pending strong {
+  font-size: 13px;
+  color: #7c5a12;
+}
+.trace-version-changes {
+  border-top: 1px dashed var(--trace-line);
+  padding-top: 8px;
+}
+.trace-version-changes summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--trace-accent);
+  margin-bottom: 6px;
+}
+.trace-version-files {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.trace-version-files li {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #faf9f6;
+}
+
+.trace-evidence-fixed {
+  color: #7c5a12;
+  font-weight: 600;
+}
+
+.trace-correct {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px dashed #d8c9a8;
+  border-radius: 10px;
+  background: #fffdf6;
+  overflow-wrap: anywhere;
+}
+.trace-correct-head {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--trace-ink);
+  display: grid;
+  gap: 2px;
+}
+.trace-correct-head span {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--trace-sub);
+}
+.trace-correct-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.trace-correct-option {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--trace-line);
+  background: #fff;
+  font-size: 12.5px;
+  color: var(--trace-ink);
+  cursor: pointer;
+}
+.trace-correct-option[data-active="true"] {
+  border-color: var(--trace-accent);
+  background: #f2f7f4;
+  color: var(--trace-accent);
+  font-weight: 600;
+}
+.trace-correct-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.trace-correct .trace-input {
+  width: 100%;
+}

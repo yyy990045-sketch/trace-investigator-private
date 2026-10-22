@@ -7,14 +7,18 @@ import {
   bundleOf,
   client,
   fetchAssessment,
+  fetchRevisions,
   followupsOf,
   outcomeText,
   pendingApproval,
+  postCorrection,
   postFollowup,
   postReassess,
+  postRedeliver,
   stepOf,
   type FactAssessment,
   type FollowupRecord,
+  type Relation,
   type SourceAssessment,
 } from "../api";
 import { BackLink, FactBlock, StepRail, Tag, formatTime } from "../components";
@@ -23,7 +27,7 @@ export function Case() {
   const { runId = "" } = useParams();
   const cache = useQueryClient();
   const [actor, setActor] = useState("本机操作者");
-  const [busy, setBusy] = useState<"approve" | "reject" | "retry" | "followup" | null>(null);
+  const [busy, setBusy] = useState<"approve" | "reject" | "retry" | "followup" | "redeliver" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ factId?: string; label?: string; query: string } | null>(null);
   const [followupError, setFollowupError] = useState<string | null>(null);
@@ -40,9 +44,17 @@ export function Case() {
     enabled: !!run && run.steps.some((step) => step.capabilityId === "trace.evidence.verify" && step.output),
   });
 
+  const revisionsQuery = useQuery({
+    queryKey: ["revisions", runId],
+    queryFn: () => fetchRevisions(runId),
+    enabled: !!run && run.status !== "queued",
+  });
+
   const bundle = run ? bundleOf(run) : null;
   const assessment = assessmentQuery.data?.assessment ?? bundle?.assessment;
   const followups: FollowupRecord[] = run ? followupsOf(run) : [];
+  const revisions = revisionsQuery.data;
+  const pendingVersion = revisions && revisions.dirty && revisions.revisions.length ? revisions : null;
 
   const freshPageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -142,6 +154,41 @@ export function Case() {
     }
   }
 
+  async function correct(source: SourceAssessment, relation: Relation, note: string) {
+    const current = runQuery.data;
+    if (!current) return "调查记录已失效，请刷新页面。";
+    try {
+      await postCorrection(current.id, {
+        pageId: source.pageId,
+        factId: factIdOf(source, assessment?.facts as FactAssessment[] | undefined),
+        relation,
+        note,
+        actor: actor.trim() || "本机操作者",
+      });
+      // 修正保存后立刻用同一套规则重算；结论变化要在页面上看得见。
+      await postReassess(current.id);
+      await Promise.all([runQuery.refetch(), assessmentQuery.refetch(), revisionsQuery.refetch()]);
+      return null;
+    } catch (e) {
+      return (e as Error).message;
+    }
+  }
+
+  async function redeliver() {
+    const current = runQuery.data;
+    if (!current) return;
+    setBusy("redeliver");
+    setError(null);
+    try {
+      await postRedeliver(current.id, actor.trim() || "本机操作者");
+      await Promise.all([runQuery.refetch(), revisionsQuery.refetch()]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="trace-page trace-page-wide">
       <header className="trace-masthead">
@@ -165,6 +212,61 @@ export function Case() {
       </header>
 
       <StepRail run={run} />
+
+      {revisions && revisions.revisions.length ? (
+        <section className="trace-versions" data-dirty={pendingVersion ? "true" : "false"}>
+          <div className="trace-versions-head">
+            <strong>
+              已交付第 {revisions.deliveredRevision} 版
+              {pendingVersion ? "，当前结论有新变化待确认" : "，当前结论与档案一致"}
+            </strong>
+            <span>
+              交付时间 {formatTime(revisions.revisions[revisions.revisions.length - 1]?.at)} ·{" "}
+              {revisions.revisions[revisions.revisions.length - 1]?.actor}
+            </span>
+          </div>
+          {pendingVersion ? (
+            <>
+              <ul className="trace-verdict-changes">
+                {revisions.changes.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <div className="trace-versions-actions">
+                <label className="trace-label trace-actor-inline" htmlFor="trace-redeliver-actor">
+                  确认人
+                  <input
+                    id="trace-redeliver-actor"
+                    className="trace-input"
+                    maxLength={80}
+                    value={actor}
+                    onChange={(e) => setActor(e.target.value)}
+                  />
+                </label>
+                <button className="trace-btn trace-btn-primary" onClick={redeliver} disabled={busy !== null}>
+                  {busy === "redeliver"
+                    ? "正在生成新版本…"
+                    : `重新确认，生成第 ${revisions.deliveredRevision + 1} 版档案`}
+                </button>
+                <a className="trace-link" href={`/archive/${run.id}`}>
+                  先看当前结论与旧版本
+                </a>
+              </div>
+              <p className="trace-hint">
+                第 {revisions.deliveredRevision} 版档案不会被改写；重新确认后会另存为
+                「调查档案-v{revisions.deliveredRevision + 1}.md/.json」，旧链接仍然下载旧版本。
+              </p>
+            </>
+          ) : (
+            <div className="trace-versions-actions">
+              <a className="trace-link" href={`/archive/${run.id}`}>
+                查看已交付档案与版本记录
+              </a>
+            </div>
+          )}
+          {error && pendingVersion ? <div className="trace-alert">{error}</div> : null}
+        </section>
+      ) : null}
 
       {run.status === "failed" ? (
         <div className="trace-alert">
@@ -219,7 +321,10 @@ export function Case() {
         <section className="trace-next">
           <div>
             <h2>这次调查已经成档</h2>
-            <p>结论、关键证据、矛盾与未解问题都在档案页，可以下载 Markdown / JSON。</p>
+            <p>
+              结论、关键证据、矛盾与未解问题都在档案页，可以下载 Markdown / JSON。
+              {pendingVersion ? " 追加的检索与修正在这里重算，但还没有生成新版本档案。" : ""}
+            </p>
           </div>
           <a className="trace-btn trace-btn-primary" href={`/archive/${run.id}`}>
             打开调查档案 <ArrowRight size={14} />
@@ -263,6 +368,7 @@ export function Case() {
               clusters={clusters}
               freshPageIds={freshPageIds}
               onFollowup={(item, source) => openComposer(item, source)}
+              onCorrect={running ? undefined : (source, relation, note) => correct(source, relation, note)}
             />
           ))}
         </section>
@@ -385,4 +491,10 @@ export function Case() {
       </div>
     </div>
   );
+}
+
+/** 这条来源属于哪条事实：人工修正要同时记录事实与来源，重算才能定位。 */
+function factIdOf(source: SourceAssessment, facts?: FactAssessment[]) {
+  const hit = (facts || []).find((fact) => fact.sources.some((item) => item.pageId === source.pageId));
+  return hit?.factId || (facts?.[0]?.factId ?? "fact-1");
 }

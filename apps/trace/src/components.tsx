@@ -1,4 +1,5 @@
 /** TRACE 共用视图组件：只渲染真实运行数据，不引入演示内容。 */
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { RunRecord } from "@personal/capability-sdk";
 import {
@@ -45,18 +46,54 @@ const originalityText: Record<SourceAssessment["originality"], string> = {
   unknown: "出处未判定",
 };
 
+export type CorrectHandler = (
+  source: SourceAssessment,
+  relation: Relation,
+  note: string,
+) => Promise<string | null>;
+
+/** 可人工修正的四种关系；「存在争议/无可用来源」是事实级结论，不在单条证据上选。 */
+const correctable: Relation[] = ["supports", "contradicts", "unclear", "irrelevant"];
+
 export function SourceCard({
   source,
   cluster,
   onFollowup,
+  onCorrect,
   fresh,
 }: {
   source: SourceAssessment;
   cluster?: SourceCluster;
   onFollowup?: (source: SourceAssessment) => void;
+  onCorrect?: CorrectHandler;
   fresh?: boolean;
 }) {
   const keyText = source.bodyExcerpt || source.excerpt;
+  const [open, setOpen] = useState(false);
+  const [relation, setRelation] = useState<Relation>(source.relation);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const corrected = source.manualCorrection || null;
+
+  async function save() {
+    if (!onCorrect || busy) return;
+    if (note.trim().length < 2) {
+      setError("请写一句修正原因，便于别人复核。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const message = await onCorrect(source, relation, note.trim());
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setOpen(false);
+    setNote("");
+  }
+
   return (
     <article className="trace-evidence" data-relation={source.relation} data-duplicate={source.duplicate ? "true" : "false"}>
       <div className="trace-evidence-head">
@@ -71,7 +108,15 @@ export function SourceCard({
         <span>{source.bodyAvailable ? "原文正文已取" : "仅搜索摘要"}</span>
         <span>{originalityText[source.originality]}</span>
         {fresh ? <span className="trace-evidence-fresh">本次追问新增</span> : null}
+        {corrected ? <span className="trace-evidence-fixed">人工修正</span> : null}
       </div>
+      {corrected ? (
+        <p className="trace-evidence-reprint">
+          {source.autoRelation
+            ? `系统自动判断为「${relationText[source.autoRelation]}」，已由 ${corrected.actor} 修正为「${relationText[source.relation]}」：${corrected.note}`
+            : `已由 ${corrected.actor} 人工确认为「${relationText[source.relation]}」：${corrected.note}`}
+        </p>
+      ) : null}
       {source.duplicate && cluster ? (
         <p className="trace-evidence-reprint">
           与「{cluster.primary.site}」为同一原始内容，按 1 条独立证据计算。
@@ -92,6 +137,20 @@ export function SourceCard({
             就这条继续追问
           </button>
         ) : null}
+        {onCorrect ? (
+          <button
+            type="button"
+            className="trace-link trace-link-button"
+            aria-expanded={open}
+            onClick={() => {
+              setError(null);
+              setRelation(source.relation === "mixed" || source.relation === "none" ? "unclear" : source.relation);
+              setOpen((value) => !value);
+            }}
+          >
+            {open ? "取消修正" : corrected ? "再次修正这条判断" : "修正这条判断"}
+          </button>
+        ) : null}
         <details className="trace-evidence-why">
           <summary>为什么这样判断</summary>
           <ul className="trace-notes">
@@ -102,6 +161,43 @@ export function SourceCard({
           </ul>
         </details>
       </div>
+      {open ? (
+        <div className="trace-correct">
+          <p className="trace-correct-head">
+            这条来源与事实的关系应该是？
+            <span>只改判断，不改原始搜索返回与摘录。</span>
+          </p>
+          <div className="trace-correct-options" role="radiogroup" aria-label="选择正确的证据关系">
+            {correctable.map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="radio"
+                aria-checked={relation === item}
+                data-active={relation === item ? "true" : "false"}
+                className="trace-correct-option"
+                onClick={() => setRelation(item)}
+              >
+                {relationText[item]}
+              </button>
+            ))}
+          </div>
+          <input
+            className="trace-input"
+            maxLength={200}
+            value={note}
+            placeholder="一句话说明为什么（例如：原文标题已明确写出投运时间）"
+            onChange={(event) => setNote(event.target.value)}
+          />
+          {error ? <div className="trace-alert">{error}</div> : null}
+          <div className="trace-correct-actions">
+            <button type="button" className="trace-btn trace-btn-primary" onClick={save} disabled={busy}>
+              {busy ? "正在重算…" : "保存修正并重算结论"}
+            </button>
+            <span className="trace-hint">重算后结论若变化，需要重新确认才会生成新版本档案。</span>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -114,12 +210,14 @@ export function FactBlock({
   clusters,
   freshPageIds,
   onFollowup,
+  onCorrect,
 }: {
   fact: FactAssessment;
   factId: string;
   clusters: SourceCluster[];
   freshPageIds: Set<string>;
   onFollowup: (fact: FactAssessment, source?: SourceAssessment) => void;
+  onCorrect?: CorrectHandler;
 }) {
   const clusterById = new Map(clusters.map((cluster) => [cluster.id, cluster]));
   const sorted = [...fact.sources].sort(
@@ -164,6 +262,7 @@ export function FactBlock({
               cluster={clusterById.get(source.clusterId)}
               fresh={freshPageIds.has(source.pageId)}
               onFollowup={(item) => onFollowup(fact, item)}
+              onCorrect={onCorrect}
             />
           ))}
         </div>

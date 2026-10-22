@@ -195,9 +195,15 @@ export function Entry() {
               key={sample.id}
               onClick={() => applySample(index)}
             >
-              <span className="trace-sample-tag">{sample.tag}</span>
+              <span className="trace-sample-tag" data-kind={sample.kind}>
+                {sample.tag}
+              </span>
               <span className="trace-sample-question">{sample.question}</span>
               <span className="trace-sample-note">{sample.note}</span>
+              <span className="trace-sample-expect">你会看到：{sample.expect}</span>
+              {sample.followupHint ? (
+                <span className="trace-sample-hint">证据不足时，用这句继续追问：{sample.followupHint}</span>
+              ) : null}
               <span className="trace-sample-cta">
                 带入这个问题 <ArrowRight size={13} />
               </span>
@@ -317,9 +323,13 @@ export function Entry() {
 
       <section className="trace-recent-block">
         <div className="trace-section-head">
-          <h2>最近的调查</h2>
+          <h2>历史调查记录</h2>
           <span>{runs.data ? `${recent.length} 条本机记录` : "读取中"}</span>
         </div>
+        <p className="trace-hint">
+          这些是这台机器上真实跑过的调查记录，打开看到的是当时检索到的来源与结论，不是现在正在联网查询。
+          想跑一次新的，用上面任意一个案例或自己写一句说法。
+        </p>
         {runs.isError ? (
           <div className="trace-alert">{(runs.error as Error).message}</div>
         ) : recent.length ? (
@@ -335,7 +345,7 @@ export function Entry() {
                   <a href={target}>{claimText}</a>
                   <span className="trace-recent-meta">
                     {run.status === "completed" ? (
-                      <Tag tone="support">已成档</Tag>
+                      <Tag tone="support">已归档</Tag>
                     ) : run.status === "failed" ? (
                       <Tag tone="oppose">失败</Tag>
                     ) : run.status === "waiting_approval" ? (

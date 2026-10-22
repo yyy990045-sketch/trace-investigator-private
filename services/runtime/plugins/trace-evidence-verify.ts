@@ -12,6 +12,7 @@ import { type CapabilityDefinition } from "../src/contracts.ts";
 import {
   aggregateCase,
   assessFact,
+  buildStatement,
   clusterSources,
   openQuestions,
   outcomeLabel,
@@ -193,21 +194,3 @@ export default {
     };
   },
 } satisfies CapabilityDefinition;
-
-function buildStatement(
-  claim: string,
-  verdict: { outcome: string; headline: string; reasons: string[]; counts: { independentSources: number; bodyAvailable: number } },
-) {
-  const suffix =
-    `已检索 ${verdict.counts.independentSources} 个独立来源、${verdict.counts.bodyAvailable} 份原文正文。` +
-    verdict.reasons.join(" ");
-  if (verdict.outcome === "supported")
-    return `就「${claim}」而言，现有公开来源支持该说法。${verdict.headline}${suffix}仍需人工复核关键原文后再作为正式依据。`;
-  if (verdict.outcome === "contradicted")
-    return `就「${claim}」而言，现有公开来源与待核查说法相反。${suffix}`;
-  if (verdict.outcome === "disputed")
-    return `就「${claim}」而言，公开来源存在相互矛盾的说法，本档案不单方面下结论。${suffix}`;
-  if (verdict.outcome === "outdated")
-    return `就「${claim}」而言，现有来源时效或原文依据不足，不能视为当前有效结论。${suffix}`;
-  return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;
-}

@@ -60,6 +60,10 @@ export interface SourceAssessment {
   duplicate: boolean;
   dateStatus: "in_range" | "out_of_range" | "unknown";
   dateNote: string;
+  /** 人工修正后保留的系统自动判断 */
+  autoRelation?: Relation;
+  /** 人工修正记录（不覆盖原始搜索返回与摘录） */
+  manualCorrection?: { relation: Relation; note: string; actor: string; at: string } | null;
 }
 
 export interface FactAssessment {
@@ -674,6 +678,25 @@ export function outcomeLabel(outcome: Outcome) {
   }
 }
 
+
+/**
+ * 结论一句话：首版档案与新版本档案都必须用同一句，否则版本之间会出现
+ * 「v1 有结论、v2 只剩 headline」这种不可比对的情况。
+ */
+export function buildStatement(claim: string, verdict: CaseAssessment) {
+  const suffix =
+    `已检索 ${verdict.counts.independentSources} 个独立来源、${verdict.counts.bodyAvailable} 份原文正文。` +
+    verdict.reasons.join(" ");
+  if (verdict.outcome === "supported")
+    return `就「${claim}」而言，现有公开来源支持该说法。${verdict.headline}${suffix}仍需人工复核关键原文后再作为正式依据。`;
+  if (verdict.outcome === "contradicted")
+    return `就「${claim}」而言，现有公开来源与待核查说法相反。${suffix}`;
+  if (verdict.outcome === "disputed")
+    return `就「${claim}」而言，公开来源存在相互矛盾的说法，本档案不单方面下结论。${suffix}`;
+  if (verdict.outcome === "outdated")
+    return `就「${claim}」而言，现有来源时效或原文依据不足，不能视为当前有效结论。${suffix}`;
+  return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;
+}
 export interface SourceCluster {
   id: string;
   /** 该簇里最适合当作原始出处的一条（有正文且得分最高） */
@@ -758,4 +781,92 @@ export function openQuestions(facts: FactAssessment[]): string[] {
       notes.push(`检索命中的 ${fact.irrelevant} 条网页与该事实无关，建议换更具体的检索式。`);
   }
   return [...new Set(notes)].slice(0, 6);
+}
+
+
+const RELATION_LABEL: Record<string, string> = {
+  supports: "支持",
+  contradicts: "反对",
+  unclear: "无法确认",
+  irrelevant: "无关",
+};
+
+export interface CorrectionRecord {
+  pageId: string;
+  factId: string;
+  relation: Relation;
+  note: string;
+  actor: string;
+  at: string;
+}
+
+/**
+ * 把人工修正应用到一条事实的来源判定上。
+ *
+ * 约束：
+ *  - 只改「关系」这一个判断，不动原始搜索返回、摘要与原文摘录；
+ *  - 保留系统自动判断（autoRelation）与修正人/原因/时间，档案里两者都写；
+ *  - 修正后按与自动判定完全相同的规则重算计数与结论，不另立标准。
+ */
+export function applyCorrections(fact: FactAssessment, corrections: CorrectionRecord[]): FactAssessment {
+  const relevant = corrections.filter((item) => item.factId === fact.factId);
+  if (!relevant.length) return fact;
+
+  const sources = fact.sources.map((source) => {
+    const latest = relevant
+      .filter((item) => item.pageId === source.pageId)
+      .sort((a, b) => a.at.localeCompare(b.at))
+      .pop();
+    if (!latest) return source;
+    const autoRelation = source.autoRelation || source.relation;
+    return {
+      ...source,
+      relation: latest.relation,
+      autoRelation,
+      manualCorrection: {
+        relation: latest.relation,
+        note: latest.note,
+        actor: latest.actor,
+        at: latest.at,
+      },
+      reasons: [
+        `人工修正：${latest.actor} 将关系由「${RELATION_LABEL[autoRelation] || autoRelation}」改为「${RELATION_LABEL[latest.relation] || latest.relation}」，原因：${latest.note}`,
+        ...source.reasons,
+      ],
+    };
+  });
+
+  const supportClusters = new Set(
+    sources.filter((s) => s.relation === "supports" && s.dateStatus !== "out_of_range").map((s) => s.clusterId),
+  );
+  const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts").map((s) => s.clusterId));
+  const bodyBacked = new Set(
+    sources
+      .filter((s) => s.relation === "supports" && s.bodyAvailable && s.dateStatus !== "out_of_range")
+      .map((s) => s.clusterId),
+  );
+
+  let relation: FactAssessment["relation"] = "none";
+  if (supportClusters.size && opposeClusters.size) relation = "mixed";
+  else if (supportClusters.size) relation = "supports";
+  else if (opposeClusters.size) relation = "contradicts";
+
+  return {
+    ...fact,
+    sources,
+    relation,
+    independentClusters: supportClusters.size + opposeClusters.size,
+    bodyBackedClusters: bodyBacked.size,
+    supports: sources.filter((s) => s.relation === "supports").length,
+    contradicts: sources.filter((s) => s.relation === "contradicts").length,
+    unclear: sources.filter((s) => s.relation === "unclear").length,
+    irrelevant: sources.filter((s) => s.relation === "irrelevant").length,
+    outOfRangeSupports: sources.filter(
+      (s) => s.relation === "supports" && s.dateStatus === "out_of_range",
+    ).length,
+    reasons: [
+      `其中 ${relevant.length} 条关系经人工修正（原始自动判断保留）。`,
+      ...fact.reasons.filter((reason) => !reason.startsWith("其中 ")),
+    ],
+  };
 }

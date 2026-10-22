@@ -1,39 +1,64 @@
 /**
- * TRACE 追问与重算端点。
+ * TRACE 调查端点：追问、人工纠正、结论重算与版本化交付。
  *
- * 为什么单独放在这里：调查是「有结论之后还要继续查」的产品，
- * 而通用引擎的执行链是一次性的线性步骤。这里只做两件引擎之外的事：
- *  1. 针对某条事实追加一次真实检索与原文抓取，写进同一个 run 的证据表；
- *  2. 把追加结果合并回原卷宗，重算判定与结论，作为新的评估记录。
+ * 为什么放在引擎之外：通用引擎的执行链是一次性的线性步骤，而调查是
+ * 「有结论之后还要继续查、还要纠正、还要出新版本」的产品。这里只做引擎之外的事：
+ *  1. 追加真实检索并把结果并入同一条 run 的证据表；
+ *  2. 记录人工对证据关系的纠正（不改原始搜索返回与摘录）；
+ *  3. 用同一套规则重算结论（自动判断 + 人工修正），生成新的评估记录；
+ *  4. 重新确认时写新版本档案，旧版本文件与旧结论原样保留。
  *
- * 不伪造任何执行：检索走元宝搜索适配器，原文走抓取适配器，
- * 判定走同一套规则；每次追加都写入 evidence 与 run 事件链。
+ * 不伪造任何执行：检索走元宝搜索适配器，原文走抓取适配器，判定走同一套规则。
+ * 所有追加都写入 evidence 与 run 事件链，可复查。
  */
 import type { FastifyInstance } from "fastify";
 import { ExecutionError } from "./contracts.ts";
 import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
+import type { Engine } from "./engine.ts";
 import { searchConfiguration, searchPro } from "../adapters/trace/searchpro.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
+import { renderArchive } from "../adapters/trace/archive.ts";
 import {
   aggregateCase,
+  applyCorrections,
   assessFact,
+  buildStatement,
   clusterSources,
   openQuestions,
+  outcomeLabel,
   summarizeClusters,
   type AnalysablePage,
+  type CorrectionRecord,
 } from "../adapters/trace/analyze.ts";
 
 const FOLLOWUP_KIND = "trace.followup";
 const REASSESS_KIND = "trace.reassessment";
+const CORRECTION_KIND = "trace.correction";
+const REVISION_KIND = "trace.revision";
 const MAX_FOLLOWUP_PAGES = 5;
 const MAX_FOLLOWUP_BODIES = 3;
+const RELATIONS = ["supports", "contradicts", "unclear", "irrelevant"] as const;
+
+type Relation = (typeof RELATIONS)[number];
+
+interface RevisionRecord {
+  revision: number;
+  at: string;
+  actor: string;
+  artifacts: { id: string; filename: string; bytes: number; sha256: string }[];
+  assessment: any;
+  followupCount: number;
+  correctionCount: number;
+  changes: string[];
+  derived?: boolean;
+}
 
 function traceRun(store: Store, runId: string) {
   const run = store.run(runId);
   if (!run) throw new ExecutionError("RUN_NOT_FOUND", "调查记录不存在。");
-  const isTrace = run.assembly.some((step) => String(step.capabilityId).startsWith("trace."));
-  if (!isTrace) throw new ExecutionError("NOT_TRACE_RUN", "这不是一次调查记录。");
+  if (!run.assembly.some((step) => String(step.capabilityId).startsWith("trace.")))
+    throw new ExecutionError("NOT_TRACE_RUN", "这不是一次调查记录。");
   return run;
 }
 
@@ -61,8 +86,225 @@ function recordEvidence(store: Store, runId: string, kind: string, data: unknown
   store.event(runId, kind, { type: kind, recordedAt: now() });
 }
 
-export function registerTraceEndpoints(app: FastifyInstance, store: Store) {
-  // 追加一次真实检索：结果并入同一个调查记录。
+function baseBundle(run: ReturnType<typeof traceRun>) {
+  const step =
+    run.steps.find((item) => item.capabilityId === "trace.evidence.verify" && item.output) ||
+    run.steps.find((item) => item.capabilityId === "trace.web.search" && item.output);
+  const bundle = step?.output as any;
+  if (!bundle?.case?.facts?.length)
+    throw new ExecutionError("NO_BASELINE", "这次调查还没有可重算的检索结果。");
+  return bundle;
+}
+
+function followupsOf(run: ReturnType<typeof traceRun>) {
+  return run.evidence.filter((item) => item.kind === FOLLOWUP_KIND).map((item) => item.data as any);
+}
+
+function correctionsOf(run: ReturnType<typeof traceRun>): (CorrectionRecord & { autoRelation?: string })[] {
+  return run.evidence
+    .filter((item) => item.kind === CORRECTION_KIND)
+    .map((item) => item.data as CorrectionRecord & { autoRelation?: string });
+}
+
+/** 合并原始检索、追问结果与人工修正，重算整份评估。 */
+function buildAssessment(run: ReturnType<typeof traceRun>) {
+  const bundle = baseBundle(run);
+  const followups = followupsOf(run);
+  const corrections = correctionsOf(run);
+
+  const pageMap = new Map<string, AnalysablePage>();
+  for (const page of bundle.pages || []) pageMap.set(page.id, page);
+  const bodyTexts: Record<string, { ok: boolean; text: string; reprintMarkers: string[] }> = {
+    ...(bundle.bodyTexts || {}),
+  };
+  for (const followup of followups) {
+    for (const page of followup.pages || []) pageMap.set(page.id, page);
+    for (const body of followup.bodies || [])
+      bodyTexts[body.pageId] = { ok: body.ok, text: body.text || "", reprintMarkers: body.reprintMarkers || [] };
+  }
+  const pages = [...pageMap.values()];
+  const clusterOf = clusterSources(pages);
+  const groups = new Map<string, AnalysablePage[]>();
+  for (const page of pages) {
+    const key = clusterOf.get(page.id) || "cluster-0";
+    groups.set(key, [...(groups.get(key) || []), page]);
+  }
+  const duplicatePages = new Set<string>();
+  for (const [, group] of groups) {
+    const ranked = [...group].sort(
+      (a, b) =>
+        Number(bodyTexts[b.id]?.ok === true) - Number(bodyTexts[a.id]?.ok === true) ||
+        (b.score || 0) - (a.score || 0),
+    );
+    for (const page of ranked.slice(1)) duplicatePages.add(page.id);
+  }
+  const bodies = new Map(
+    pages.map((page) => [
+      page.id,
+      {
+        ok: bodyTexts[page.id]?.ok === true,
+        text: bodyTexts[page.id]?.text || "",
+        reprintMarkers: bodyTexts[page.id]?.reprintMarkers || [],
+      },
+    ]),
+  );
+
+  const assessments = (bundle.case.facts as any[]).map((fact) =>
+    applyCorrections(assessFact({ fact, pages, bodies, clusterOf, duplicatePages }), corrections),
+  );
+  const independentSources = new Set(
+    pages.filter((page) => !duplicatePages.has(page.id)).map((page) => clusterOf.get(page.id)),
+  ).size;
+  const bodyAvailable = [...bodies.values()].filter((body) => body.ok).length;
+  const search = bundle.search || {};
+  const claim = bundle.case?.claim || bundle.case?.question || "";
+  const aggregated = aggregateCase({
+    facts: assessments,
+    searchSummary: {
+      total: (Number(search.totalQueries) || 0) + followups.length,
+      failed: Number(search.failedQueries) || 0,
+      empty: Number(search.emptyQueries) || 0,
+    },
+    pageCount: pages.length,
+    bodyCount: bodyAvailable,
+    independentSourceCount: independentSources,
+    searchedOk: true,
+  });
+  // 与首版档案同一句结论，避免不同版本之间结论文本不可比对。
+  const verdict = { ...aggregated, statement: buildStatement(claim, aggregated) };
+  const assessment = {
+    facts: assessments,
+    verdict,
+    independentSources,
+    bodyAvailable,
+    clusters: summarizeClusters(
+      [...new Map(assessments.flatMap((item) => item.sources).map((source) => [source.pageId, source])).values()],
+      bodies,
+      pages,
+    ),
+    openQuestions: openQuestions(assessments),
+    followupCount: followups.length,
+    correctionCount: corrections.length,
+    pageCount: pages.length,
+    corrections,
+  };
+  return { bundle, assessment };
+}
+
+/**
+ * 已交付版本：从证据表读。
+ * 老记录（改版前交付、没有版本证据）用首版交付的产物合成一条，避免历史调查没有版本可看；
+ * 若已存在第 2 版及以后的记录，但首版文件仍在，也补一条首版，保证版本链从 1 开始。
+ */
+function revisionsOf(run: ReturnType<typeof traceRun>): RevisionRecord[] {
+  const stored = run.evidence
+    .filter((item) => item.kind === REVISION_KIND)
+    .map((item) => item.data as RevisionRecord)
+    .sort((a, b) => a.revision - b.revision);
+  const verify = run.steps.find((step) => step.capabilityId === "trace.evidence.verify");
+  const exportStep = run.steps.find((step) => step.capabilityId === "trace.archive.export");
+
+  if (stored.length) {
+    const known = new Set(stored.flatMap((item) => item.artifacts.map((artifact) => artifact.filename)));
+    const legacy = run.artifacts.filter((artifact) => !known.has(artifact.filename));
+    if (stored[0].revision > 1 && legacy.length)
+      return [
+        {
+          revision: 1,
+          at: exportStep?.finishedAt || legacy[0].createdAt || run.updatedAt,
+          actor: "首次交付（人工确认节点）",
+          artifacts: legacy.map((artifact) => ({
+            id: artifact.id,
+            filename: artifact.filename,
+            bytes: artifact.bytes,
+            sha256: artifact.sha256,
+          })),
+          assessment: (verify?.output as any)?.assessment || null,
+          followupCount: 0,
+          correctionCount: 0,
+          changes: [],
+          derived: true,
+        },
+        ...stored,
+      ];
+    return stored;
+  }
+  if (!run.artifacts.length) return [];
+  return [
+    {
+      revision: 1,
+      at: exportStep?.finishedAt || run.updatedAt,
+      actor: "首次交付（人工确认节点）",
+      artifacts: run.artifacts.map((artifact) => ({
+        id: artifact.id,
+        filename: artifact.filename,
+        bytes: artifact.bytes,
+        sha256: artifact.sha256,
+      })),
+      assessment: (verify?.output as any)?.assessment || null,
+      followupCount: 0,
+      correctionCount: 0,
+      changes: [],
+      derived: true,
+    },
+  ];
+}
+
+const RELATION_TEXT: Record<string, string> = {
+  supports: "支持",
+  contradicts: "反对",
+  unclear: "无法确认",
+  irrelevant: "无关",
+  mixed: "存在争议",
+  none: "无可用来源",
+};
+
+function describeChanges(previous: any, current: any, context: { followups: number; corrections: number }) {
+  const changes: string[] = [];
+  if (!previous) return changes;
+  const before = previous.verdict?.outcome;
+  const after = current.verdict?.outcome;
+  if (before && after && before !== after)
+    changes.push(`结论由「${outcomeLabel(before)}」变为「${outcomeLabel(after)}」。`);
+  const sourceDelta = (current.independentSources || 0) - (previous.independentSources || 0);
+  if (sourceDelta)
+    changes.push(
+      `独立来源由 ${previous.independentSources || 0} 个变为 ${current.independentSources || 0} 个（${
+        sourceDelta > 0 ? "+" : ""
+      }${sourceDelta}）。`,
+    );
+  const bodyDelta = (current.bodyAvailable || 0) - (previous.bodyAvailable || 0);
+  if (bodyDelta)
+    changes.push(
+      `取得原文正文的来源由 ${previous.bodyAvailable || 0} 个变为 ${current.bodyAvailable || 0} 个。`,
+    );
+
+  const beforeFacts = new Map<string, any>(
+    (previous.facts || []).map((fact: any) => [fact.factId, fact]),
+  );
+  for (const fact of current.facts || []) {
+    const old = beforeFacts.get(fact.factId);
+    if (!old) continue;
+    const title = String(fact.fact || "").slice(0, 24);
+    if (old.relation !== fact.relation)
+      changes.push(
+        `事实「${title}」的判断由「${RELATION_TEXT[old.relation] || old.relation}」变为「${
+          RELATION_TEXT[fact.relation] || fact.relation
+        }」。`,
+      );
+    if ((old.independentClusters || 0) !== (fact.independentClusters || 0))
+      changes.push(
+        `事实「${title}」的独立来源由 ${old.independentClusters || 0} 个变为 ${fact.independentClusters || 0} 个。`,
+      );
+  }
+  if (context.followups) changes.push(`首版之后新增 ${context.followups} 次追加检索（真实检索）。`);
+  if (context.corrections) changes.push(`首版之后采纳 ${context.corrections} 条人工修正。`);
+  if (!changes.length) changes.push("结论与来源统计没有变化：新增证据未改变判断。");
+  return changes;
+}
+
+export function registerTraceEndpoints(app: FastifyInstance, store: Store, engine: Engine) {
+  // ── 追加一次真实检索 ───────────────────────────────────────────
   app.post<{ Params: { id: string }; Body: { query: string; factId?: string } }>(
     "/v1/runs/:id/trace/followup",
     {
@@ -90,7 +332,15 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store) {
 
       const attempt = await searchPro(req.body.query);
       const pages = attempt.pages.slice(0, MAX_FOLLOWUP_PAGES);
-      const bodies: { pageId: string; url: string; ok: boolean; httpStatus: number | null; error: unknown; text: string; reprintMarkers: string[] }[] = [];
+      const bodies: {
+        pageId: string;
+        url: string;
+        ok: boolean;
+        httpStatus: number | null;
+        error: unknown;
+        text: string;
+        reprintMarkers: string[];
+      }[] = [];
       for (const page of pages.slice(0, MAX_FOLLOWUP_BODIES)) {
         const fetched = await fetchSource(page.url);
         bodies.push({
@@ -137,100 +387,231 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store) {
     },
   );
 
-  // 读取当前评估：优先最新重算结果，其次核验步骤输出。
+  // ── 人工纠正某条证据的关系 ─────────────────────────────────────
+  app.post<{
+    Params: { id: string };
+    Body: { pageId: string; factId: string; relation: Relation; note: string; actor: string };
+  }>(
+    "/v1/runs/:id/trace/correction",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["pageId", "factId", "relation", "note", "actor"],
+          properties: {
+            pageId: { type: "string", minLength: 1, maxLength: 60 },
+            factId: { type: "string", minLength: 1, maxLength: 40 },
+            relation: { enum: RELATIONS as unknown as string[] },
+            note: { type: "string", minLength: 2, maxLength: 200 },
+            actor: { type: "string", minLength: 1, maxLength: 80 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (req) => {
+      const run = traceRun(store, req.params.id);
+      if (run.status === "running" || run.status === "queued")
+        throw new ExecutionError("RUN_BUSY", "调查仍在执行中，请等当前步骤结束再修正判断。");
+      const { bundle } = buildAssessment(run);
+      const fact = (bundle.case.facts as any[]).find((item) => item.id === req.body.factId);
+      if (!fact) throw new ExecutionError("FACT_NOT_FOUND", "这条事实不在本次调查里。");
+      const pages = [
+        ...((bundle.pages || []) as any[]),
+        ...followupsOf(run).flatMap((item) => item.pages || []),
+      ];
+      if (!pages.some((page) => page.id === req.body.pageId))
+        throw new ExecutionError("SOURCE_NOT_FOUND", "这条来源不在本次调查里。");
+      if (!req.body.note.trim()) throw new ExecutionError("NOTE_REQUIRED", "请写一句修正原因，便于复查。");
+
+      const record = {
+        pageId: req.body.pageId,
+        factId: req.body.factId,
+        relation: req.body.relation,
+        note: req.body.note.trim(),
+        actor: req.body.actor.trim() || "本机操作者",
+        at: now(),
+      };
+      recordEvidence(store, run.id, CORRECTION_KIND, record);
+      return { correction: record, correctionCount: correctionsOf(traceRun(store, run.id)).length };
+    },
+  );
+
+  // ── 读取当前评估 / 版本历史 ────────────────────────────────────
   app.get<{ Params: { id: string } }>("/v1/runs/:id/trace/assessment", async (req) => {
     const run = traceRun(store, req.params.id);
     const latest = [...run.evidence].reverse().find((item) => item.kind === REASSESS_KIND);
-    if (latest) return { source: "reassessment", at: latest.createdAt, assessment: (latest.data as any).assessment };
+    if (latest)
+      return { source: "reassessment", at: latest.createdAt, assessment: (latest.data as any).assessment };
     const verify = run.steps.find((step) => step.capabilityId === "trace.evidence.verify");
-    const assessment = (verify?.output as any)?.assessment || null;
-    return { source: "verify-step", at: verify?.finishedAt || null, assessment };
+    return {
+      source: "verify-step",
+      at: verify?.finishedAt || null,
+      assessment: (verify?.output as any)?.assessment || null,
+    };
   });
 
-  // 把追加检索合并回卷宗并重算结论。
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/trace/revisions", async (req) => {
+    const run = traceRun(store, req.params.id);
+    const revisions = revisionsOf(run);
+    const delivered = revisions[revisions.length - 1] || null;
+    const followups = followupsOf(run);
+    const corrections = correctionsOf(run);
+    const pendingFollowups = delivered
+      ? followups.filter((item) => (item.requestedAt || "") > delivered.at).length
+      : followups.length;
+    const pendingCorrections = delivered ? corrections.filter((item) => item.at > delivered.at).length : corrections.length;
+    const { assessment } = buildAssessment(run);
+    return {
+      deliveredRevision: delivered?.revision || 0,
+      dirty: pendingFollowups > 0 || pendingCorrections > 0 || !delivered,
+      pendingFollowups,
+      pendingCorrections,
+      current: assessment,
+      changes:
+        delivered && (pendingFollowups > 0 || pendingCorrections > 0)
+          ? describeChanges(delivered.assessment, assessment, {
+              followups: pendingFollowups,
+              corrections: pendingCorrections,
+            })
+          : [],
+      revisions: revisions.map((item) => ({
+        revision: item.revision,
+        at: item.at,
+        actor: item.actor,
+        artifacts: item.artifacts,
+        verdict: item.assessment?.verdict
+          ? {
+              outcome: item.assessment.verdict.outcome,
+              headline: item.assessment.verdict.headline,
+              counts: item.assessment.verdict.counts,
+            }
+          : null,
+        followupCount: item.followupCount,
+        correctionCount: item.correctionCount,
+        changes: item.changes,
+        assessment: item.assessment,
+        derived: item.derived === true,
+      })),
+    };
+  });
+
+  // ── 重算结论（自动判断 + 人工修正 + 追加检索）──────────────────
   app.post<{ Params: { id: string } }>("/v1/runs/:id/trace/reassess", async (req) => {
     const run = traceRun(store, req.params.id);
-    const baseStep =
-      run.steps.find((step) => step.capabilityId === "trace.evidence.verify" && step.output) ||
-      run.steps.find((step) => step.capabilityId === "trace.web.search" && step.output);
-    const bundle = baseStep?.output as any;
-    if (!bundle?.case?.facts?.length)
-      throw new ExecutionError("NO_BASELINE", "这次调查还没有可重算的检索结果。");
-
-    const followups = run.evidence.filter((item) => item.kind === FOLLOWUP_KIND).map((item) => item.data as any);
-    if (!followups.length) throw new ExecutionError("NO_FOLLOWUP", "还没有追加检索，无需重算。");
-
-    const pageMap = new Map<string, AnalysablePage>();
-    for (const page of bundle.pages || []) pageMap.set(page.id, page);
-    const bodyTexts: Record<string, { ok: boolean; text: string; reprintMarkers: string[] }> = {
-      ...(bundle.bodyTexts || {}),
-    };
-    for (const followup of followups) {
-      for (const page of followup.pages || []) pageMap.set(page.id, page);
-      for (const body of followup.bodies || [])
-        bodyTexts[body.pageId] = { ok: body.ok, text: body.text || "", reprintMarkers: body.reprintMarkers || [] };
-    }
-    const pages = [...pageMap.values()];
-    const clusterOf = clusterSources(pages);
-    const groups = new Map<string, AnalysablePage[]>();
-    for (const page of pages) {
-      const key = clusterOf.get(page.id) || "cluster-0";
-      groups.set(key, [...(groups.get(key) || []), page]);
-    }
-    const duplicatePages = new Set<string>();
-    for (const [, group] of groups) {
-      const ranked = [...group].sort(
-        (a, b) =>
-          Number(bodyTexts[b.id]?.ok === true) - Number(bodyTexts[a.id]?.ok === true) ||
-          (b.score || 0) - (a.score || 0),
-      );
-      for (const page of ranked.slice(1)) duplicatePages.add(page.id);
-    }
-    const bodies = new Map(
-      pages.map((page) => [
-        page.id,
-        {
-          ok: bodyTexts[page.id]?.ok === true,
-          text: bodyTexts[page.id]?.text || "",
-          reprintMarkers: bodyTexts[page.id]?.reprintMarkers || [],
-        },
-      ]),
-    );
-    const assessments = (bundle.case.facts as any[]).map((fact) =>
-      assessFact({ fact, pages, bodies, clusterOf, duplicatePages }),
-    );
-    const independentSources = new Set(
-      pages.filter((page) => !duplicatePages.has(page.id)).map((page) => clusterOf.get(page.id)),
-    ).size;
-    const bodyAvailable = [...bodies.values()].filter((body) => body.ok).length;
-    const search = bundle.search || {};
-    const verdict = aggregateCase({
-      facts: assessments,
-      searchSummary: {
-        total: (Number(search.totalQueries) || 0) + followups.length,
-        failed: Number(search.failedQueries) || 0,
-        empty: Number(search.emptyQueries) || 0,
-      },
-      pageCount: pages.length,
-      bodyCount: bodyAvailable,
-      independentSourceCount: independentSources,
-      searchedOk: true,
-    });
-    const assessment = {
-      facts: assessments,
-      verdict,
-      independentSources,
-      bodyAvailable,
-      clusters: summarizeClusters(
-        [...new Map(assessments.flatMap((item) => item.sources).map((source) => [source.pageId, source])).values()],
-        bodies,
-        pages,
-      ),
-      openQuestions: openQuestions(assessments),
+    const followups = followupsOf(run);
+    const corrections = correctionsOf(run);
+    if (!followups.length && !corrections.length)
+      throw new ExecutionError("NO_FOLLOWUP", "还没有追加检索或人工修正，无需重算。");
+    const { assessment } = buildAssessment(run);
+    const delivered = revisionsOf(run).pop();
+    const changes = delivered
+      ? describeChanges(delivered.assessment, assessment, {
+          followups: followups.filter((item) => (item.requestedAt || "") > delivered.at).length,
+          corrections: corrections.filter((item) => item.at > delivered.at).length,
+        })
+      : [];
+    recordEvidence(store, run.id, REASSESS_KIND, {
+      assessment,
       followupCount: followups.length,
-      pageCount: pages.length,
-    };
-    recordEvidence(store, run.id, REASSESS_KIND, { assessment, followupCount: followups.length });
-    return { source: "reassessment", at: now(), assessment };
+      correctionCount: corrections.length,
+      changes,
+    });
+    return { source: "reassessment", at: now(), assessment, changes };
   });
+
+  // ── 重新确认：把当前结论固化成新版本档案 ────────────────────────
+  app.post<{ Params: { id: string }; Body: { actor: string } }>(
+    "/v1/runs/:id/trace/redeliver",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["actor"],
+          properties: { actor: { type: "string", minLength: 1, maxLength: 80 } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (req) => {
+      const run = traceRun(store, req.params.id);
+      if (run.status !== "completed" && run.status !== "failed")
+        throw new ExecutionError("RUN_NOT_READY", "这次调查还没有稳定到可以出档案的状态。");
+      const actor = req.body.actor.trim() || "本机操作者";
+      const revisions = revisionsOf(run);
+      const previous = revisions.pop();
+      if (!previous)
+        throw new ExecutionError("NO_BASELINE", "这次调查还没有可参照的首版交付记录。");
+      const followups = followupsOf(run);
+      const corrections = correctionsOf(run);
+      const pendingFollowups = followups.filter((item) => (item.requestedAt || "") > previous.at);
+      const pendingCorrections = corrections.filter((item) => item.at > previous.at);
+      if (!pendingFollowups.length && !pendingCorrections.length)
+        throw new ExecutionError("NO_CHANGES", "首版之后没有新的检索或修正，不需要重新确认。");
+
+      const { bundle, assessment } = buildAssessment(run);
+      const revision = previous.revision + 1;
+      const changes = describeChanges(previous.assessment, assessment, {
+        followups: pendingFollowups.length,
+        corrections: pendingCorrections.length,
+      });
+      const generatedAt = now();
+      const rendered = renderArchive({
+        runId: run.id,
+        bundle,
+        assessment,
+        revision,
+        generatedAt,
+        actor,
+        changes,
+      });
+      const stepId = stepIdFor(store, run.id);
+      const markdown = await engine.writeArtifact(
+        run.id,
+        stepId,
+        rendered.markdownFilename,
+        rendered.markdown,
+        "text/markdown; charset=utf-8",
+        new AbortController().signal,
+        { requireActive: false },
+      );
+      const json = await engine.writeArtifact(
+        run.id,
+        stepId,
+        rendered.jsonFilename,
+        rendered.json,
+        "application/json; charset=utf-8",
+        new AbortController().signal,
+        { requireActive: false },
+      );
+      const record: RevisionRecord = {
+        revision,
+        at: generatedAt,
+        actor,
+        artifacts: [markdown, json].map((artifact) => ({
+          id: artifact.id,
+          filename: artifact.filename,
+          bytes: artifact.bytes,
+          sha256: artifact.sha256,
+        })),
+        assessment,
+        followupCount: followups.length,
+        correctionCount: corrections.length,
+        changes,
+      };
+      recordEvidence(store, run.id, REVISION_KIND, record);
+      return {
+        revision: record.revision,
+        at: record.at,
+        actor: record.actor,
+        artifacts: record.artifacts,
+        changes,
+        verdict: {
+          outcome: assessment.verdict.outcome,
+          headline: assessment.verdict.headline,
+          counts: assessment.verdict.counts,
+        },
+      };
+    },
+  );
 }
