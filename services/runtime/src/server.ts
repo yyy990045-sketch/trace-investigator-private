@@ -1,22 +1,24 @@
 import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createPlatform } from "./app.ts";
-// 配置边界：PLATFORM_DATA_DIR 若仍是模板占位值，直接给出可执行的说明，而不是抛出 ENOENT '/absolute'。
+// 配置边界：PLATFORM_DATA_DIR 若仍是模板占位值，告警并回退到默认数据目录，
+// 既不静默使用错误路径，也不让一次复制粘贴就把 Runtime 拦在启动之外。
 const configuredDataDir = process.env.PLATFORM_DATA_DIR?.trim();
-if (configuredDataDir && /^\/(absolute|path\/to)(\/|$)/.test(configuredDataDir)) {
+const placeholderDataDir = configuredDataDir && /^\/(absolute|path\/to)(\/|$)/.test(configuredDataDir);
+if (placeholderDataDir)
   console.error(
-    `PLATFORM_DATA_DIR 仍是模板里的占位示例（${configuredDataDir}）。请在 .env.platform 中把它注释掉，或改成真实存在的绝对路径后重启 Runtime。`,
+    `提示：PLATFORM_DATA_DIR 仍是模板里的占位示例（${configuredDataDir}），已忽略并使用默认数据目录。要自定义请改成真实绝对路径，或把这行注释掉。`,
   );
-  process.exit(1);
-}
 const data = resolve(
-  configuredDataDir || new URL("../../../data", import.meta.url).pathname,
+  configuredDataDir && !placeholderDataDir
+    ? configuredDataDir
+    : new URL("../../../data", import.meta.url).pathname,
 );
 try {
   await mkdir(data, { recursive: true });
 } catch (error) {
   console.error(
-    `无法创建数据目录 ${data}：${error instanceof Error ? error.message : String(error)}。如果 PLATFORM_DATA_DIR 只是示例占位值，请把它注释掉。`,
+    `无法创建数据目录 ${data}：${error instanceof Error ? error.message : String(error)}。请检查 PLATFORM_DATA_DIR 是否为可写的绝对路径。`,
   );
   process.exit(1);
 }
