@@ -12,9 +12,89 @@ import {
   type RunStepRecord,
 } from "@personal/capability-sdk";
 
-export const client = createRuntimeClient(
-  import.meta.env.VITE_RUNTIME_API_URL || "/api",
-);
+const liveClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "/api");
+
+/**
+ * 只读静态展示模式：把同一套界面跑在「历史调查记录」上，不连 Runtime。
+ * 数据由 tooling/trace-showcase-export.mjs 从本机真实运行记录导出，只含公开页面信息。
+ */
+export const SHOWCASE = import.meta.env.VITE_TRACE_MODE === "showcase";
+
+export interface ShowcaseCase {
+  key: string;
+  label: string;
+  note: string;
+  runId: string;
+  run: RunRecord;
+  assessment: NonNullable<TraceBundleView["assessment"]> | null;
+  revisions: unknown;
+}
+
+export interface ShowcaseData {
+  kind: "trace-showcase";
+  generatedAt: string;
+  product: { name: string; tagline: string; boundary: string };
+  cases: ShowcaseCase[];
+  /** artifactId -> 相对路径，静态站里直接用文件本身 */
+  artifactIndex: Record<string, string>;
+}
+
+function showcaseData(): ShowcaseData {
+  const data = (window as unknown as { __TRACE_SHOWCASE__?: ShowcaseData }).__TRACE_SHOWCASE__;
+  if (!data?.cases?.length)
+    throw new Error("静态展示数据缺失：请重新执行只读展示构建。");
+  return data;
+}
+
+/** 只读展示里的三个案例（工作区模式下为空）。 */
+export function showcaseCases(): ShowcaseCase[] {
+  if (!SHOWCASE) return [];
+  try {
+    return showcaseData().cases;
+  } catch {
+    return [];
+  }
+}
+
+export function showcaseCase(runId: string): ShowcaseCase {
+  const hit = showcaseData().cases.find((item) => item.runId === runId);
+  if (!hit) throw new Error("这份静态展示里没有该调查记录。");
+  return hit;
+}
+
+const readOnly = () =>
+  new Error("这是历史调查记录（只读展示）。需要实时联网调查，请在本机运行 Runtime 后打开工作区版本。");
+
+const showcaseClient = {
+  run: async (id: string) => showcaseCase(id).run,
+  runs: async () => showcaseData().cases.map((item) => item.run),
+  artifactUrl: (_runId: string, id: string) => {
+    const path = showcaseData().artifactIndex[id];
+    if (!path) throw new Error("这份静态展示里没有该档案文件。");
+    return "./" + path;
+  },
+  receiptUrl: () => "#",
+  catalog: async () => {
+    throw readOnly();
+  },
+  projects: async () => {
+    throw readOnly();
+  },
+  createProject: async () => {
+    throw readOnly();
+  },
+  execute: async () => {
+    throw readOnly();
+  },
+  decide: async () => {
+    throw readOnly();
+  },
+  retry: async () => {
+    throw readOnly();
+  },
+} as unknown as ReturnType<typeof createRuntimeClient>;
+
+export const client = SHOWCASE ? showcaseClient : liveClient;
 
 export const PROJECT_NAME = "溯证 TRACE 调查流程";
 
@@ -42,6 +122,7 @@ export const ASSEMBLY: AssemblyStep[] = [
 ];
 
 export async function ensureProject(): Promise<ProjectRecord> {
+  if (SHOWCASE) throw readOnly();
   const projects = await client.projects();
   const existing = projects.find((p) => p.name === PROJECT_NAME);
   if (existing) {
@@ -64,6 +145,12 @@ export async function ensureProject(): Promise<ProjectRecord> {
 }
 
 export async function searchAvailability() {
+  if (SHOWCASE)
+    return {
+      available: false,
+      reason: "这是只读的历史调查展示，不联网查询；需要新调查请在本机运行 Runtime。",
+      endpointHost: "",
+    };
   const catalog = await client.catalog();
   const provider = catalog.providers.find((p) => p.id === "tencent-wsa-search");
   return {
@@ -133,7 +220,13 @@ export interface SourceAssessment {
   /** 人工修正后保留的系统自动判断 */
   autoRelation?: Relation;
   /** 有人工修正时才有；原始搜索返回与摘录不因此改变 */
-  manualCorrection?: { relation: Relation; note: string; actor: string; at: string } | null;
+  manualCorrection?: {
+    relation: Relation;
+    note: string;
+    actor: string;
+    at: string;
+    impact?: CorrectionImpact;
+  } | null;
 }
 
 export interface FactAssessment {
@@ -331,6 +424,10 @@ async function traceRequest<T>(path: string, method = "GET", body?: unknown): Pr
 
 /** 读取当前评估：优先最新重算结果，其次核验步骤输出。 */
 export function fetchAssessment(runId: string) {
+  if (SHOWCASE) {
+    const item = showcaseCase(runId);
+    return Promise.resolve({ source: "archive", at: null, assessment: item.assessment });
+  }
   return traceRequest<{ source: string; at: string | null; assessment: TraceBundleView["assessment"] | null }>(
     `/v1/runs/${encodeURIComponent(runId)}/trace/assessment`,
   );
@@ -338,6 +435,7 @@ export function fetchAssessment(runId: string) {
 
 /** 针对某条事实追加一次真实检索；结果写进同一条调查记录。 */
 export function postFollowup(runId: string, query: string, factId?: string) {
+  if (SHOWCASE) return Promise.reject(readOnly());
   return traceRequest<FollowupRecord>(`/v1/runs/${encodeURIComponent(runId)}/trace/followup`, "POST", {
     query,
     ...(factId ? { factId } : {}),
@@ -346,11 +444,26 @@ export function postFollowup(runId: string, query: string, factId?: string) {
 
 /** 把追加检索合并回卷宗并重算结论。 */
 export function postReassess(runId: string) {
+  if (SHOWCASE) return Promise.reject(readOnly());
   return traceRequest<{ source: string; at: string; assessment: NonNullable<TraceBundleView["assessment"]> }>(
     `/v1/runs/${encodeURIComponent(runId)}/trace/reassess`,
     "POST",
     {},
   );
+}
+
+/** 一次人工修正在写入前后对结论的实际影响（服务端真实重算出来的）。 */
+export interface CorrectionImpact {
+  sourceBefore: Relation;
+  sourceAfter: Relation;
+  factBefore: string;
+  factAfter: string;
+  supportsBefore: number;
+  supportsAfter: number;
+  clustersBefore: number;
+  clustersAfter: number;
+  verdictBefore: Verdict["outcome"];
+  verdictAfter: Verdict["outcome"];
 }
 
 /** 一条人工修正记录：只改证据关系，不改原始搜索返回与摘录。 */
@@ -361,6 +474,7 @@ export interface CorrectionRecord {
   note: string;
   actor: string;
   at: string;
+  impact?: CorrectionImpact;
 }
 
 export interface RevisionSummary {
@@ -390,6 +504,7 @@ export interface RevisionsView {
 
 /** 已交付版本、当前结论与版本之间的差异。 */
 export function fetchRevisions(runId: string) {
+  if (SHOWCASE) return Promise.resolve(showcaseCase(runId).revisions as RevisionsView);
   return traceRequest<RevisionsView>(`/v1/runs/${encodeURIComponent(runId)}/trace/revisions`);
 }
 
@@ -398,7 +513,8 @@ export function postCorrection(
   runId: string,
   input: { pageId: string; factId: string; relation: Relation; note: string; actor: string },
 ) {
-  return traceRequest<{ correction: CorrectionRecord; correctionCount: number }>(
+  if (SHOWCASE) return Promise.reject(readOnly());
+  return traceRequest<{ correction: CorrectionRecord; impact?: CorrectionImpact; correctionCount: number }>(
     `/v1/runs/${encodeURIComponent(runId)}/trace/correction`,
     "POST",
     input,
@@ -407,6 +523,7 @@ export function postCorrection(
 
 /** 重新确认：把当前结论固化成新的交付版本，旧版本文件保持原样。 */
 export function postRedeliver(runId: string, actor: string) {
+  if (SHOWCASE) return Promise.reject(readOnly());
   return traceRequest<{
     revision: number;
     at: string;

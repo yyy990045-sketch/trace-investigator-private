@@ -106,11 +106,18 @@ function correctionsOf(run: ReturnType<typeof traceRun>): (CorrectionRecord & { 
     .map((item) => item.data as CorrectionRecord & { autoRelation?: string });
 }
 
-/** 合并原始检索、追问结果与人工修正，重算整份评估。 */
-function buildAssessment(run: ReturnType<typeof traceRun>) {
+/**
+ * 合并原始检索、追问结果与人工修正，重算整份评估。
+ * corrections 可覆盖：写入前试算（extra）与历史重放（useCorrections）都用这一条路径，
+ * 保证「试算」「落库后」「补算影响」三处的口径完全一致。
+ */
+export function buildAssessment(
+  run: ReturnType<typeof traceRun>,
+  option: { extra?: CorrectionRecord[]; useCorrections?: CorrectionRecord[] } = {},
+) {
   const bundle = baseBundle(run);
   const followups = followupsOf(run);
-  const corrections = correctionsOf(run);
+  const corrections = option.useCorrections ?? [...correctionsOf(run), ...(option.extra || [])];
 
   const pageMap = new Map<string, AnalysablePage>();
   for (const page of bundle.pages || []) pageMap.set(page.id, page);
@@ -296,6 +303,16 @@ function describeChanges(previous: any, current: any, context: { followups: numb
       changes.push(
         `事实「${title}」的独立来源由 ${old.independentClusters || 0} 个变为 ${fact.independentClusters || 0} 个。`,
       );
+    const unclearDelta = (fact.unclear || 0) - (old.unclear || 0);
+    if (unclearDelta)
+      changes.push(
+        `事实「${title}」的无法确认来源由 ${old.unclear || 0} 条变为 ${fact.unclear || 0} 条。`,
+      );
+    const irrelevantDelta = (fact.irrelevant || 0) - (old.irrelevant || 0);
+    if (irrelevantDelta)
+      changes.push(
+        `事实「${title}」的无关来源由 ${old.irrelevant || 0} 条变为 ${fact.irrelevant || 0} 条。`,
+      );
   }
   if (context.followups) changes.push(`首版之后新增 ${context.followups} 次追加检索（真实检索）。`);
   if (context.corrections) changes.push(`首版之后采纳 ${context.corrections} 条人工修正。`);
@@ -424,6 +441,8 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         throw new ExecutionError("SOURCE_NOT_FOUND", "这条来源不在本次调查里。");
       if (!req.body.note.trim()) throw new ExecutionError("NOTE_REQUIRED", "请写一句修正原因，便于复查。");
 
+      // 修正前后各算一次：影响是对比出来的，不是估的。
+      // 先把「如果采纳这条修正」算出来，再一次性写入带影响的记录，证据行保持单条且摘要一致。
       const record = {
         pageId: req.body.pageId,
         factId: req.body.factId,
@@ -432,8 +451,32 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         actor: req.body.actor.trim() || "本机操作者",
         at: now(),
       };
-      recordEvidence(store, run.id, CORRECTION_KIND, record);
-      return { correction: record, correctionCount: correctionsOf(traceRun(store, run.id)).length };
+      const before = buildAssessment(run).assessment;
+      const after = buildAssessment(run, { extra: [record as CorrectionRecord] }).assessment;
+      const factOf = (assessment: any) =>
+        (assessment.facts as any[]).find((item) => item.factId === record.factId) || null;
+      const sourceOf = (assessment: any) =>
+        (factOf(assessment)?.sources as any[] | undefined)?.find((item) => item.pageId === record.pageId) || null;
+      const impact = {
+        sourceBefore: sourceOf(before)?.relation || "none",
+        sourceAfter: sourceOf(after)?.relation || "none",
+        factBefore: factOf(before)?.relation || "none",
+        factAfter: factOf(after)?.relation || "none",
+        supportsBefore: factOf(before)?.supports ?? 0,
+        supportsAfter: factOf(after)?.supports ?? 0,
+        clustersBefore: factOf(before)?.independentClusters ?? 0,
+        clustersAfter: factOf(after)?.independentClusters ?? 0,
+        verdictBefore: before.verdict?.outcome || "insufficient",
+        verdictAfter: after.verdict?.outcome || "insufficient",
+      };
+      const recordWithImpact = { ...record, impact };
+      recordEvidence(store, run.id, CORRECTION_KIND, recordWithImpact);
+      return {
+        correction: recordWithImpact,
+        impact,
+        correctionCount: correctionsOf(traceRun(store, run.id)).length,
+        assessment: after,
+      };
     },
   );
 

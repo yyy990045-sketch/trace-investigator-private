@@ -57,7 +57,26 @@ export interface ArchiveInput {
     independentSources: number;
     bodyAvailable: number;
     openQuestions?: string[];
-    corrections?: { pageId: string; factId: string; relation: string; note: string; actor: string; at: string }[];
+    corrections?: {
+      pageId: string;
+      factId: string;
+      relation: string;
+      note: string;
+      actor: string;
+      at: string;
+      impact?: {
+        sourceBefore: string;
+        sourceAfter: string;
+        factBefore: string;
+        factAfter: string;
+        supportsBefore: number;
+        supportsAfter: number;
+        clustersBefore: number;
+        clustersAfter: number;
+        verdictBefore: string;
+        verdictAfter: string;
+      };
+    }[];
   };
   /** 交付版本号：1 为首版，之后每次重新确认 +1 */
   revision: number;
@@ -162,10 +181,26 @@ export function renderArchive(input: ArchiveInput) {
     `## 四、人工修正记录`,
     ``,
     ...(corrections.length
-      ? corrections.map(
-          (item) =>
-            `- 来源 ${item.pageId}（事实 ${item.factId}）：系统判断 → 人工修正为「${relationLabel[item.relation] || item.relation}」；原因：${item.note}；修正人：${item.actor}；时间：${item.at}`,
-        )
+      ? corrections.map((item) => {
+          const head = `- 来源 ${item.pageId}（事实 ${item.factId}）：系统判断「${
+            relationLabel[item.impact?.sourceBefore || ""] || item.impact?.sourceBefore || "未记录"
+          }」→ 人工修正为「${relationLabel[item.relation] || item.relation}」；原因：${item.note}；修正人：${item.actor}；时间：${item.at}`;
+          if (!item.impact) return head;
+          const rel = (value: string) => relationLabel[value] || value;
+          const changed: string[] = [];
+          if (item.impact.factBefore !== item.impact.factAfter)
+            changed.push(`事实判断 ${rel(item.impact.factBefore)} → ${rel(item.impact.factAfter)}`);
+          if (item.impact.supportsBefore !== item.impact.supportsAfter)
+            changed.push(`支持来源 ${item.impact.supportsBefore} → ${item.impact.supportsAfter} 条`);
+          if (item.impact.clustersBefore !== item.impact.clustersAfter)
+            changed.push(`独立来源 ${item.impact.clustersBefore} → ${item.impact.clustersAfter} 个`);
+          changed.push(
+            item.impact.verdictBefore === item.impact.verdictAfter
+              ? `结论类型未变（${relationLabel[item.impact.verdictBefore] || item.impact.verdictBefore}）`
+              : `结论类型 ${rel(item.impact.verdictBefore)} → ${rel(item.impact.verdictAfter)}`,
+          );
+          return `${head}；对结论的影响（采纳时真实重算）：${changed.join("；")}`;
+        })
       : ["- 本版没有人工修正，全部关系由系统规则判断。"]),
     ``,
     `## 五、检索与取证记录`,

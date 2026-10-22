@@ -24,7 +24,8 @@
     "runtime": "npm run start --workspace @personal/runtime",
     "dev:runtime": "npm run dev --workspace @personal/runtime",
     "start:local": "node tooling/start-local.mjs",
-    "test:runtime": "vitest run checks/runtime.test.ts"
+    "test:runtime": "vitest run checks/runtime.test.ts",
+    "build:showcase": "node tooling/trace-showcase-export.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",

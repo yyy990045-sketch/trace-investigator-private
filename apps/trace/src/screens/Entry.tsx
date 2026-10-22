@@ -3,14 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Plus, Search, X } from "lucide-react";
 import {
+  SHOWCASE,
   client,
   ensureProject,
   sampleCases,
+  showcaseCases,
   searchAvailability,
   startInvestigation,
   type FactDraft,
 } from "../api";
-import { Tag, formatTime } from "../components";
+import { Tag, caseHref, formatTime } from "../components";
 
 const MAX_FACTS = 6;
 const MAX_QUERIES = 6;
@@ -30,7 +32,7 @@ export function Entry() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const blocked = availability.data?.available !== true;
+  const blocked = !SHOWCASE && availability.data?.available !== true;
   const blockerReason = availability.isError
     ? (availability.error as Error).message
     : (availability.data?.reason ?? "正在读取检索能力状态…");
@@ -67,6 +69,12 @@ export function Entry() {
 
   async function submit() {
     setError(null);
+    if (SHOWCASE) {
+      setError(
+        "这是只读的历史调查展示，不带联网检索。需要自己提问并真实联网调查，请在本机运行 Runtime 后打开工作区版本。",
+      );
+      return;
+    }
     const trimmedQuestion = question.trim();
     const effectiveClaim = claim.trim() || trimmedQuestion;
     if (trimmedQuestion.length < 2) {
@@ -115,6 +123,16 @@ export function Entry() {
           系统会用元宝搜索做多轮真实检索，抓取原文，标出支持、反对与无法确认的来源，
           把转载合并成一条证据，最后交给你一份可复查的调查档案。
         </p>
+
+        {SHOWCASE ? (
+          <div className="trace-readonly" role="status">
+            <strong>历史调查记录（只读）</strong>
+            <p>
+              下面三份调查是 2026-10-22 用元宝搜索真实联网跑出来的记录，打开看到的就是当时检索到的来源与结论，
+              不是此刻正在联网查询。想自己提问并真实检索，请在本机运行 Runtime 后打开工作区版本。
+            </p>
+          </div>
+        ) : null}
 
         <div className="trace-hero-form">
           <label className="trace-label" htmlFor="trace-question">
@@ -170,14 +188,18 @@ export function Entry() {
         ) : null}
 
         <div className="trace-action-bar">
-          <p className="trace-action-hint">开始后会把检索式发送到元宝搜索，来源与结论保存在本机运行记录里。</p>
+          <p className="trace-action-hint">
+            {SHOWCASE
+              ? "只读展示不联网：这里不发起检索，也不会假装在跑。真实调查在本机 Runtime 里进行。"
+              : "开始后会把检索式发送到元宝搜索，来源与结论保存在本机运行记录里。"}
+          </p>
           <button
             type="button"
             className="trace-btn trace-btn-primary"
-            disabled={busy || blocked || question.trim().length < 2}
+            disabled={busy || blocked || SHOWCASE || question.trim().length < 2}
             onClick={submit}
           >
-            <Search size={15} /> {busy ? "正在立案…" : "开始调查"}
+            <Search size={15} /> {busy ? "正在立案…" : SHOWCASE ? "开始调查（只读展示不联网）" : "开始调查"}
           </button>
         </div>
       </section>
@@ -185,31 +207,47 @@ export function Entry() {
       <section className="trace-samples">
         <div className="trace-section-head">
           <h2>三个真实案例</h2>
-          <span>点击带入，也可以完全自己提问</span>
+          <span>{SHOWCASE ? "点开就是当时的真实调查记录" : "点击带入，也可以完全自己提问"}</span>
         </div>
-        <div className="trace-sample-list">
-          {sampleCases.map((sample, index) => (
-            <button
-              type="button"
-              className="trace-sample"
-              key={sample.id}
-              onClick={() => applySample(index)}
-            >
-              <span className="trace-sample-tag" data-kind={sample.kind}>
-                {sample.tag}
-              </span>
-              <span className="trace-sample-question">{sample.question}</span>
-              <span className="trace-sample-note">{sample.note}</span>
-              <span className="trace-sample-expect">你会看到：{sample.expect}</span>
-              {sample.followupHint ? (
-                <span className="trace-sample-hint">证据不足时，用这句继续追问：{sample.followupHint}</span>
-              ) : null}
-              <span className="trace-sample-cta">
-                带入这个问题 <ArrowRight size={13} />
-              </span>
-            </button>
-          ))}
-        </div>
+        {SHOWCASE ? (
+          <div className="trace-sample-list">
+            {showcaseCases().map((item) => (
+              <a className="trace-sample" key={item.runId} href={caseHref(item.runId)}>
+                <span className="trace-sample-tag" data-kind={item.key}>
+                  {item.key} · {item.label}
+                </span>
+                <span className="trace-sample-question">{item.note}</span>
+                <span className="trace-sample-cta">
+                  打开这次调查 <ArrowRight size={13} />
+                </span>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="trace-sample-list">
+            {sampleCases.map((sample, index) => (
+              <button
+                type="button"
+                className="trace-sample"
+                key={sample.id}
+                onClick={() => applySample(index)}
+              >
+                <span className="trace-sample-tag" data-kind={sample.kind}>
+                  {sample.tag}
+                </span>
+                <span className="trace-sample-question">{sample.question}</span>
+                <span className="trace-sample-note">{sample.note}</span>
+                <span className="trace-sample-expect">你会看到：{sample.expect}</span>
+                {sample.followupHint ? (
+                  <span className="trace-sample-hint">证据不足时，用这句继续追问：{sample.followupHint}</span>
+                ) : null}
+                <span className="trace-sample-cta">
+                  带入这个问题 <ArrowRight size={13} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="trace-plan">
@@ -321,7 +359,7 @@ export function Entry() {
         </div>
       ) : null}
 
-      <section className="trace-recent-block">
+      {SHOWCASE ? null : <section className="trace-recent-block">
         <div className="trace-section-head">
           <h2>历史调查记录</h2>
           <span>{runs.data ? `${recent.length} 条本机记录` : "读取中"}</span>
@@ -366,7 +404,7 @@ export function Entry() {
             写上第一句要核查的说法，或点上面任意一个真实案例。
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

@@ -85,6 +85,7 @@
 - **只增不改**：第 N 版文件名为 `调查档案-vN.md/.json`，写新文件、不动旧文件与旧 artifact 行。旧下载链接永远指向旧版本（实测：C 案例 v1 的 SHA-256 `dd95da0a…` 在 v2 生成后下载仍完全一致）。
 - **为什么变化**：`GET /v1/runs/:id/trace/revisions` 用「上次交付的评估快照 vs 当前重算结果」生成变化说明（结论变化、独立来源增减、原文增减、逐条事实判断与独立来源数变化、新增追问/修正条数），同一份文案写进档案的「本版变化」与页面的变化列表。
 - **人工修正**：`POST /v1/runs/:id/trace/correction`（pageId/factId/relation/note/actor）只记录判断，不改原始搜索返回与摘录；`applyCorrections()` 保留 `autoRelation` 与修正人/原因/时间，并用与自动判定完全相同的 `aggregateCase` 规则重算。档案里每条来源同时写「人工修正」与「系统自动判断」，另有独立的「人工修正记录」一节。
+- **修正的影响**：每次修正写入时同时记录「采纳这条修正前后」的真实重算差异（来源关系、事实判断、支持来源数、独立来源数、结论类型），页面上直接写「对结论的影响」，不让读者自己推。老记录用 `npx tsx tooling/trace-correction-backfill.ts` 按同一顺序重放补算。
 - **重新确认**：`POST /v1/runs/:id/trace/redeliver` 要求存在未确认的追问或修正，写新版本文件 + 版本证据；没有变化时明确拒绝（`NO_CHANGES`），不会凭空造版本。
 - **档案渲染单一来源**：`services/runtime/adapters/trace/archive.ts` 的 `renderArchive()` 同时服务首版插件与改版端点，避免两套口径；结论句由 `buildStatement()` 统一生成。
 - **证据不足依旧保留**：C 案例经过 1 次真实追问 + 2 次人工修正、生成到第 3 版，结论始终是「证据不足」，缺口列表照旧显示。
@@ -112,6 +113,13 @@
 - 端到端：真实 `createPlatform` 跑完立案→检索→核验→人工确认→导出，产出 `调查档案.md` 且内容含真实来源 URL。
 
 类型检查 `tsc --noEmit` 通过；`vite build` 通过；真实页面无控制台报错、390px 无横向溢出。
+
+## 五之二、只读展示版（评委可直接打开）
+
+- 生成：`npm run build:showcase` → `delivery/trace-showcase/`（静态站点，含 12 个真实档案文件）
+- 数据来源：对本机 Runtime 只发 GET，取三个案例的运行记录、评估、版本与档案；导出时递归剔除密钥字段、隐去本机绝对路径，命中 `sk-` 或 `/Users/` 直接中止。
+- 前端同一套代码跑在只读数据上（`VITE_TRACE_MODE=showcase` + hash 路由 + 相对路径）：证据能展开、来源能点、版本能切、档案能下载；追加检索/人工修正/重新确认被明确禁用，按钮写明「只读展示不联网」。
+- 打开方式与部署：见 `delivery/trace-showcase/部署说明.md`。
 
 ## 六、运行方式
 

@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, HashRouter, Route, Routes } from "react-router-dom";
 import { Search } from "lucide-react";
 import { BusinessShell, type ShellConfig } from "@personal/app-shell";
 import { EmptyState } from "@personal/ui-core";
@@ -10,13 +10,16 @@ import { Entry } from "./screens/Entry";
 import { Case } from "./screens/Case";
 import { Archive } from "./screens/Archive";
 
+const showcase = import.meta.env.VITE_TRACE_MODE === "showcase";
+const Router = showcase ? HashRouter : BrowserRouter;
+
 const config: ShellConfig = {
   name: "溯证 TRACE",
   subtitle: "可复查的线索调查",
   mark: "溯",
   home: "/",
   contextLabel: "溯证 TRACE",
-  environment: "本机工作区",
+  environment: showcase ? "历史调查记录（只读）" : "本机工作区",
   theme: { accent: "#24425a", accentSoft: "#eaf0f4", sidebar: "#f3f1ec" },
   navigation: [{ to: "/", label: "调查", icon: Search, end: true }],
 };
@@ -27,7 +30,7 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
-    <BrowserRouter>
+    <Router>
       <div className="trace-app">
         <BusinessShell config={config}>
           <Routes>
@@ -42,7 +45,7 @@ createRoot(document.getElementById("root")!).render(
                     title="页面不存在"
                     detail="请从调查入口打开一次真实调查。"
                     action={
-                      <a className="trace-btn" href="/">
+                      <a className="trace-btn" href={showcase ? "#/" : "/"}>
                         回到调查入口
                       </a>
                     }
@@ -53,6 +56,6 @@ createRoot(document.getElementById("root")!).render(
           </Routes>
         </BusinessShell>
       </div>
-    </BrowserRouter>
+    </Router>
   </QueryClientProvider>,
 );

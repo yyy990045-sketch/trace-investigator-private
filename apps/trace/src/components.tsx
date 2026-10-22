@@ -3,6 +3,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { RunRecord } from "@personal/capability-sdk";
 import {
+  SHOWCASE,
+  outcomeText,
   relationText,
   stepText,
   type FactAssessment,
@@ -28,6 +30,14 @@ export function relationTone(relation: Relation): "support" | "oppose" | "unclea
   return "unclear";
 }
 
+/** 站内链接：只读展示用 hash 路由，工作区用普通路径。 */
+export function caseHref(runId: string) {
+  return SHOWCASE ? `#/cases/${runId}` : `/cases/${runId}`;
+}
+export function archiveHref(runId: string) {
+  return SHOWCASE ? `#/archive/${runId}` : `/archive/${runId}`;
+}
+
 export function formatTime(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -45,6 +55,36 @@ const originalityText: Record<SourceAssessment["originality"], string> = {
   reprint: "转载/二次传播",
   unknown: "出处未判定",
 };
+
+/** 把「这条修正到底改变了什么」写成一句人话。 */
+export function impactText(impact: {
+  sourceBefore: string;
+  sourceAfter: string;
+  factBefore: string;
+  factAfter: string;
+  supportsBefore: number;
+  supportsAfter: number;
+  clustersBefore: number;
+  clustersAfter: number;
+  verdictBefore: string;
+  verdictAfter: string;
+}) {
+  const rel = (value: string) => relationText[value as Relation] || value;
+  const parts: string[] = [];
+  if (impact.factBefore !== impact.factAfter)
+    parts.push(`事实判断 ${rel(impact.factBefore)} → ${rel(impact.factAfter)}`);
+  if (impact.supportsBefore !== impact.supportsAfter)
+    parts.push(`支持来源 ${impact.supportsBefore} → ${impact.supportsAfter} 条`);
+  if (impact.clustersBefore !== impact.clustersAfter)
+    parts.push(`独立来源 ${impact.clustersBefore} → ${impact.clustersAfter} 个`);
+  const outcome = (value: string) => outcomeText[value as keyof typeof outcomeText] || value;
+  const verdict =
+    impact.verdictBefore === impact.verdictAfter
+      ? `结论类型未变（${outcome(impact.verdictBefore)}）`
+      : `结论类型 ${outcome(impact.verdictBefore)} → ${outcome(impact.verdictAfter)}`;
+  parts.push(verdict);
+  return parts.join("；");
+}
 
 export type CorrectHandler = (
   source: SourceAssessment,
@@ -161,6 +201,9 @@ export function SourceCard({
           </ul>
         </details>
       </div>
+      {corrected?.impact ? (
+        <p className="trace-impact">对结论的影响：{impactText(corrected.impact)}</p>
+      ) : null}
       {open ? (
         <div className="trace-correct">
           <p className="trace-correct-head">

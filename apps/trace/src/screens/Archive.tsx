@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileJson, ShieldCheck } from "lucide-react";
 import {
+  SHOWCASE,
   archiveArtifacts,
   bundleOf,
   client,
@@ -11,11 +12,12 @@ import {
   followupsOf,
   outcomeText,
   stepOf,
+  type CorrectionImpact,
   type FactAssessment,
   type SourceAssessment,
   type SourceCluster,
 } from "../api";
-import { BackLink, Tag, formatTime, relationTone } from "../components";
+import { BackLink, Tag, archiveHref, caseHref, formatTime, impactText, relationTone } from "../components";
 import { relationText } from "../api";
 
 export function Archive() {
@@ -89,7 +91,7 @@ export function Archive() {
           </strong>
           <p>档案只在人工确认通过、导出步骤真实执行后生成，这里不会用预览替代。</p>
         </div>
-        <a className="trace-btn" href={`/cases/${run.id}`}>
+        <a className="trace-btn" href={caseHref(run.id)}>
           回到调查过程
         </a>
         <BackLink />
@@ -104,6 +106,15 @@ export function Archive() {
     .slice(0, 4);
   const opposing = allSources.filter((source) => source.relation === "contradicts").slice(0, 4);
   const missing = assessment?.openQuestions || [];
+  // 档案快照按交付时间冻结；影响数据在运行记录里，老版本快照没带就按 pageId+时间对齐补上。
+  const correctionLedger = run.evidence
+    .filter((item) => item.kind === "trace.correction")
+    .map((item) => item.data as { pageId: string; at: string; impact?: CorrectionImpact });
+  const corrections = (assessment?.corrections || []).map((item) => ({
+    ...item,
+    impact:
+      item.impact || correctionLedger.find((entry) => entry.pageId === item.pageId && entry.at === item.at)?.impact,
+  }));
 
   return (
     <div className="trace-page trace-page-wide">
@@ -186,7 +197,7 @@ export function Archive() {
                   <li key={index}>{item}</li>
                 ))}
               </ul>
-              <a className="trace-link" href={`/cases/${run.id}`}>
+              <a className="trace-link" href={caseHref(run.id)}>
                 回到调查过程页重新确认
               </a>
             </div>
@@ -270,21 +281,28 @@ export function Archive() {
         ) : null}
       </section>
 
-      {(assessment?.corrections || []).length ? (
+      {corrections.length ? (
         <section className="trace-block trace-block-warn">
           <div className="trace-section-head">
             <h2>人工修正记录</h2>
-            <span>{(assessment?.corrections || []).length} 条判断由人改过，系统自动判断同时保留</span>
+            <span>{corrections.length} 条判断由人改过，系统自动判断同时保留</span>
           </div>
           <ul className="trace-notes">
-            {(assessment?.corrections || []).map((item, index) => (
+            {corrections.map((item, index) => (
               <li key={index}>
-                来源 {item.pageId}（事实 {item.factId}）：修正为「{relationText[item.relation]}」；原因：
-                {item.note}；修正人 {item.actor}；{formatTime(item.at)}
+                <strong>{item.actor}</strong> 将来源 {item.pageId} 的判断修正为「{relationText[item.relation]}」
+                {item.impact
+                  ? `（系统原判「${relationText[item.impact.sourceBefore]}」）`
+                  : ""}
+                ：{item.note}
+                {item.impact ? <span className="trace-impact">影响：{impactText(item.impact)}</span> : null}
+                <span className="trace-mono"> · {formatTime(item.at)}</span>
               </li>
             ))}
           </ul>
-          <p className="trace-hint">人工修正只改证据关系，不改原始搜索返回与网页摘录；原始判断在每条来源里同时保留。</p>
+          <p className="trace-hint">
+            人工修正只改证据关系，不改原始搜索返回与网页摘录；原始判断与「对结论的影响」都按真实重算结果记录。
+          </p>
         </section>
       ) : null}
 
@@ -348,13 +366,15 @@ export function Archive() {
               {file.filename}（{(file.bytes / 1024).toFixed(1)} KB）
             </a>
           ))}
-          <a className="trace-btn" href={client.receiptUrl(run.id)}>
-            <ShieldCheck size={14} /> 最终运行凭证
-          </a>
+          {SHOWCASE ? null : (
+            <a className="trace-btn" href={client.receiptUrl(run.id)}>
+              <ShieldCheck size={14} /> 最终运行凭证
+            </a>
+          )}
         </div>
         <p className="trace-hint">
-          档案在导出步骤生成并记录 SHA-256；最终完成状态以运行凭证为准，凭证会逐个校验文件摘要。
-          每个版本的档案一经生成即固定：这一版下载的永远是这一版的结论与来源。
+          档案在导出步骤生成并记录 SHA-256。每个版本的档案一经生成即固定：这一版下载的永远是这一版的结论与来源。
+          {SHOWCASE ? "当前是只读的历史调查展示，下载到的是当时生成的真实档案文件。" : "最终完成状态以运行凭证为准，凭证会逐个校验文件摘要。"}
         </p>
         {versions.length > 1 ? (
           <details className="trace-details">
@@ -425,7 +445,7 @@ export function Archive() {
       </details>
 
       <div className="trace-foot">
-        <a className="trace-btn" href={`/cases/${run.id}`}>
+        <a className="trace-btn" href={caseHref(run.id)}>
           查看调查过程
         </a>
         <BackLink />

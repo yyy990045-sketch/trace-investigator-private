@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, RotateCcw, X } from "lucide-react";
 import {
+  SHOWCASE,
   activeRun,
   bundleOf,
   client,
@@ -21,7 +22,7 @@ import {
   type Relation,
   type SourceAssessment,
 } from "../api";
-import { BackLink, FactBlock, StepRail, Tag, formatTime } from "../components";
+import { BackLink, FactBlock, StepRail, Tag, archiveHref, formatTime } from "../components";
 
 export function Case() {
   const { runId = "" } = useParams();
@@ -233,6 +234,7 @@ export function Case() {
                 ))}
               </ul>
               <div className="trace-versions-actions">
+                {SHOWCASE ? null : (
                 <label className="trace-label trace-actor-inline" htmlFor="trace-redeliver-actor">
                   确认人
                   <input
@@ -243,12 +245,15 @@ export function Case() {
                     onChange={(e) => setActor(e.target.value)}
                   />
                 </label>
+                )}
+                {SHOWCASE ? null : (
                 <button className="trace-btn trace-btn-primary" onClick={redeliver} disabled={busy !== null}>
                   {busy === "redeliver"
                     ? "正在生成新版本…"
                     : `重新确认，生成第 ${revisions.deliveredRevision + 1} 版档案`}
                 </button>
-                <a className="trace-link" href={`/archive/${run.id}`}>
+                )}
+                <a className="trace-link" href={archiveHref(run.id)}>
                   先看当前结论与旧版本
                 </a>
               </div>
@@ -259,11 +264,24 @@ export function Case() {
             </>
           ) : (
             <div className="trace-versions-actions">
-              <a className="trace-link" href={`/archive/${run.id}`}>
+              <a className="trace-link" href={archiveHref(run.id)}>
                 查看已交付档案与版本记录
               </a>
             </div>
           )}
+          {revisions.revisions.length > 1 ? (
+            <details className="trace-version-changes">
+              <summary>这次调查是怎么一步步走到现在结论的</summary>
+              <ul className="trace-verdict-changes">
+                {revisions.revisions.slice(1).map((item) => (
+                  <li key={item.revision}>
+                    第 {item.revision} 版（{formatTime(item.at)}）：
+                    {item.changes?.length ? item.changes.join("；") : "与上一版相比结论与来源统计没有变化。"}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
           {error && pendingVersion ? <div className="trace-alert">{error}</div> : null}
         </section>
       ) : null}
@@ -326,7 +344,7 @@ export function Case() {
               {pendingVersion ? " 追加的检索与修正在这里重算，但还没有生成新版本档案。" : ""}
             </p>
           </div>
-          <a className="trace-btn trace-btn-primary" href={`/archive/${run.id}`}>
+          <a className="trace-btn trace-btn-primary" href={archiveHref(run.id)}>
             打开调查档案 <ArrowRight size={14} />
           </a>
         </section>
@@ -368,7 +386,9 @@ export function Case() {
               clusters={clusters}
               freshPageIds={freshPageIds}
               onFollowup={(item, source) => openComposer(item, source)}
-              onCorrect={running ? undefined : (source, relation, note) => correct(source, relation, note)}
+              onCorrect={
+                running || SHOWCASE ? undefined : (source, relation, note) => correct(source, relation, note)
+              }
             />
           ))}
         </section>
@@ -412,7 +432,7 @@ export function Case() {
         </section>
       ) : null}
 
-      {composer ? (
+      {SHOWCASE ? null : composer ? (
         <section className="trace-composer" aria-label="追加检索">
           <div className="trace-composer-head">
             <div>
@@ -484,7 +504,7 @@ export function Case() {
       <div className="trace-foot">
         <BackLink />
         {assessment?.openQuestions?.length ? (
-          <a className="trace-link" href={`/archive/${run.id}`}>
+          <a className="trace-link" href={archiveHref(run.id)}>
             看看还缺什么证据
           </a>
         ) : null}

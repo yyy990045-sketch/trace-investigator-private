@@ -791,6 +791,20 @@ const RELATION_LABEL: Record<string, string> = {
   irrelevant: "无关",
 };
 
+/** 一次人工修正在写入前后对结论的实际影响（都是真实重算出来的，不是估计）。 */
+export interface CorrectionImpact {
+  sourceBefore: Relation;
+  sourceAfter: Relation;
+  factBefore: string;
+  factAfter: string;
+  supportsBefore: number;
+  supportsAfter: number;
+  clustersBefore: number;
+  clustersAfter: number;
+  verdictBefore: string;
+  verdictAfter: string;
+}
+
 export interface CorrectionRecord {
   pageId: string;
   factId: string;
@@ -798,6 +812,8 @@ export interface CorrectionRecord {
   note: string;
   actor: string;
   at: string;
+  /** 首次写入时由服务端算出；老记录没有 */
+  impact?: CorrectionImpact;
 }
 
 /**
@@ -828,6 +844,7 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
         note: latest.note,
         actor: latest.actor,
         at: latest.at,
+        ...(latest.impact ? { impact: latest.impact } : {}),
       },
       reasons: [
         `人工修正：${latest.actor} 将关系由「${RELATION_LABEL[autoRelation] || autoRelation}」改为「${RELATION_LABEL[latest.relation] || latest.relation}」，原因：${latest.note}`,
