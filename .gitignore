@@ -7,6 +7,9 @@ data/
 *.sqlite*
 __pycache__/
 artifacts/
+# 只读展示版里打包的是真实档案文件（供评委下载），需要随交付物一起提交
+!delivery/trace-showcase/artifacts/
+!delivery/trace-showcase/artifacts/**
 
 !.env.platform.example
 uploads/
