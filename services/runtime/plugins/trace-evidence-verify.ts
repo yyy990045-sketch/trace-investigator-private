@@ -3,17 +3,19 @@
  *
  * 这一步把「检索命中」变成「可复查的判断」：
  *  - 同源/转载聚类，避免同一内容被当成多个独立证据；
- *  - 逐条来源给出支持/反对/无法判断 + 理由；
+ *  - 逐条来源给出支持/反对/无法判断/无关 + 理由；
  *  - 逐条事实汇总独立来源数与原文依据数；
  *  - 只有同时满足「≥2 个独立来源」且「至少一个取得原文正文」才给出有依据支持，
- *    否则明确输出证据不足。结论永远带理由，不预设立场。
+ *    否则明确输出证据不足，并列出还缺什么证据。
  */
 import { type CapabilityDefinition } from "../src/contracts.ts";
 import {
   aggregateCase,
   assessFact,
   clusterSources,
+  openQuestions,
   outcomeLabel,
+  summarizeClusters,
   type AnalysablePage,
 } from "../adapters/trace/analyze.ts";
 import {
@@ -130,6 +132,14 @@ export default {
         assessment?.sources[0];
       return { key: fact.id, value: fact.text, source: best?.pageId || "case-question" };
     });
+    // 同源/转载分组：让界面能直接说「这几篇其实是同一个原始出处」。
+    const clusters = summarizeClusters(
+      [...new Map(assessments.flatMap((item) => item.sources).map((source) => [source.pageId, source])).values()],
+      bodies,
+      pages,
+    );
+    // 还缺什么证据：证据不足时给用户可执行的下一步，而不是一句结论了事。
+    const missing = openQuestions(assessments);
 
     return {
       ...input,
@@ -143,6 +153,8 @@ export default {
         verdict: { ...verdict, statement },
         independentSources,
         bodyAvailable,
+        clusters,
+        openQuestions: missing,
       },
       checks: [
         ...(input.checks || []).filter(
@@ -151,9 +163,7 @@ export default {
         {
           name: "同源转载",
           passed: true,
-          detail: `检索到 ${pages.length} 条网页，按内容雷同与同站关系合并为 ${independentSources} 个独立来源簇，${
-            duplicatePages.size
-          } 条被判为重复来源（不计入独立证据）。`,
+          detail: `检索到 ${pages.length} 条网页，按内容雷同与同站关系合并为 ${independentSources} 个独立来源簇，${duplicatePages.size} 条被判为重复来源（不计入独立证据）。`,
         },
         {
           name: "独立来源",

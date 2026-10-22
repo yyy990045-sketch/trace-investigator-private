@@ -1,4 +1,5 @@
 import { searchConfiguration } from "../adapters/trace/searchpro.ts";
+import { registerTraceEndpoints } from "./trace-followup.ts";
 import Fastify from "fastify";
 import { resolve, join } from "node:path";
 import { readFile, readdir, unlink } from "node:fs/promises";
@@ -414,6 +415,8 @@ export async function createPlatform(
     await engine.stop();
     store.close();
   });
+  // TRACE 专用端点：证据追问与结论重算（复用真实检索/抓取与同一套规则）。
+  registerTraceEndpoints(app, store);
   if (options.recover !== false) engine.recover();
   return { app, store, registry, engine };
 }

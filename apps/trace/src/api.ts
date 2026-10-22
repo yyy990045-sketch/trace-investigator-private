@@ -110,7 +110,7 @@ export function startInvestigation(project: ProjectRecord, draft: CaseDraft) {
   );
 }
 
-export type Relation = "supports" | "contradicts" | "unclear" | "mixed" | "none";
+export type Relation = "supports" | "contradicts" | "unclear" | "irrelevant" | "mixed" | "none";
 
 export interface SourceAssessment {
   pageId: string;
@@ -140,6 +140,8 @@ export interface FactAssessment {
   bodyBackedClusters: number;
   supports: number;
   contradicts: number;
+  unclear?: number;
+  irrelevant?: number;
   sources: SourceAssessment[];
   reasons: string[];
 }
@@ -201,6 +203,10 @@ export interface TraceBundleView {
     verdict: Verdict;
     independentSources: number;
     bodyAvailable: number;
+    clusters?: SourceCluster[];
+    openQuestions?: string[];
+    pageCount?: number;
+    followupCount?: number;
   };
   checks: { name: string; passed: boolean; detail: string; status?: string }[];
 }
@@ -242,7 +248,8 @@ export const outcomeText: Record<Verdict["outcome"], string> = {
 export const relationText: Record<Relation, string> = {
   supports: "支持",
   contradicts: "反对",
-  unclear: "无法判断",
+  unclear: "无法确认",
+  irrelevant: "无关",
   mixed: "存在争议",
   none: "无可用来源",
 };
@@ -255,3 +262,155 @@ export const stepText: Record<string, string> = {
   "human.confirm": "人工确认",
   "trace.archive.export": "档案导出",
 };
+
+/** 同源/转载分组：让界面能直接说「这几篇其实是同一个原始出处」。 */
+export interface SourceCluster {
+  id: string;
+  primary: {
+    title: string;
+    url: string;
+    site: string;
+    date: string;
+    bodyAvailable: boolean;
+    originality: SourceAssessment["originality"];
+  };
+  size: number;
+  reprint: boolean;
+  members: { title: string; url: string; site: string; date: string; bodyAvailable: boolean }[];
+}
+
+export interface FollowupPage {
+  id: string;
+  title: string;
+  url: string;
+  site: string;
+  date: string;
+  passage: string;
+}
+
+export interface FollowupRecord {
+  query: string;
+  requestId: string | null;
+  httpStatus: number | null;
+  durationMs: number;
+  resultCount: number;
+  requestedAt: string;
+  error: { code: string; message: string } | null;
+  pages: FollowupPage[];
+}
+
+const runtimeBase = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
+
+async function traceRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(runtimeBase + path, {
+      method,
+      headers: { "content-type": "application/json", "x-platform-client": "workbench-v1" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("无法连接本机运行服务，请确认 Runtime 已启动。");
+  }
+  const text = await response.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`运行服务返回异常（HTTP ${response.status}）。`);
+  }
+  if (!response.ok) throw new Error(data.message || "请求失败");
+  return data as T;
+}
+
+/** 读取当前评估：优先最新重算结果，其次核验步骤输出。 */
+export function fetchAssessment(runId: string) {
+  return traceRequest<{ source: string; at: string | null; assessment: TraceBundleView["assessment"] | null }>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace/assessment`,
+  );
+}
+
+/** 针对某条事实追加一次真实检索；结果写进同一条调查记录。 */
+export function postFollowup(runId: string, query: string, factId?: string) {
+  return traceRequest<FollowupRecord>(`/v1/runs/${encodeURIComponent(runId)}/trace/followup`, "POST", {
+    query,
+    ...(factId ? { factId } : {}),
+  });
+}
+
+/** 把追加检索合并回卷宗并重算结论。 */
+export function postReassess(runId: string) {
+  return traceRequest<{ source: string; at: string; assessment: NonNullable<TraceBundleView["assessment"]> }>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace/reassess`,
+    "POST",
+    {},
+  );
+}
+
+/** 三个真实案例：点一下即可带入表单，用户也可以完全自己提问。 */
+export interface SampleCase {
+  id: string;
+  tag: string;
+  question: string;
+  claim: string;
+  note: string;
+  facts: FactDraft[];
+}
+
+export const sampleCases: SampleCase[] = [
+  {
+    id: "A-original-source",
+    tag: "能找到原始出处",
+    question: "《中华人民共和国个人信息保护法》是什么时候通过、什么时候施行的？",
+    claim: "《中华人民共和国个人信息保护法》自2021年11月1日起施行",
+    note: "官方原文可查，适合看「原始出处 vs 转载」的差别",
+    facts: [
+      {
+        id: "fact-1",
+        text: "《中华人民共和国个人信息保护法》自2021年11月1日起施行",
+        queries: ["个人信息保护法 施行日期 2021年11月1日", "个人信息保护法 全文 主席令"],
+        timeScope: "2021年",
+        subjectScope: "中华人民共和国",
+      },
+    ],
+  },
+  {
+    id: "B-cross-check",
+    tag: "需要交叉验证",
+    question: "2024年中国新能源汽车产量到底是多少？不同来源给出的数字一致吗？",
+    claim: "2024年中国新能源汽车产量超过1200万辆",
+    note: "多家统计口径不一，适合看「数量断言怎么比」",
+    facts: [
+      {
+        id: "fact-1",
+        text: "2024年中国新能源汽车产量超过1200万辆",
+        queries: ["2024年 中国 新能源汽车 产量 万辆", "2024年 新能源汽车 产销 统计数据"],
+        timeScope: "2024年",
+        subjectScope: "中国",
+      },
+    ],
+  },
+  {
+    id: "C-insufficient",
+    tag: "证据可能不足",
+    question: "2025年是否已经建成覆盖全国的氢能长途重卡加氢网络？",
+    claim: "2025年中国已建成覆盖全国主要干线的氢能长途重卡加氢网络",
+    note: "容易查到相关新闻但不足以支撑结论，适合看「拒绝下结论」",
+    facts: [
+      {
+        id: "fact-1",
+        text: "2025年中国已建成覆盖全国主要干线的氢能长途重卡加氢网络",
+        queries: ["2025年 全国 氢能 重卡 加氢网络 建成", "全国加氢站 覆盖 干线 重卡"],
+        timeScope: "2025年",
+        subjectScope: "中国",
+      },
+    ],
+  },
+];
+
+/** 从调查记录里取出所有追加检索。 */
+export function followupsOf(run: RunRecord): FollowupRecord[] {
+  return run.evidence
+    .filter((item) => item.kind === "trace.followup")
+    .map((item) => item.data as FollowupRecord);
+}

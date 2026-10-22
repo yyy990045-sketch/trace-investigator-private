@@ -9,7 +9,8 @@
  *  5. 全部判断输出 reason，便于人工复查；不引入不可复现的随机性。
  */
 
-export type Relation = "supports" | "contradicts" | "unclear";
+/** 证据与事实的关系：支持 / 反对 / 无法确认 / 明显无关。 */
+export type Relation = "supports" | "contradicts" | "unclear" | "irrelevant";
 export type Outcome = "supported" | "contradicted" | "disputed" | "outdated" | "insufficient";
 
 export interface TraceFact {
@@ -69,6 +70,8 @@ export interface FactAssessment {
   bodyBackedClusters: number;
   supports: number;
   contradicts: number;
+  unclear: number;
+  irrelevant: number;
   /** 内容相关但时间要求不满足的来源数，用于区分「没有证据」与「证据过期」 */
   outOfRangeSupports: number;
   sources: SourceAssessment[];
@@ -339,7 +342,12 @@ export function assessSource(
   const factFragments = fragments(options.fact.text);
   const sharedFragment = factFragments.find((fragment) => (scored + " " + bodyText).includes(fragment));
 
-  if (relevance < 0.34) {
+  if (relevance < 0.12) {
+    relation = "irrelevant";
+    reasons.push(
+      `与该事实几乎无关（关键词重合度 ${(relevance * 100).toFixed(0)}%），仅作为检索命中记录保留，不参与判断。`,
+    );
+  } else if (relevance < 0.34) {
     reasons.push(`与事实主题的关键词重合度仅 ${(relevance * 100).toFixed(0)}%，不足以作为该事实的依据。`);
   } else if (negation) {
     relation = "contradicts";
@@ -467,7 +475,11 @@ export function assessFact(options: AssessOptions): FactAssessment {
   );
   const supports = sources.filter((s) => s.relation === "supports").length;
   const contradicts = sources.filter((s) => s.relation === "contradicts").length;
-  const outOfRangeSupports = sources.filter((s) => s.relation === "supports" && s.dateStatus === "out_of_range").length;
+  const unclear = sources.filter((s) => s.relation === "unclear").length;
+  const irrelevant = sources.filter((s) => s.relation === "irrelevant").length;
+  const outOfRangeSupports = sources.filter(
+    (s) => s.relation === "supports" && s.dateStatus === "out_of_range",
+  ).length;
   const reasons: string[] = [];
 
   let relation: FactAssessment["relation"] = "none";
@@ -496,6 +508,8 @@ export function assessFact(options: AssessOptions): FactAssessment {
     bodyBackedClusters: bodyBacked.size,
     supports,
     contradicts,
+    unclear,
+    irrelevant,
     outOfRangeSupports,
     sources,
     reasons,
@@ -658,4 +672,90 @@ export function outcomeLabel(outcome: Outcome) {
     default:
       return "证据不足";
   }
+}
+
+export interface SourceCluster {
+  id: string;
+  /** 该簇里最适合当作原始出处的一条（有正文且得分最高） */
+  primary: {
+    title: string;
+    url: string;
+    site: string;
+    date: string;
+    bodyAvailable: boolean;
+    originality: SourceAssessment["originality"];
+  };
+  size: number;
+  /** 同一原始内容被多少篇网页重复传播 */
+  reprint: boolean;
+  members: { title: string; url: string; site: string; date: string; bodyAvailable: boolean }[];
+}
+
+/** 把「同源/转载」关系整理成可直接展示的分组，替代让用户自己比对 URL。 */
+export function summarizeClusters(
+  sources: SourceAssessment[],
+  bodies: Map<string, BodyEvidence>,
+  pages: AnalysablePage[],
+): SourceCluster[] {
+  const byPage = new Map(pages.map((page) => [page.id, page]));
+  const groups = new Map<string, SourceAssessment[]>();
+  for (const source of sources)
+    groups.set(source.clusterId, [...(groups.get(source.clusterId) || []), source]);
+  return [...groups.entries()]
+    .map(([id, group]) => {
+      const ranked = [...group].sort(
+        (a, b) =>
+          Number(b.bodyAvailable) - Number(a.bodyAvailable) ||
+          Number(b.originality === "original_candidate") - Number(a.originality === "original_candidate") ||
+          (byPage.get(b.pageId)?.score || 0) - (byPage.get(a.pageId)?.score || 0),
+      );
+      const primary = ranked[0];
+      return {
+        id,
+        primary: {
+          title: primary.title,
+          url: primary.url,
+          site: primary.site,
+          date: primary.date,
+          bodyAvailable: primary.bodyAvailable,
+          originality: primary.originality,
+        },
+        size: group.length,
+        reprint: group.length > 1,
+        members: group.map((item) => ({
+          title: item.title,
+          url: item.url,
+          site: item.site,
+          date: item.date,
+          bodyAvailable: item.bodyAvailable,
+        })),
+      };
+    })
+    .sort((a, b) => b.size - a.size || a.primary.site.localeCompare(b.primary.site));
+}
+
+/**
+ * 明确列出「还缺什么证据」，用于证据不足时告诉用户下一步该补什么，
+ * 而不是只丢一句「证据不足」。
+ */
+export function openQuestions(facts: FactAssessment[]): string[] {
+  const notes: string[] = [];
+  for (const fact of facts) {
+    const label = fact.fact.length > 34 ? fact.fact.slice(0, 34) + "…" : fact.fact;
+    if (fact.relation === "supports" && fact.bodyBackedClusters === 0)
+      notes.push(`「${label}」只有搜索摘要，还缺可访问的原文正文。`);
+    if (fact.relation === "supports" && fact.independentClusters < 2)
+      notes.push(`「${label}」只有一个独立来源，还需要第二个互不转载的来源。`);
+    if (fact.relation === "none" && fact.outOfRangeSupports > 0)
+      notes.push(`「${label}」找到相关内容但不符合时间要求，还缺该期间内的来源。`);
+    if (fact.relation === "none" && fact.outOfRangeSupports === 0)
+      notes.push(`「${label}」没有任何来源直接表述该事实，还缺能明确写出该说法的来源。`);
+    if (fact.relation === "contradicts")
+      notes.push(`「${label}」存在相反说法，还缺能确认哪一方准确的原始出处。`);
+    if (fact.relation === "mixed")
+      notes.push(`「${label}」支持与反对并存，还需要能说明统计口径或时间范围的来源。`);
+    if (fact.supports === 0 && fact.irrelevant > 0 && fact.relation === "none")
+      notes.push(`检索命中的 ${fact.irrelevant} 条网页与该事实无关，建议换更具体的检索式。`);
+  }
+  return [...new Set(notes)].slice(0, 6);
 }
