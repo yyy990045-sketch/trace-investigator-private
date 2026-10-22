@@ -914,6 +914,12 @@ export function registerProductEndpoints(
         row.project_id,
         (feedbackByProject.get(row.project_id) || 0) + 1,
       );
+    const artifactCountByProject = new Map<string, number>();
+    for (const row of store.all(
+      "SELECT r.project_id,COUNT(*) AS count FROM artifacts a JOIN runs r ON r.id=a.run_id GROUP BY r.project_id",
+    ))
+      artifactCountByProject.set(row.project_id, Number(row.count));
+
 
     const byStatus: Record<string, number> = {};
     const projectRunStats = new Map<
@@ -991,7 +997,11 @@ export function registerProductEndpoints(
           pending: 0,
           total: 0,
         };
-        const last = lastRuns.find((r) => r.project_id === row.id);
+        // 每个项目自己的最近一次运行，不能只看全局最近 12 条，否则有历史的项目会被误显示为“尚未运行”。
+        const last = store.get(
+          "SELECT id,status,created_at,input FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
+          row.id,
+        );
         const application = applicationRows.find(
           (a) => a.project_id === row.id,
         );
@@ -1023,13 +1033,7 @@ export function registerProductEndpoints(
             : null,
           feedbackCount: feedbackByProject.get(row.id) || 0,
           experienceCount: experienceByProject.get(row.id) || 0,
-          artifacts: artifactRows.filter((a) => {
-            const run = store.get(
-              "SELECT project_id FROM runs WHERE id=?",
-              a.run_id,
-            );
-            return run?.project_id === row.id;
-          }).length,
+          artifacts: artifactCountByProject.get(row.id) || 0,
           application: application ? applicationRecord(application) : null,
         };
       }),
