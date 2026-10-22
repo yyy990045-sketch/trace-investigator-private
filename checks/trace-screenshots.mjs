@@ -29,7 +29,7 @@ const MOBILE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
 
 async function shot(name, path, viewport) {
-  const context = await browser.newContext({ viewport, deviceScaleFactor: 2, locale: "zh-CN" });
+  const context = await browser.newContext({ viewport, deviceScaleFactor: 1, locale: "zh-CN" });
   const page = await context.newPage();
   await page.goto(base + path, { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
