@@ -28,10 +28,11 @@ export function Entry() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const blocked = availability.data ? !availability.data.available : availability.isError;
+  // 未拿到可用性前也不允许提交：宁可等一下，也不要发出注定失败的调查。
+  const blocked = availability.data?.available !== true;
   const blockerReason = availability.isError
     ? (availability.error as Error).message
-    : availability.data?.reason;
+    : (availability.data?.reason ?? "正在读取检索能力状态…");
 
   const recent = useMemo(() => {
     const rows = (runs.data || []).filter((run) =>
