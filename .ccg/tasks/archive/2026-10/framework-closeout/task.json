@@ -1,0 +1,21 @@
+{
+  "id": "framework-closeout",
+  "title": "固定e1e7ef3并保存新业务开发入口",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "docs",
+  "currentPhase": "completed",
+  "nextAction": "接收下一条业务需求，先业务方案与核心前端设计",
+  "createdAt": "2026-10-22T11:55:54.803504+00:00",
+  "completedAt": "2026-10-22T11:55:54.803504+00:00",
+  "baselineCommit": "e1e7ef3406ce1fc3aca9e4ffaf018081e6706ba7",
+  "checks": [
+    "开始时HEAD匹配且工作树干净",
+    "模板/Registry/Runtime/SDK入口已读核对",
+    "四个本机服务cwd匹配并返回HTTP200"
+  ],
+  "newProjects": 0,
+  "newRuns": 0,
+  "sourceChanges": false
+}
