@@ -1,0 +1,14 @@
+{
+  "id": "trace-v9-statistics",
+  "title": "事实分水岭V9统计口径与视觉对照",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "trace",
+  "currentPhase": "completed",
+  "nextAction": "已完成并停止开发，等待正式投稿",
+  "branch": "feature/trace-frontend-v2",
+  "productCommit": "26c327e",
+  "publicUrl": "https://trace-showcase-eight.vercel.app/",
+  "completedAt": "2026-10-23T12:01:44.214187+00:00"
+}
