@@ -13,7 +13,9 @@ type LiveSource = {
   origin:string; independence:string; reasons:string[];
 };
 type LiveResult = {
-  claim:string; label:string; outcome:string; statement:string; reasons:string[]; gaps:string[];
+  claim:string; kind?:"claim"|"comparison"|"explanation";
+  figures?:{publisher:string;value:number;unit:string;sentence:string;scope:string;url:string;from:"body"|"excerpt";year:string}[];
+  label:string; outcome:string; statement:string; reasons:string[]; gaps:string[];
   counts:{pages:number;bodies:number;keyEvidence:number;related:number;independentSources:number};
   sources:LiveSource[];
   rounds:{query:string;at:string;httpStatus:number|null;count:number;requestId:string|null;durationMs:number;error:string|null}[];
@@ -152,6 +154,19 @@ export function LiveInvestigation(){
               <span className="trace-live-count">第 {active.rounds.length}/3 轮</span>
             </div>
             <p>{active.statement}</p>
+            {active.kind === "comparison" && (active.figures?.length || 0) > 0 ? (
+              <div className="trace-live-figures" aria-label="不同来源数字的核对">
+                {active.figures!.map((figure,index)=>(
+                  <div key={figure.publisher+figure.value+index}>
+                    <span>{figure.publisher}</span>
+                    <b>{figure.value}{figure.unit}</b>
+                    <p>「{figure.sentence}」</p>
+                    <small>{figure.from === "body" ? "原文正文" : "搜索摘要"}</small>
+                    <a href={figure.url} target="_blank" rel="noreferrer noopener">核对来源 <ExternalLink size={12}/></a>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="trace-live-metrics">
               <span><b>{active.counts.pages}</b> 条网页</span>
               <span><b>{active.counts.bodies}</b> 份已取得正文</span>
