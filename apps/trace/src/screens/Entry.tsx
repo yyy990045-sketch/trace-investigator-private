@@ -323,7 +323,7 @@ export function Entry() {
               rows={2}
               maxLength={500}
               placeholder={heroMode === "verification"
-                ? "例如：网传《个人信息保护法》从2021年8月20日开始施行，这是真的吗？"
+                ? "例如：《个人信息保护法》自2021年8月20日起施行。"
                 : "例如：我记得一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档。"}
               value={clueQuestion}
               onChange={(event) => setClueQuestion(event.target.value)}
@@ -338,6 +338,9 @@ export function Entry() {
             >
               <Search size={16} /> {clueBusy ? "正在调查…" : heroMode === "verification" ? "开始核查" : "开始找线索"}
             </button>
+            {heroMode === "verification" ? (
+              <p className="clue-hero-note">请输入一句可核查的具体说法；当前按原句立案，不会把开放式问题自动改写成未经确认的事实。</p>
+            ) : null}
           </div>
         )}
         {!SHOWCASE && heroMode === "clue" ? (
