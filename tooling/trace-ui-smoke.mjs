@@ -24,6 +24,14 @@ try {
   if (!(await page.getByRole("link", { name: /查看真实调查/ }).count()))
     throw new Error("主入口不可点击");
   await page.screenshot({ path: output + "/home-desktop.png", fullPage: true });
+  // 在没有后端密钥的干净静态环境中，实时入口必须明确提示未开放，
+  // 绝不模拟联网结果或对用户开放不可用按钮。
+  await page.goto(base + "/#/live", { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "追查一条说法" }).waitFor();
+  await page.getByText("联网调查尚未开放").waitFor();
+  if (!(await page.getByRole("button", { name: "开始真实调查" }).isDisabled()))
+    throw new Error("未配置限流和密钥时开放了伪实时搜索按钮");
+  await page.screenshot({ path: output + "/live-closed-desktop.png", fullPage: true });
 
   const examples = [
     { button: "查冲突", id: "run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6", marker: "1316.8" },
