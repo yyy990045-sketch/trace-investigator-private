@@ -166,7 +166,7 @@ function analyse(snapshot: Snapshot) {
   // 回退为"来源原句明确包含用户提到的数值"的保守记录，仅标实际发表站点，
   // 不凭单页共现推断统计机构，也不据此判定差异的具体原因。
   if (compareQuestion && figureMap.size < 2) {
-    const values = [...new Set((snapshot.claim.match(/\\d+(?:\\.\\d+)?/g)||[])
+    const values = [...new Set((snapshot.claim.match(/\d+(?:\.\d+)?/g)||[])
       .map(Number).filter((n)=>Number.isFinite(n)&&n>=10&&!(n>=1900&&n<=2100)))];
     for (const source of fact.sources) {
       if (source.relevance < 0.1 || source.relation === "irrelevant") continue;
@@ -185,7 +185,7 @@ function analyse(snapshot: Snapshot) {
           publisher,value,unit,sentence:redact(matched).slice(0,230),
           scope:"统计范围未单独核实",url:source.url,
           from:source.bodyStatus==="evidence_sentence"?"body":"excerpt",
-          year:(snapshot.claim.match(/(?:19|20)\\d{2}年/)||[])[0]||"",
+          year:(snapshot.claim.match(/(?:19|20)\d{2}年/)||[])[0]||"",
         });
       }
     }
