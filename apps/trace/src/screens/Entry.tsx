@@ -56,9 +56,9 @@ function useDigests() {
     const pick = (keys: string[]) => rows.find((row) => keys.some((key) => row.digest.claim.includes(key))) || null;
     return {
       rows,
-      A: pick(["个人信息保护法"]),
-      B: pick(["新能源汽车", "产量"]),
-      C: pick(["氢能", "加氢"]),
+      A: rows.find((row) => row.run.id === "run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6") || pick(["个人信息保护法"]),
+      B: rows.find((row) => row.run.id === "run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6") || pick(["新能源汽车", "产量"]),
+      C: rows.find((row) => row.run.id === "run_8f812ae8-42f3-48d1-a353-84942f770e95") || pick(["氢能", "加氢"]),
       D: rows.find((row) => row.digest.claim.includes("民法典") && row.digest.claim.includes("2021年1月1日") && row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
       R: rows.find((row) => row.digest.outcome === "contradicted") || null,
       // 跨调查经验复用：新调查命中了历史经验（通过日/施行日混淆）
@@ -102,7 +102,7 @@ export function Entry() {
   const [planOpen, setPlanOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [useModel, setUseModel] = useState(true);
+  const [useModel, setUseModel] = useState(false);
   const [modelConsent, setModelConsent] = useState(false);
   const [clueQuestion, setClueQuestion] = useState("");
   const [clueBusy, setClueBusy] = useState(false);
@@ -226,7 +226,7 @@ export function Entry() {
       detail: "为什么两个官方渠道公布的新能源汽车产量不同？",
       text: "为什么2024年中国新能源汽车产量有1288.8万辆和1316.8万辆两种说法？",
       mode: "fact" as const,
-      showcaseRunId: "run_1509cd01-d852-4afe-b988-7ede65df0839",
+      showcaseRunId: "run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6",
       claim: "2024年中国新能源汽车产量为1316.8万辆",
       facts: [
         {
@@ -244,7 +244,7 @@ export function Entry() {
       detail: "某个工程项目是否真的已经全面建成？",
       text: "2025年全国氢能重卡加氢网络是不是已经全面建成？我看到新闻说氢走廊已经投运。",
       mode: "fact" as const,
-      showcaseRunId: "run_8fed9d25-ec95-4d7c-8d99-1b6828a72fdc",
+      showcaseRunId: "run_8f812ae8-42f3-48d1-a353-84942f770e95",
       claim: "2025年全国氢能重卡加氢网络已全面建成",
       facts: [
         {
@@ -273,11 +273,11 @@ export function Entry() {
     setBusy(true);
     setError(null);
     try {
-      const project = await ensureProject(true);
+      const project = await ensureProject(false);
       const run = await startInvestigation(
         project,
         { question: example.text, claim: example.claim, facts: example.facts },
-        true,
+        false,
       );
       nav(`/cases/${run.id}`);
     } catch (e) {
@@ -293,26 +293,35 @@ export function Entry() {
         <span className="clue-hero-brand">TRACE｜线索侦探</span>
         <h1>记不清？查不明？给我线索，我来追查。</h1>
         <p className="clue-hero-lede">从零碎线索中寻找答案，用真实搜索核对来源。查不到的，不乱猜。</p>
-        <div className="clue-hero-input">
-          <textarea
-            aria-label="你想查什么"
-            rows={2}
-            maxLength={500}
-            placeholder="例如：我以前看过一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档，想不起叫什么了。"
-            value={clueQuestion}
-            onChange={(event) => setClueQuestion(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
-            }}
-          />
-          <button
-            className="trace-btn trace-btn-primary trace-btn-lg"
-            disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
-            onClick={() => void submitClue()}
-          >
-            <Search size={16} /> {clueBusy ? "正在追查…" : "开始调查"}
-          </button>
-        </div>
+        {SHOWCASE ? (
+          <div className="clue-hero-input" aria-label="历史调查演示入口">
+            <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
+            <a className="trace-btn trace-btn-primary trace-btn-lg" href={caseHref("run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6")}>
+              <Search size={16} /> 查看真实调查
+            </a>
+          </div>
+        ) : (
+          <div className="clue-hero-input">
+            <textarea
+              aria-label="你想查什么"
+              rows={2}
+              maxLength={500}
+              placeholder="例如：我以前看过一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档，想不起叫什么了。"
+              value={clueQuestion}
+              onChange={(event) => setClueQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
+              }}
+            />
+            <button
+              className="trace-btn trace-btn-primary trace-btn-lg"
+              disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
+              onClick={() => void submitClue()}
+            >
+              <Search size={16} /> {clueBusy ? "正在追查…" : "开始调查"}
+            </button>
+          </div>
+        )}
         <div className="clue-hero-examples">
           {clueExamples.map((example) => (
             <button
@@ -351,6 +360,8 @@ export function Entry() {
           ))}
       </div>
 
+      <details className="trace-home-extra" open={!SHOWCASE}>
+        <summary>展开了解更多调查案例与历史研究</summary>
       {digests.datePair ? (
         <Watershed
           left={{ label: "原句（真实反证）", claim: digests.datePair.left.digest.claim, digest: digests.datePair.left.digest }}
@@ -732,6 +743,7 @@ export function Entry() {
           )}
         </section>
       ) : null}
+      </details>
     </div>
   );
 }
