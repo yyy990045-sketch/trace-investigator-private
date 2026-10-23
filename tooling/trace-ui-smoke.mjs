@@ -29,6 +29,7 @@ try {
     await page.goto(base + "/#/", { waitUntil: "networkidle" });
     await page.locator(".clue-example").filter({ hasText: item.button }).first().click();
     await page.waitForURL((url) => url.hash.includes(item.id), { timeout: 15000 });
+    await page.locator(".trace-masthead h1").waitFor({ state: "visible", timeout: 15000 });
     if (item.button === "查冲突") {
       const numbers = page.locator(".case-now .trace-quantity-diff");
       if (!(await numbers.count())) throw new Error("调查结果首屏没有两组数字对照：" + (await page.locator(".case-now").innerText()).slice(0,500));
