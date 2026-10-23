@@ -4,7 +4,8 @@
  * 只重建前端，不访问 Runtime，不发起元宝搜索，不生成新的调查结果。
  */
 import { execFileSync } from "node:child_process";
-import { cp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { build as bundleServerless } from "esbuild";
 import { existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,24 @@ const index = join(out, "index.html");
 const html = await readFile(index, "utf8");
 if (!html.includes('<script type="module"')) throw new Error("前端 HTML 模块入口不存在。");
 await writeFile(index, html.replace('<script type="module"', '<script src="./showcase-data.js"></script>\n    <script type="module"'), "utf8");
+await mkdir(join(out, "api"), { recursive: true });
+await bundleServerless({
+  entryPoints: [join(root, "tooling/trace-live-api.ts")],
+  outfile: join(out, "api/investigate.js"),
+  bundle: true,
+  platform: "node",
+  target: "node24",
+  format: "esm",
+  minify: true,
+  sourcemap: false,
+  logLevel: "warning",
+});
+await writeFile(join(out, "package.json"), '{"private":true,"type":"module"}\n');
+await writeFile(join(out, "vercel.json"), JSON.stringify({
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  functions: { "api/investigate.js": { maxDuration: 60 } },
+}, null, 2) + "\n");
+
 execFileSync("node", [join(root, "tooling/trace-showcase-audit.mjs"), out], {
   cwd: root,
   stdio: "inherit",
