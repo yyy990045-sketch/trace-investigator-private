@@ -189,22 +189,23 @@ export async function ensureProject(withModel = false): Promise<ProjectRecord> {
     { capabilityId: "trace.model.archive", version: "1.0.0", config: {} },
   ] : ASSEMBLY;
   const projects = await client.projects();
-  const existing = projects.find((p) => p.name === name);
+  // 只在能力序列完全一致时复用项目；升级时保留旧运行并另建新版本。
+  // 避免用户必须跳进 Studio 删除历史项目才能从 TRACE 首页启动调查。
+  const family = (projectName: string) =>
+    projectName === name || projectName.startsWith(`${name} · 更新-`);
+  const existing = projects.find((p) =>
+    family(p.name) &&
+    p.steps.length === assembly.length &&
+    p.steps.every((s, i) => s.capabilityId === assembly[i].capabilityId && s.version === assembly[i].version),
+  );
   if (existing) {
-    // 能力序列变化时不允许静默替换，交给界面提示重新装配。
-    const same =
-      existing.steps.length === assembly.length &&
-      existing.steps.every((s, i) => s.capabilityId === assembly[i].capabilityId && s.version === assembly[i].version);
-    if (!same)
-      throw new Error(
-        "现有调查流程的项目装配与当前版本不一致，请在 Studio 中新建项目后重试，或删除旧项目。",
-      );
     if (!existing.validation.ready)
       throw new Error("当前调查流程有未满足的权限或依赖，请刷新能力状态并核对项目装配。");
     return existing;
   }
+  const needsNewVersion = projects.some((p) => family(p.name));
   return client.createProject({
-    name,
+    name: needsNewVersion ? `${name} · 更新-${Date.now()}` : name,
     layout: "business",
     permissions: withModel ? [...PERMISSIONS, "model:invoke"] : PERMISSIONS,
     steps: assembly,
