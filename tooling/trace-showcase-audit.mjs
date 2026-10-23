@@ -129,6 +129,9 @@ for (const path of files) {
   const text = await readFile(path, "utf8");
   scanned++;
   for (const rule of HARD) {
+    // Serverless 函数的环境变量名称可出现在代码中；它们是 process.env
+    // 读取标识，不是凭据。仍对函数执行密钥字面值/私钥/身份信息等其他严格扫描。
+    if (relative(root, path).startsWith("api/") && rule.name === "平台环境变量名") continue;
     if (rule.dataOnly && !isDataFile(path)) continue;
     const flags = rule.re.global ? rule.re : new RegExp(rule.re.source, rule.re.flags + "g");
     for (const match of text.matchAll(flags)) {
