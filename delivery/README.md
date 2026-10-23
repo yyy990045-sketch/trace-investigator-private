@@ -55,6 +55,17 @@ cd delivery/trace-showcase && npx vercel deploy --prod --yes --team kian-7b2166f
 
 公网发布前的检查顺序永远是：导出 → 审计（`trace-showcase-audit.mjs` 必须 0 阻断项）→ 部署。审计会对个人邮箱、手机号、身份证/银行卡（Luhn 校验）、Bearer/token、私钥块、本机路径、内网与环回地址逐条判定，并把人类可读的身份字段单列出来给人确认。
 
+## 附件体积
+
+- 三份案例材料 PDF：每个约 0.6–0.7 MB；进阶报告约 0.9 MB — 一般表单都能直接传。
+- 完整演示视频 15 MB（2 分 46 秒）。若投稿表单限制更小，可压一版：
+
+```sh
+ffmpeg -y -i delivery/demo/trace-demo-full.mp4 -c:v libx264 -crf 33 -preset slow -vf "scale=960:600" -movflags +faststart delivery/demo/trace-demo-full-lite.mp4
+```
+
+  或只提交 100 秒的只读展示段（9.1 MB）。
+
 ## 边界（写进投稿也不心虚的部分）
 
 - 公网页面是**只读历史记录**，不提供实时检索；页面本身写明这一点，输入框按下也不会假装在跑。
