@@ -51,8 +51,30 @@ export interface CandidateMatch {
   scope: "sentence" | "paragraph" | "page";
 }
 
+/** 用户到底在找什么：作品（剧/电影）、书、人，或还没说清。 */
+export type EntityKind = "screen_work" | "book" | "person" | "unknown";
+
+/**
+ * 候选与目标的关系。竞争者才参与排名：
+ *  target/competitor 可能是答案；alias/source/character/sequel 是同一部作品的关系项，不是另一部作品。
+ *  unconfirmed 表示关系不明确，只展示、不参与排名。
+ */
+export type CandidateRelation = "target" | "competitor" | "alias" | "source" | "character" | "sequel" | "unconfirmed";
+
+export interface EntityInfo {
+  kind: EntityKind;
+  role: CandidateRelation;
+  /** 判定依据（人话） */
+  reason: string;
+  /** 支撑这条关系的原句 */
+  sentence: string;
+  url: string;
+  site: string;
+}
+
 export interface Candidate {
   name: string;
+  entity?: EntityInfo;
   /** 是否以书名号形式出现（更像作品名，而不是角色名或句子） */
   quoted: boolean;
   /** 被多少个不同来源提到 */
@@ -184,9 +206,128 @@ export function extractCandidates(
     .slice(0, limit);
 }
 
-/** 候选名里带着用户给的线索词（例如「李大宝」里的「大宝」），更像角色名而不是作品名。 */
+/**
+ * 从用户原话判断他想找哪类实体。
+ * 只说「那部剧」就按作品处理；明确说「原著/小说」才按书处理。
+ */
+export function detectTargetKind(question: string): EntityKind {
+  const text = String(question || "");
+  if (/(原著|小说|书名叫|书名|哪本书|文学作品)/.test(text)) return "book";
+  if (/(演员|谁演的|谁扮演|扮演者|哪个人|叫什么的演员)/.test(text)) return "person";
+  if (/(电视剧|剧名|剧集|网剧|连续剧|片子|电影|动画|综艺|看过一部|一部.*剧)/.test(text)) return "screen_work";
+  return "unknown";
+}
+
+const escapeName = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** 候选名带着线索词（例如「李大宝」里的「大宝」），更像角色名。 */
 function candidateLooksLikeClue(name: string, clueTerms: string[]): boolean {
   return clueTerms.some((term) => term.length >= 2 && name.includes(term));
+}
+
+/**
+ * 判断一个候选到底是「目标作品」「原著」「角色」「续作」还是关系不明。
+ * 依据是同一句里的谓语：出品/主演 → 作品；改编自/文学作品 → 原著；饰演/女主角 → 角色。
+ * 判断不了就返回 unconfirmed，不猜。
+ */
+export function classifyEntity(
+  name: string,
+  pages: PageLike[],
+  bodies: Map<string, BodyLike>,
+): EntityInfo {
+  const escaped = escapeName(name);
+  const aliasSignal = new RegExp(`(别名|又名|英文名|原名)\\s*[:：]?\\s*[^。]{0,12}${escaped}`);
+  const workSubject = new RegExp(
+    `(《${escaped}》|${escaped})[^。]{0,24}(出品|制作|开播|首播|播出|上映|执导|导演|的[^。]{0,6}(电视剧|网络剧|剧集|连续剧|电影|动画))`,
+  );
+  const workMention = /电视剧|网络剧|剧集|连续剧|电影|动画|综艺/;
+  const sourceSignal = /(改编自|取材自|原著|文学作品|小说)/;
+  const characterSignal = new RegExp(
+    `(${escaped}\\s*[（(][^）)]{0,16}(女主角|男主角|角色|饰)|由[^。]{0,8}饰演[^。]{0,8}${escaped}|${escaped}\\s*饰演)`,
+  );
+  const sequelSignal = /(续集|番外|第[二三四五六七八九十2-9]季|Ⅱ|II)/;
+  /** 翻拍/改编版本：是另一部作品，但不是用户要找的那一部。 */
+  const remakeSignal = /(翻拍|改编自|重拍|美版|日版|韩版|remake)/i;
+
+  // 优先级：别名 > 作品主体 > 原著 > 角色 > 续作 > 泛提。数值越小越可信。
+  const state: { priority: number; info: EntityInfo | null } = { priority: Number.POSITIVE_INFINITY, info: null };
+  const consider = (priority: number, info: EntityInfo) => {
+    if (priority < state.priority) {
+      state.priority = priority;
+      state.info = info;
+    }
+  };
+
+  for (const page of pages) {
+    const body = bodies.get(page.id);
+    const text = [page.title, page.passage, body?.ok ? body.text.slice(0, 20_000) : ""].join("\n");
+    if (!text.includes(name)) continue;
+    for (const sentence of text.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).filter(Boolean)) {
+      if (!sentence.includes(name)) continue;
+      const base = { sentence: snippetAround(sentence, name, 120), url: page.url, site: page.site };
+      if (aliasSignal.test(sentence)) {
+        // 只展示「别名：X」这一小段，不要把整块百科信息一起搬过来。
+        const fragment = sentence.match(/(别名|又名)\s*[:：]?\s*[^\s。，,]{1,16}/)?.[0];
+        consider(0, {
+          kind: "screen_work",
+          role: "alias",
+          reason: "同一页把它写成别名",
+          ...base,
+          ...(fragment ? { sentence: fragment } : {}),
+        });
+      }
+      else if (workSubject.test(sentence))
+        consider(1, { kind: "screen_work", role: "competitor", reason: "同句说明它是一部剧/电影（出品、播出、主演等）", ...base });
+      else if (sourceSignal.test(sentence) && sentence.includes(`《${name}》`))
+        consider(2, { kind: "book", role: "source", reason: "同句把它写成原著/文学作品", ...base });
+      else if (characterSignal.test(sentence) && !sentence.includes(`《${name}》`))
+        consider(3, { kind: "person", role: "character", reason: "同句把它写成剧中角色", ...base });
+      else if (sequential(name) && sequelSignal.test(sentence))
+        consider(4, { kind: "screen_work", role: "sequel", reason: "同句提到它是续集/某一季", ...base });
+      else if (remakeSignal.test(sentence) && (sentence.includes(`《${name}》`) || sentence.includes(name)))
+        consider(4, { kind: "screen_work", role: "sequel", reason: "同句说明它是翻拍/改编版本", ...base });
+      else if (workMention.test(sentence) && sentence.includes(`《${name}》`))
+        consider(5, { kind: "screen_work", role: "competitor", reason: "同句把它和剧集放在一起称呼", ...base });
+    }
+  }
+  // 别名项如果同时有「改编自…」的说法，把原著关系一并写出来（两种都是真的）。
+  if (state.info?.role === "alias") {
+    const adapted = pages
+      .flatMap((page) => {
+        const body = bodies.get(page.id);
+        return [page.title, page.passage, body?.ok ? body.text.slice(0, 6000) : ""].join("\n").split(/(?<=[。！？!?\n])/);
+      })
+      .map((item) => item.trim())
+      .find((item) => sourceSignal.test(item) && item.includes(`《${name}》`));
+    if (adapted)
+      state.info = { ...state.info, reason: "同一页把它写成别名；另有来源写明它是该剧改编所依据的原著" };
+  }
+  return (
+    state.info || {
+      kind: "unknown",
+      role: "unconfirmed",
+      reason: "搜索结果里没有能说明它是什么的句子",
+      sentence: "",
+      url: pages.find((page) => page.title.includes(name))?.url || pages[0]?.url || "",
+      site: "",
+    }
+  );
+}
+
+/**
+ * 这个候选是不是「关系项」而不是竞争作品。
+ * 用户找剧时：别名、原著、角色、续作都不和其它剧竞争。
+ */
+function isRelation(candidate: Candidate, targetKind: EntityKind): boolean {
+  const role = candidate.entity?.role || "unconfirmed";
+  if (role === "alias" || role === "source" || role === "character" || role === "sequel") return true;
+  if (targetKind === "unknown") return role === "unconfirmed";
+  const kind = candidate.entity?.kind || "unknown";
+  return kind !== "unknown" && kind !== targetKind;
+}
+
+function sequential(name: string) {
+  return /(之|第[二三四五六七八九十2-9]季|Ⅱ|II|2)$/.test(name);
 }
 
 /** 长句/长段落只显示命中位置附近的窗口，保证展示出来的句子里真的能看到候选名。 */
@@ -291,13 +432,21 @@ export function evaluateCandidates(
   clues: ClueItem[],
   pages: PageLike[],
   bodies: Map<string, BodyLike>,
-): { candidates: Candidate[]; decision: ClueDecision } {
-  const candidates = raw
-    .map((candidate) => matchCandidate(candidate, clues, pages, bodies))
+  targetKind: EntityKind = "unknown",
+): { candidates: Candidate[]; relations: Candidate[]; decision: ClueDecision } {
+  // 先判断每个候选是什么：只有和目标同类的才参与排名，原著/角色/别名作为关系展示。
+  const classified = raw.map((candidate) => {
+    const entity = classifyEntity(candidate.name, pages, bodies);
+    return matchCandidate({ ...candidate, entity }, clues, pages, bodies);
+  });
+  const relations = classified.filter((item) => isRelation(item, targetKind));
+  const candidates = classified
+    .filter((item) => !isRelation(item, targetKind))
     .sort((a, b) => b.matchedClues - a.matchedClues || b.score - a.score);
   if (!candidates.length)
     return {
       candidates,
+      relations,
       decision: {
         state: "insufficient",
         headline: "这次没有从检索结果里找到可核对的候选",
@@ -317,6 +466,7 @@ export function evaluateCandidates(
   if (!decisiveMissing.length && !tie)
     return {
       candidates,
+      relations,
       decision: {
         state: "found",
         headline: `线索全部对上：${best.name}`,
@@ -339,6 +489,7 @@ export function evaluateCandidates(
     const askClue = best.missingClues[0] || runnerUp?.missingClues[0] || "";
     return {
       candidates,
+      relations,
       decision: {
         state: "ambiguous",
         headline: `找到 ${candidates.length} 个可能候选，还差一条能区分的线索`,
@@ -355,6 +506,7 @@ export function evaluateCandidates(
     : [];
   return {
     candidates,
+    relations,
     decision: {
       state: nextQueries.length ? "insufficient" : "found",
       headline: nextQueries.length

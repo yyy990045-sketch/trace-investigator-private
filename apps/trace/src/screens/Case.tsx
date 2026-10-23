@@ -129,6 +129,23 @@ export function Case() {
         }
     return [...map.entries()].map(([key, value]) => ({ source: key.split("|")[0], ...value }));
   })();
+  /** 真正取得网页正文的来源（含正文里没有相关句子的）：取得就是取得，不能笼统说没有原文。 */
+  const bodiesFetched = facts
+    .flatMap((fact) => fact.sources)
+    .filter((source) => source.bodyAvailable === true)
+    .filter((source, index, list) => list.findIndex((other) => other.pageId === source.pageId) === index)
+    .slice(0, 4);
+  /** 其中正文里真的找到对应句子的来源。 */
+  const bodyFindings = bodiesFetched.filter(
+    (source) => source.bodyStatus === "evidence_sentence" && (source.keySentence || "").trim(),
+  );
+  /** 有来源明确写了统计范围/口径时，才谈口径差异；否则只能说「原因尚未核实」。 */
+  const scopeEvidence = facts
+    .flatMap((fact) => fact.sources)
+    .filter((source) => /(规模以上|统计范围|统计口径|全口径|工业统计)/.test(source.keySentence || ""))
+    .slice(0, 2);
+  const nationwideClaim = /全国|全面|均已|覆盖全国/.test(claimText);
+  const bodySaysNationwide = bodyFindings.some((source) => /全国|全面|均已|覆盖全国/.test(source.keySentence || ""));
   const disputed = verdict?.outcome === "disputed" || facts.some((fact) => fact.relation === "mixed");
   const statisticalDifference = verdict?.headline.includes("统计口径差异") === true;
   const running = run.status === "running" || run.status === "queued";
@@ -308,10 +325,43 @@ export function Case() {
           </div>
           <p className="case-now-text">{evidenceWording(verdict.statement)}</p>
           {weakOpposition ? (
-            <p className="case-now-note">
-              补充说明：这次确实检索到相关内容（{contradictionCount} 条给出与说法相反的表述、{supportCount} 条给出支持表述），
-              但它们都只有搜索摘要、且没有通过独立性核对，按规则不能当作依据，所以结论停在「证据不足”。
-            </p>
+            <div className="case-now-note">
+              {bodiesFetched.length ? (
+                <>
+                  <p>
+                    这次确实取得了 {bodiesFetched.length} 份网页正文（不是「没有任何原文」），它们各自能说明的是：
+                  </p>
+                  <ul className="case-body-findings">
+                    {bodiesFetched.map((source) => (
+                      <li key={source.pageId}>
+                        <a href={source.url} target="_blank" rel="noreferrer noopener">
+                          {source.site || source.url}
+                        </a>
+                        {source.bodyStatus === "evidence_sentence" ? (
+                          <span>「{(source.keySentence || "").slice(0, 90)}」</span>
+                        ) : source.bodyStatus === "boilerplate_only" ? (
+                          <span>正文取到了，但基本是导航/样板内容，没有可引用的实质表述。</span>
+                        ) : (
+                          <span>正文取到了，但正文里没有出现与该说法直接相关的句子。</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <p>
+                    {bodyFindings.length
+                      ? nationwideClaim && !bodySaysNationwide
+                        ? `有 ${bodyFindings.length} 份正文能找到对应句子，但都没有写到「全国 / 全面 / 均已」建成或覆盖，只能说明局部情况；连同 ${contradictionCount} 条相反表述、${supportCount} 条支持表述，仍不足以证明「${claimText}」。`
+                        : `这些正文与 ${contradictionCount} 条相反表述、${supportCount} 条支持表述都还没有通过独立性核对，因此仍不足以证明「${claimText}」。`
+                      : `但这 ${bodiesFetched.length} 份正文里都没有能直接支撑该说法的句子，${contradictionCount} 条相反表述也仍然只有摘要，因此还不足以证明「${claimText}」。`}
+                  </p>
+                </>
+              ) : (
+                <p>
+                  补充说明：这次确实检索到相关内容（{contradictionCount} 条给出与说法相反的表述、{supportCount} 条给出支持表述），
+                  但没有取得可核对的网页正文，按规则不能当作依据，所以结论停在「证据不足」。
+                </p>
+              )}
+            </div>
           ) : null}
           <p className="trace-hint">来源簇仅按已识别的同源线索归并；未检测到重复不等于已证明来源独立。</p>
           <div className="case-now-counts">
@@ -523,8 +573,24 @@ export function Case() {
                   </li>
                 ))}
               </ul>
+              {scopeEvidence.length ? (
+                <div className="trace-scope-evidence">
+                  <p className="trace-hint">检索到的原文里有关于统计范围的说明：</p>
+                  <ul>
+                    {scopeEvidence.map((source) => (
+                      <li key={source.pageId}>
+                        <a href={source.url} target="_blank" rel="noreferrer noopener">
+                          {source.site}
+                        </a>
+                        「{(source.keySentence || "").slice(0, 100)}」
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="trace-hint">这些说明只解释各自统计的是什么，仍不能推出两个数字差异的全部原因。</p>
+                </div>
+              ) : null}
               <p className="trace-hint">
-                两个数字都真实出现在公开报道里，发布机构与统计范围不同；本次没有找到能证明「谁算错」的原始口径说明，因此不认定哪一方错误。
+                能确认的是：两个数字分别出自这两个机构的公开报道。具体差异原因尚未核实——本次没有取得能证明统计范围或口径差异的原文说明，因此不推断差异机制，也不认定哪一方错误。
               </p>
             </div>
           ) : null}

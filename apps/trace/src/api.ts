@@ -737,6 +737,7 @@ export interface CandidateMatchView {
 
 export interface CandidateView {
   name: string;
+  entity?: ClueRelationView["entity"];
   quoted: boolean;
   mentions: number;
   sites: number;
@@ -748,10 +749,24 @@ export interface CandidateView {
   missingClues: string[];
 }
 
+export interface ClueRelationView {
+  name: string;
+  entity: {
+    kind: "screen_work" | "book" | "person" | "unknown";
+    role: "target" | "competitor" | "alias" | "source" | "character" | "sequel" | "unconfirmed";
+    reason: string;
+    sentence: string;
+    url: string;
+    site: string;
+  };
+}
+
 export interface ClueAssessmentView {
   mode: "clue";
+  targetKind?: "screen_work" | "book" | "person" | "unknown";
   clues: ClueItemView[];
   candidates: CandidateView[];
+  relations?: ClueRelationView[];
   decision: {
     state: "found" | "ambiguous" | "insufficient";
     headline: string;

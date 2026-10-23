@@ -3956,3 +3956,98 @@
   border-left: 2px solid var(--trace-line);
   padding-left: 10px;
 }
+
+/* 线索调查：实体关系（别名/原著/角色/续作） */
+.clue-target-kind {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--trace-sub);
+}
+.clue-target-kind b {
+  color: var(--trace-ink);
+  font-weight: 600;
+}
+.clue-relations {
+  border-top: 1px solid var(--trace-line);
+  padding-top: 20px;
+}
+.clue-relations ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.clue-relations li {
+  border: 1px dashed var(--trace-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clue-relation-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.clue-relation-head b {
+  font-size: 15px;
+  font-weight: 560;
+  color: var(--trace-ink);
+}
+.clue-relation-head span,
+.clue-entity-tag {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--trace-accent);
+  border: 1px solid var(--trace-line);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+.clue-relations p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--trace-sub);
+}
+.clue-relations a {
+  font-size: 12px;
+  color: var(--trace-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.case-body-findings {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.case-body-findings li {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--trace-sub);
+}
+.case-body-findings a {
+  color: var(--trace-accent);
+  margin-right: 6px;
+}
+.trace-scope-evidence ul {
+  list-style: none;
+  margin: 6px 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--trace-sub);
+}
+.trace-scope-evidence a {
+  color: var(--trace-accent);
+  margin-right: 6px;
+}

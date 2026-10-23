@@ -8,6 +8,7 @@
 import { type CapabilityDefinition } from "../src/contracts.ts";
 import { TRACE_VERSION, traceBundleSchema } from "../adapters/trace/bundle.ts";
 import {
+  detectTargetKind,
   evaluateCandidates,
   extractCandidates,
   type BodyLike,
@@ -43,7 +44,9 @@ export default {
     const allClues = [...clues, ...extra];
 
     const raw = extractCandidates(pages, bodies, [...new Set(allClues.flatMap((clue) => clue.terms || []))]);
-    const { candidates, decision } = evaluateCandidates(raw, allClues, pages, bodies);
+    // 用户找的是剧、书还是人？决定哪些候选只是关系项（原著/角色/续作），不参与排名。
+    const targetKind = detectTargetKind(String(input.case?.question || input.case?.goal || ""));
+    const { candidates, relations, decision } = evaluateCandidates(raw, allClues, pages, bodies, targetKind);
 
     ctx.evidence("trace.candidates", {
       goal: input.case?.goal || input.case?.question || "",
@@ -58,8 +61,18 @@ export default {
         matches: candidate.matches,
         pages: candidate.pages,
       })),
+      targetKind,
+      relations: relations.map((item) => ({
+        name: item.name,
+        kind: item.entity?.kind || "unknown",
+        role: item.entity?.role || "unconfirmed",
+        reason: item.entity?.reason || "",
+        sentence: item.entity?.sentence || "",
+        url: item.entity?.url || item.pages[0]?.url || "",
+        site: item.entity?.site || item.pages[0]?.site || "",
+      })),
       decision,
-      note: "候选来自本次真实检索结果；命中要求候选与线索在同一句里共现，未命中记为尚未核实。",
+      note: "候选来自本次真实检索结果；命中要求候选与线索在同一句里共现，未命中记为尚未核实。原著、角色、续作只作关系展示，不参与竞争。",
     });
 
     const best = candidates[0];
@@ -101,8 +114,10 @@ export default {
       ...input,
       assessment: {
         mode: "clue",
+        targetKind,
         clues: allClues,
         candidates,
+        relations,
         decision,
         pageCount: pages.length,
         bodyAvailable: (input.bodies || []).filter((body: any) => body.ok).length,

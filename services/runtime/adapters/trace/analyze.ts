@@ -57,6 +57,8 @@ export interface QuantityEvidence {
   url: string;
   from: "body" | "excerpt";
   relation: "supports" | "contradicts" | "unclear";
+  /** 来源自身的取值方式：至少/至多/恰好。用于把「超过 120 万辆」和「120 万辆」区分开 */
+  bound?: "gte" | "lte" | "eq";
 }
 
 export interface SourceAssessment {
@@ -286,7 +288,12 @@ export function quantityEvidenceFor(fact: TraceFact, page: AnalysablePage, text:
   const metric = ["出口量", "销售量", "销量", "产量", "营业收入", "收入", "数量"].find((item) => claim.includes(item));
   if (!metric) return [];
   const at = claim.indexOf(metric);
-  const subject = claim.slice(0, at).replace(/(?:19|20)\d{2}年|中国大陆|中国|我国|全国|全年|年度|的|据|数据显示/g, "").trim();
+  // 「某市 / 本市 / 全市 / 该市 / 我市」指的是同一个层级，比对主体时按同一占位处理，
+  // 否则同一件事会因为一个前缀字而匹配不上（这属于口径同一性判断，不是放宽范围）。
+  const cityNeutral = (value: string) => value.replace(/(某|本|该|我|全)市/g, "某市");
+  const subject = cityNeutral(
+    claim.slice(0, at).replace(/(?:19|20)\d{2}年|中国大陆|中国|我国|全国|全年|年度|的|据|数据显示/g, "").trim(),
+  );
   const year = claim.match(/(?:19|20)\d{2}/)?.[0] || fact.timeScope?.match(/(?:19|20)\d{2}/)?.[0];
   if (!subject || !year) return [];
   const title = normalizedQuantityText(page.title);
@@ -311,11 +318,22 @@ export function quantityEvidenceFor(fact: TraceFact, page: AnalysablePage, text:
     // A single paragraph can supply an immediately attached annual context, not other paragraphs.
     const paragraphSentences = sentences(paragraph);
     for (const [sentenceIndex, sentence] of paragraphSentences.entries()) {
-      const s = normalizedQuantityText(sentence);
+      const s = cityNeutral(normalizedQuantityText(sentence));
       const previous = paragraphSentences[sentenceIndex - 1] || "";
       const previousYears = [...new Set(normalizedQuantityText(previous).match(/(?:19|20)\d{2}/g) || [])];
       const attachedYear = /^(?:其中|同期|当年|全年)/.test(s) && previous.length <= 500 && previousYears.length === 1 && previousYears[0] === year;
-      const subjectAt = s.indexOf(subject);
+      // 主体比对：先按完整主体找；找不到时用去掉地名前缀的核心词（「某市新能源汽车」→「新能源汽车」），
+      // 这样「本市2024年新能源汽车产量…」「2024年新能源汽车产量…」都能对上同一个主体。
+      const subjectCore = subject.startsWith("某市") ? subject.slice(2) : subject;
+      let subjectAt = s.indexOf(subject);
+      let subjectLength = subject.length;
+      if (subjectAt < 0 && subjectCore && subjectCore !== subject) {
+        const coreAt = s.indexOf(subjectCore);
+        if (coreAt >= 0) {
+          subjectAt = coreAt;
+          subjectLength = subjectCore.length;
+        }
+      }
       if (subjectAt < 0) continue;
       const prefix = s.slice(0, subjectAt);
       // A national claim cannot borrow another country/province's observation.
@@ -341,7 +359,7 @@ export function quantityEvidenceFor(fact: TraceFact, page: AnalysablePage, text:
       if (sentenceYears.length ? sentenceYears.length !== 1 || sentenceYears[0] !== year
         : !attachedYear && !(annualTitle && (period || /统计公报/.test(title)))) continue;
       if (/预计|预测|有望|目标|计划|力争/.test(s)) continue;
-      const afterSubject = s.slice(subjectAt + subject.length);
+      const afterSubject = s.slice(subjectAt + subjectLength);
       // Stop before another subject/clause, so production cannot borrow a later sales/export number.
       const directMetric = metric === "产量" ? "(?:年)?产量" : metric === "销量" || metric === "销售量" ? "(?:年)?(?:销量|销售量)" : metric;
       const direct = afterSubject.match(new RegExp(`^\\s*(?:${year}年)?\\s*(?:${directMetric})\\s*(?:为|达|达到|完成|实现|共|是|约为|约|近|接近|超过|突破|逾|不足|低于|不超过|至少|在)*\\s*(\\d+(?:\\.\\d+)?)\\s*(${QUANTITY_UNIT})\\s*(左右|上下|以上|以下)?`));
@@ -352,9 +370,14 @@ export function quantityEvidenceFor(fact: TraceFact, page: AnalysablePage, text:
       const unit = direct ? direct[2] : paired![2] || paired![4];
       const local = direct?.[0] || paired![0] || "";
       const approximate = /约|左右|上下|接近|近\s*\d/.test(local);
-      // A source-side bound such as '突破1300' is not an exact observation of 1300.
-      if (!approximate && /超过|突破|逾|不足|低于|不超过|至少|以上|以下/.test(local)) continue;
-      result.push({subject, metric, year, value, unit, approximate, sentence,
+      // 来源写成「超过 / 不足」时，记下它自己的取值方式；不要直接丢掉，
+      // 否则「说法：超过120万辆 + 来源：超过120万辆」会被判成没有证据。
+      const bound: "gte" | "lte" | "eq" = /超过|突破|逾|至少|不低于|以上/.test(local)
+        ? "gte"
+        : /不足|低于|不超过|以下|至多|最多/.test(local)
+          ? "lte"
+          : "eq";
+      result.push({subject, metric, year, value, unit, approximate, sentence, bound,
         context: sentenceYears.length ? "年份与指标同句" : attachedYear ? previous : page.title,
         publisher: nbs ? "国家统计局" : miit ? "工业和信息化部" : page.site,
         statisticalSource, scope, scopeBasis, url: page.url, from, relation:"unclear"});
@@ -370,10 +393,24 @@ function compareBoundQuantity(claim: string, evidence: QuantityEvidence[]) {
   const relevant = evidence.filter((item) => item.unit === unit);
   const exact = relevant.filter((item) => !item.approximate);
   const selected = exact.length ? exact : relevant;
-  const compared = selected.map((item) => ({ ...item, relation: item.approximate ? "unclear" as const :
-    ((/不超过|至多|最多|以下/.test(op) ? item.value <= threshold : /低于|少于/.test(op) ? item.value < threshold :
-      /不低于|至少|以上|达到/.test(op) ? item.value >= threshold : /超过|高于|多于/.test(op) ? item.value > threshold : item.value === threshold)
-      ? "supports" as const : "contradicts" as const) }));
+  const compared = selected.map((item) => {
+    if (item.approximate) return { ...item, relation: "unclear" as const };
+    // 来源自己写的是「超过 X」→ 至少 X；「不足 X」→ 至多 X。与说法的比较方向结合判断。
+    const lowerBound = item.bound === "gte" || /不低于|至少|以上|达到/.test(op);
+    const upperBound = item.bound === "lte" || /不超过|至多|最多|以下/.test(op);
+    const strictLower = /超过|高于|多于/.test(op);
+    const strictUpper = /低于|少于/.test(op);
+    const ok = upperBound
+      ? item.value <= threshold
+      : lowerBound
+        ? item.value >= threshold
+        : strictLower
+          ? item.value > threshold
+          : strictUpper
+            ? item.value < threshold
+            : item.value === threshold;
+    return { ...item, relation: ok ? ("supports" as const) : ("contradicts" as const) };
+  });
   const values = new Set(exact.map((item) => item.value));
   if (!compared.length || values.size > 1) return { kind:"unclear" as const, evidence:compared,
     reason:values.size > 1 ? "同一来源有多个与目标指标对应的精确数值，无法确定适用口径，标为无法确认。" : "未找到主体、指标、年份和单位绑定的原始证据句，不从不同段落拼接数字。" };
@@ -766,13 +803,15 @@ export function scopeCompatibility(claim: string, evidence: string) {
 }
 
 const DATE_PATTERN = /((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日/g;
-const SUBSEQUENT_WINDOW = 14;
+const normalizedDateText = (text: string) => text.normalize("NFKC").replace(/[個護屆國華過佈會實於]/g,
+  (s) => ({"個":"个","護":"护","屆":"届","國":"国","華":"华","過":"过","佈":"布","會":"会","實":"实","於":"于"}[s] || s));
 
 /**
  * 抽出「日期 + 它在这句话里承担的动作」，用来区分通过日与施行日。
  * 例：`2020年5月28日通过，自2021年1月1日起施行` → 2020-05-28:通过 / 2021-01-01:施行
  */
 export function dateRoles(text: string) {
+  text = normalizedDateText(text);
   const roles = new Map<string, Set<string>>();
   const push = (date: string, role: string) => {
     const set = roles.get(date) || new Set<string>();
@@ -781,10 +820,14 @@ export function dateRoles(text: string) {
   };
   for (const match of text.matchAll(DATE_PATTERN)) {
     const date = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
-    const after = text.slice(match.index! + match[0].length, match.index! + match[0].length + SUBSEQUENT_WINDOW);
-    if (/施行|实施|生效|起适用/.test(after)) push(date, "effect");
-    else if (/通过|表决|审议/.test(after)) push(date, "adopt");
-    else if (/公布|发布|签署|颁布|公告/.test(after)) push(date, "publish");
+    // Stop at another full date or sentence/paragraph, and use the first action.
+    // A long law/committee name is allowed; another date's action is not.
+    const after = text.slice(match.index! + match[0].length, match.index! + match[0].length + 100)
+      .split(/(?:19|20)\d{2}年\d{1,2}月\d{1,2}日|[。；;\n\r！？]/)[0];
+    const action = after.match(/施行|实施|生效|起适用|通过|表决|审议|公布|发布|签署|颁布|公告/)?.[0];
+    if (action && /施行|实施|生效|起适用/.test(action)) push(date, "effect");
+    else if (action && /通过|表决|审议/.test(action)) push(date, "adopt");
+    else if (action) push(date, "publish");
     else push(date, "unknown");
   }
   // 「自2021年1月1日起施行」的日期在动词之前，补一次前置判断
@@ -810,17 +853,61 @@ export function dateRoleConflict(claim: string, evidence: string) {
     if (seen?.has("effect")) continue;
     const otherEffect = [...evidenceRoles.entries()].find(([other, otherRoles]) => other !== date && otherRoles.has("effect"));
     const adopted = seen?.has("adopt");
-    if (otherEffect || adopted) {
+    if (otherEffect) {
       return {
         date,
-        note: otherEffect
-          ? `来源把 ${date} 写成${adopted ? "通过/公布" : "其它动作"}，施行日期是 ${otherEffect[0]}`
-          : `来源只把 ${date} 写成通过/公布日，没有说这一天施行`,
+        note: `来源明确的施行日期是 ${otherEffect[0]}，与待核查日期 ${date} 不同${adopted ? "；待核查日期在来源中是通过日" : ""}`,
         effectDate: otherEffect?.[0] || null,
       };
     }
   }
   return null;
+}
+
+/** Bind a dated legal assertion to the same law and a quoted action. */
+function datedLawDecision(claim: string, page: AnalysablePage, body: string) {
+  const target = [...dateRoles(claim)].find(([, roles]) => roles.has("effect"))?.[0];
+  if (!target) return null;
+  const law = normalizedDateText(claim.match(/《([^》]+)》/)?.[1] || "").replace(/^中华人民共和国/, "");
+  const titleLaw = normalizedDateText(page.title).split(/[_|\-]/)[0].trim().replace(/^中华人民共和国/, "");
+  const collect = (text: string, from: "body" | "excerpt") => {
+    const found: {date:string; roles:Set<string>; sentence:string; from:"body"|"excerpt"}[] = [];
+    if (!law) return found;
+    for (const sentence of text.split(/\n+/).flatMap(sentences)) {
+      const normalized = normalizedDateText(sentence);
+      const books = [...normalized.matchAll(/《([^》]+)》/g)].map((m) => m[1].replace(/^中华人民共和国/, ""));
+      if (books.some((name) => name !== law)) continue;
+      if (!normalized.includes(law) && !(titleLaw === law && (/本法/.test(normalized) || /^[（(](?:19|20)\d{2}年/.test(normalized)))) continue;
+      for (const match of normalized.matchAll(DATE_PATTERN)) {
+        const before = normalized.slice(0, match.index);
+        const after = normalized.slice(match.index! + match[0].length, match.index! + match[0].length + 100)
+          .split(/(?:19|20)\d{2}年\d{1,2}月\d{1,2}日|[。；;\n\r！？]/)[0];
+        const legalNames = (text: string) => [...text.matchAll(/《([^》]+)》|([\p{Script=Han}]{1,40}?(?:法典|条例|规定|法))/gu)]
+          .map((item) => (item[1] || item[2]).replace(/^中华人民共和国/, ""));
+        const preceding = legalNames(before).at(-1);
+        const actionAt = after.search(/施行|实施|生效|起适用|通过|表决|审议|公布|发布|签署|颁布|公告/);
+        const following = legalNames(actionAt < 0 ? after : after.slice(0, actionAt));
+        if (preceding && !preceding.endsWith(law) && !preceding.endsWith("本法") || following.some((name) => !name.endsWith(law) && !name.endsWith("本法"))) continue;
+        const [date, roles] = [...dateRoles(match[0] + after)][0];
+        if (![...roles].some((role) => role !== "unknown")) continue;
+        const adoptionHeader = sentence.match(/^[（(][^）)]{1,160}(?:通过|通過)[）)]/)?.[0];
+        found.push({date,roles,sentence:adoptionHeader || sentence,from});
+      }
+    }
+    return found;
+  };
+  const originals = collect(body, "body");
+  const found = originals.length ? originals : collect(page.passage, "excerpt");
+  const effects = found.filter((item) => item.roles.has("effect"));
+  const dates = new Set(effects.map((item) => item.date));
+  const proof = effects.find((item) => item.date !== target) || effects[0] || found.find((item) => item.date === target);
+  const relation: Relation = dates.size > 1 ? "unclear" : effects.length
+    ? effects[0].date === target ? "supports" : "contradicts" : "unclear";
+  const reason = dates.size > 1 ? "同一法律出现多个施行日期，尚不能确定适用版本，不自动裁决。"
+    : effects.length ? `同一法律的原句明确施行日期为${effects[0].date}，${relation === "supports" ? "与待核查日期一致" : `与待核查日期${target}不同`}。`
+    : proof ? "该摘录只说明通过或公布日期，不能据此确认施行日期，也不能用关键词重合判为支持。"
+    : "没有找到同一法律、完整日期与施行动作绑定的原句，保持无法确认。";
+  return {relation,reason,proof};
 }
 
 export interface AssessOptions {
@@ -853,15 +940,59 @@ export function assessSource(
   const bodyQuantities = factQuantities.length ? quantityEvidenceFor(options.fact, page, bodyText, "body") : [];
   const excerptQuantities = factQuantities.length ? quantityEvidenceFor(options.fact, page, page.passage, "excerpt") : [];
   const bound = compareBoundQuantity(options.fact.text, bodyQuantities.length ? bodyQuantities : excerptQuantities);
-  const numeric = { ...bound, kind: factQuantities.length ? bound.kind : null, exact: true };
+  // 没有绑定到同一句时，退一步用「页面里出现过这个数」的旧比对：
+  // 只用来识别「来源到底在说什么」，不会因为这一步就把结论判成支持。
+  const looseNumeric =
+    factQuantities.length && !bound.kind
+      ? compareQuantities(options.fact.text, factQuantities, quantities(`${scored} ${bodyText}`))
+      : null;
+  const numeric = {
+    ...bound,
+    kind: factQuantities.length ? bound.kind || looseNumeric?.kind || null : null,
+    exact: bound.kind ? true : looseNumeric?.exact ?? true,
+    reason: bound.kind ? bound.reason : looseNumeric?.reason || bound.reason,
+  };
+  const dated = !factQuantities.length ? datedLawDecision(options.fact.text, page, bodyText) : null;
   let dateConflict: ReturnType<typeof dateRoleConflict> = null;
   // 同一表述片段：汉字三元片段命中，才认为来源真的在讲这件事（二元词重合太松）。
   const factFragments = fragments(options.fact.text);
   const sharedFragment = factFragments.find((fragment) => (scored + " " + bodyText).includes(fragment));
 
-  if (factQuantities.length) {
-    relation = bound.kind;
-    reasons.push(numeric.reason);
+  if (factQuantities.length && bound.kind) {
+    // 数量句绑定成功：只按这一句判断，不从别处拼数字；但明确否定（「说法不实」「并非…」）优先。
+    if (negation && bound.kind === "supports") {
+      relation = "contradicts";
+      reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
+    } else {
+      relation = bound.kind;
+      reasons.push(numeric.reason);
+    }
+  } else if (factQuantities.length) {
+    // 没有绑定到「主体+指标+年份+单位」的同一句：不能凭空判 none，
+    // 继续走同一表述片段/关键词路径，并在理由里说明数值没有绑定成功。
+    reasons.push(`未找到主体、指标、年份和单位绑定的原始证据句；${numeric.reason || "仅按关键词与表述片段判断"}`);
+    if (numeric.kind === "supports" && (numeric.exact || sharedFragment)) {
+      relation = "supports";
+      reasons.push(numeric.reason);
+    } else if (numeric.kind === "contradicts") {
+      relation = "contradicts";
+      reasons.push(numeric.reason);
+    } else if (dated) {
+      relation = dated.relation;
+      reasons.push(dated.reason);
+    } else if (relevance >= 0.6 && sharedFragment) {
+      relation = "supports";
+      reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，且出现同一表述片段「${sharedFragment}」，未发现否定表述。`);
+    } else if (negation) {
+      relation = "contradicts";
+      reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
+    } else if (relevance < 0.12) {
+      relation = "irrelevant";
+      reasons.push(`与该事实几乎无关（关键词重合度 ${(relevance * 100).toFixed(0)}%）。`);
+    }
+  } else if (dated) {
+    relation = dated.relation;
+    reasons.push(dated.reason);
   } else if (relevance < 0.12) {
     relation = "irrelevant";
     reasons.push(
@@ -948,7 +1079,7 @@ export function assessSource(
   // 区分四件事：请求成功 / 正文抓到了 / 正文是样板 / 找到与该说法直接相关的句子。
   const cleanedBody = bodyText.replace(/\s+/g, " ").trim();
   const substance = cleanedBody.replace(/[\s\d\p{P}]/gu, "").length;
-  const bodyKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "body")?.sentence || null : body?.ok && substance >= 20
+  const bodyKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "body")?.sentence || null : dated ? dated.proof?.from === "body" ? dated.proof.sentence : null : body?.ok && substance >= 20
     ? keySentenceFor({
         factText: options.fact.text,
         text: cleanedBody,
@@ -956,7 +1087,7 @@ export function assessSource(
         quantities: factQuantities,
       })
     : null;
-  const passageKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "excerpt")?.sentence || null : keySentenceFor({
+  const passageKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "excerpt")?.sentence || null : dated ? dated.proof?.from === "excerpt" ? dated.proof.sentence : null : keySentenceFor({
     factText: options.fact.text,
     text: page.passage,
     factTerms,

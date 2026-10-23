@@ -13,6 +13,7 @@ import type { Store } from "./store.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import {
+  detectTargetKind,
   evaluateCandidates,
   extractCandidates,
   type BodyLike,
@@ -27,8 +28,10 @@ const CLUE_ANSWER_KIND = "trace.clue.answer";
 
 export interface ClueAssessment {
   mode: "clue";
+  targetKind: "screen_work" | "book" | "person" | "unknown";
   clues: ClueItem[];
   candidates: Candidate[];
+  relations: Candidate[];
   decision: ClueDecision;
   pageCount: number;
   bodyAvailable: number;
@@ -80,13 +83,16 @@ export function clueState(store: Store, runId: string) {
 }
 
 export function clueAssessment(store: Store, runId: string): ClueAssessment {
-  const { pages, bodies, clues, rounds, answers } = clueState(store, runId);
+  const { bundle, pages, bodies, clues, rounds, answers } = clueState(store, runId);
   const raw = extractCandidates(pages, bodies, [...new Set(clues.flatMap((clue) => clue.terms || []))]);
-  const { candidates, decision } = evaluateCandidates(raw, clues, pages, bodies);
+  const targetKind = detectTargetKind(String(bundle.case?.question || bundle.case?.goal || ""));
+  const { candidates, relations, decision } = evaluateCandidates(raw, clues, pages, bodies, targetKind);
   return {
     mode: "clue",
+    targetKind,
     clues,
     candidates,
+    relations,
     decision,
     pageCount: pages.length,
     bodyAvailable: [...bodies.values()].filter((body) => body.ok).length,

@@ -24,6 +24,22 @@ const clueKindName: Record<ClueItemView["kind"], string> = {
   other: "细节",
 };
 
+const targetKindName: Record<string, string> = {
+  screen_work: "一部剧 / 电影",
+  book: "一本书",
+  person: "一个人（演员或角色）",
+  unknown: "还没说清",
+};
+const relationName: Record<string, string> = {
+  alias: "别名",
+  source: "原著",
+  character: "剧中角色",
+  sequel: "续作 / 某一季",
+  unconfirmed: "关系未确认",
+  competitor: "候选",
+  target: "目标",
+};
+
 const stateCopy: Record<ClueAssessmentView["decision"]["state"], { title: string; tone: string }> = {
   found: { title: "找到能对上全部线索的答案", tone: "found" },
   ambiguous: { title: "有几个候选都能对上部分线索", tone: "ambiguous" },
@@ -120,6 +136,12 @@ export function ClueCase({
             </li>
           ))}
         </ul>
+        {assessment?.targetKind ? (
+          <p className="clue-target-kind">
+            你要找的是：<b>{targetKindName[assessment.targetKind] || "还没说清"}</b>
+            {assessment.targetKind === "unknown" ? "（按作品处理，候选类型会在下面标出）" : ""}
+          </p>
+        ) : null}
         <p className="clue-meta">
           {plan
             ? plan.source === "model"
@@ -201,6 +223,34 @@ export function ClueCase({
               />
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {assessment?.relations?.length ? (
+        <section className="clue-relations" aria-label="同一部作品的关系">
+          <header className="clue-section-head">
+            <h2>和这部作品相关的东西</h2>
+            <span>这些不是其它候选，不参与排名</span>
+          </header>
+          <ul>
+            {assessment.relations.map((relation) => (
+              <li key={relation.name} data-role={relation.entity.role}>
+                <div className="clue-relation-head">
+                  <b>{relation.name}</b>
+                  <span>{relationName[relation.entity.role] || relation.entity.role}</span>
+                </div>
+                <p>{relation.entity.reason}</p>
+                {relation.entity.sentence ? (
+                  <p className="clue-evidence">「{relation.entity.sentence}」</p>
+                ) : null}
+                {relation.entity.url ? (
+                  <a href={relation.entity.url} target="_blank" rel="noreferrer noopener">
+                    <Link2 size={12} /> {relation.entity.site || "打开来源"}
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -394,6 +444,12 @@ function CandidateCard({
         <span>
           {candidate.matchedClues}/{clues.length} 条线索 · {candidate.sites} 个来源提到
         </span>
+        {candidate.entity && candidate.entity.role !== "competitor" ? (
+          <em className="clue-entity-tag">
+            {relationName[candidate.entity.role] || candidate.entity.role}
+            {candidate.entity.role === "unconfirmed" ? "（没有句子能说明它是什么）" : ""}
+          </em>
+        ) : null}
       </header>
       <ul className="clue-matches">
         {candidate.matches.map((match) => (
