@@ -94,6 +94,17 @@ function caseShortName(claim: string) {
 export function Entry() {
   const nav = useNavigate();
   const availability = useQuery({ queryKey: ["search-availability"], queryFn: searchAvailability });
+  const liveAvailability = useQuery({
+    queryKey: ["trace-public-live-availability"],
+    enabled: SHOWCASE,
+    retry: false,
+    queryFn: async () => {
+      const response = await fetch("/api/investigate", { cache: "no-store" });
+      if (!response.ok) return false;
+      const data = await response.json();
+      return data?.live === true;
+    },
+  });
   const model = useQuery({ queryKey: ["model-availability"], queryFn: modelAvailability, enabled: !SHOWCASE });
   const digests = useDigests();
   const [question, setQuestion] = useState("");
@@ -306,11 +317,35 @@ export function Entry() {
         <h1>记不清？查不明？给我线索，我来追查。</h1>
         <p className="clue-hero-lede">输入待核实的说法或模糊线索，TRACE 会真实搜索、核对证据。查不到的，不乱猜。</p>
         {SHOWCASE ? (
-          <div className="clue-hero-input" aria-label="历史调查演示入口">
-            <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
-            <a className="trace-btn trace-btn-primary trace-btn-lg" href={caseHref("run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6")}>
-              <Search size={16} /> 查看真实调查
-            </a>
+          <div className="clue-hero-input" aria-label="公开调查入口">
+            <span className="trace-eyebrow">事实核查 · 真实搜索</span>
+            <textarea
+              aria-label="输入你想查证的说法"
+              rows={2}
+              maxLength={400}
+              placeholder="例如：《个人信息保护法》自2021年8月20日起施行。"
+              value={clueQuestion}
+              onChange={(event) => setClueQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && liveAvailability.data === true && clueQuestion.trim().length >= 6)
+                  nav("/live?claim=" + encodeURIComponent(clueQuestion.trim()));
+              }}
+            />
+            <div className="trace-live-hero-actions">
+              <button className="trace-btn trace-btn-primary trace-btn-lg"
+                disabled={liveAvailability.data !== true || clueQuestion.trim().length < 6}
+                onClick={() => nav("/live?claim=" + encodeURIComponent(clueQuestion.trim()))}>
+                <Search size={16}/> 发起真实调查
+              </button>
+              <a className="trace-btn" href={caseHref("run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6")}>
+                查看已完成的调查 <ArrowRight size={14}/>
+              </a>
+            </div>
+            <p className="clue-hero-note">
+              {liveAvailability.data === true
+                ? "实时检索已连接。问题发送至腾讯云元宝搜索，支持核对证据及继续追查；匿名试用有额度限制。"
+                : "实时检索服务尚未配置或暂不可用。下方真实历史调查仍可完整浏览；不会伪造在线结果。"}
+            </p>
           </div>
         ) : (
           <div className="clue-hero-input">
@@ -365,7 +400,7 @@ export function Entry() {
         </div>
         {SHOWCASE ? (
           <p className="clue-hero-note">
-            公网版本是只读回放，点上面任一示例可以看到当时的真实调查记录；要真正发起搜索，请在本机运行 Runtime。
+            三个案例入口展示曾经真实执行的历史调查。上方输入框在实时搜索服务可用时才开放，两种记录有明确区分。
           </p>
         ) : blocked ? (
           <p className="clue-hero-note" role="status">联网检索当前不可用：{blockerReason}</p>
