@@ -67,6 +67,21 @@ export interface SourceAssessment {
   independence: "unique" | "duplicate" | "unconfirmed";
   /** 该来源明确引用的原始数据出处（如"中国汽车工业协会"），用于避免把二次报道当多份独立证据 */
   citedOrigin?: { org: string; quote: string } | null;
+  /**
+   * 原文状态：
+   *  evidence_sentence   正文里找到了直接涉及该说法的证据句（才算"取得关键原文"）
+   *  main_without_match  正文抓到了，但没有找到涉及该说法的句子
+   *  boilerplate_only    正文基本是导航/样板，实质内容不足
+   *  fetch_failed        请求失败或无正文
+   */
+  bodyStatus: "evidence_sentence" | "main_without_match" | "boilerplate_only" | "fetch_failed";
+  /** 与该说法直接相关的证据句（原文或摘要里的原句，不改写） */
+  keySentence?: string | null;
+  /** 证据句来自原文正文还是搜索摘要 */
+  keySentenceFrom?: "body" | "excerpt" | null;
+  /** 范围/状态是否与该说法一致；不一致时不计入支持 */
+  scopeCompatible?: boolean;
+  scopeNote?: string;
   /** 被并入哪一条、依据是什么 */
   duplicateOf?: { primary: string; basis: string } | null;
   /** 独立性未确认的原因 */
@@ -95,6 +110,10 @@ export interface FactAssessment {
   unconfirmedClusters?: number;
   /** 被多条来源共同引用的原始出处（按 1 条独立证据计） */
   sharedOrigins?: { org: string; count: number }[];
+  /** 正文里真的找到相关证据句的来源数 */
+  keySentenceSources?: number;
+  /** 被判支持但存在范围/状态差异、未计入支持数的来源数 */
+  scopeExcludedSources?: number;
   /** 内容相关但时间要求不满足的来源数，用于区分「没有证据」与「证据过期」 */
   outOfRangeSupports: number;
   sources: SourceAssessment[];
@@ -592,6 +611,88 @@ export function clusterSources(pages: AnalysablePage[]) {
   return groupSources(pages).clusterOf;
 }
 
+/**
+ * 说法与证据的范围/状态一致性检查。
+ * 只在能指认的差异上返回 incompatible：说法要求"全国建成"，证据只写"某条干线投运"这类。
+ */
+export function scopeCompatibility(claim: string, evidence: string) {
+  const notes: string[] = [];
+  const has = (text: string, pattern: RegExp) => pattern.test(text);
+  const nationwide = has(claim, /全国|覆盖全国|全网|全国范围/);
+  // 必须出现"覆盖全国"这类范围表述才算覆盖整体；"全国领先/全国第一"不是范围证据。
+  const coversNation = has(
+    evidence,
+    /覆盖全国|全国范围|全国网络|全国主要干线|遍布全国|全国已建成|已建成全国|全国建成|全国实现|全国各省|联通全国/,
+  );
+  if (nationwide && !coversNation) notes.push("说法要求「全国范围」，证据只写到局部干线/区域；「全国领先」这类措辞不构成覆盖范围");
+  const completed = has(claim, /已建成|建成|已完成|已经建成|全面完成/);
+  const partial = has(evidence, /投运|贯通|开建|开工建设|在建|试点|示范|规划|计划|预计|将建成/) && !has(evidence, /已建成|全面建成|全线建成/);
+  if (completed && partial) notes.push("说法是「已经建成」，证据是可指认的投运/在建/规划状态");
+  const claimYears = [...claim.matchAll(/(19|20)\d{2}/g)].map((m) => m[0]);
+  const evidenceYears = [...evidence.matchAll(/(19|20)\d{2}/g)].map((m) => m[0]);
+  if (claimYears.length && evidenceYears.length && !claimYears.some((year) => evidenceYears.includes(year)))
+    notes.push(`说法指向 ${claimYears[0]} 年，证据写的是 ${evidenceYears[0]} 年`);
+  return { compatible: notes.length === 0, note: notes.join("；") };
+}
+
+const DATE_PATTERN = /((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日/g;
+const SUBSEQUENT_WINDOW = 14;
+
+/**
+ * 抽出「日期 + 它在这句话里承担的动作」，用来区分通过日与施行日。
+ * 例：`2020年5月28日通过，自2021年1月1日起施行` → 2020-05-28:通过 / 2021-01-01:施行
+ */
+export function dateRoles(text: string) {
+  const roles = new Map<string, Set<string>>();
+  const push = (date: string, role: string) => {
+    const set = roles.get(date) || new Set<string>();
+    set.add(role);
+    roles.set(date, set);
+  };
+  for (const match of text.matchAll(DATE_PATTERN)) {
+    const date = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+    const after = text.slice(match.index! + match[0].length, match.index! + match[0].length + SUBSEQUENT_WINDOW);
+    if (/施行|实施|生效|起适用/.test(after)) push(date, "effect");
+    else if (/通过|表决|审议/.test(after)) push(date, "adopt");
+    else if (/公布|发布|签署|颁布|公告/.test(after)) push(date, "publish");
+    else push(date, "unknown");
+  }
+  // 「自2021年1月1日起施行」的日期在动词之前，补一次前置判断
+  for (const match of text.matchAll(/(?:自|于)?\s*((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日\s*(?:起)?\s*(施行|实施|生效)/g)) {
+    push(`${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`, "effect");
+  }
+  return roles;
+}
+
+/**
+ * 日期角色冲突：说法要求「某日施行」，但来源把该日写成"通过/公布"，施行日是另一个日期。
+ * 这类证据不是支持，而是反证 —— 不能因为都出现同一个日期就算说对了。
+ */
+export function dateRoleConflict(claim: string, evidence: string) {
+  const claimRoles = dateRoles(claim);
+  if (!claimRoles.size) return null;
+  const evidenceRoles = dateRoles(evidence);
+  if (!evidenceRoles.size) return null;
+  for (const [date, roles] of claimRoles) {
+    if (!roles.has("effect")) continue;
+    const seen = evidenceRoles.get(date);
+    // 只有来源明确把这一天写成"施行/生效"才算同一事实；写成时间戳或无动作都不算。
+    if (seen?.has("effect")) continue;
+    const otherEffect = [...evidenceRoles.entries()].find(([other, otherRoles]) => other !== date && otherRoles.has("effect"));
+    const adopted = seen?.has("adopt");
+    if (otherEffect || adopted) {
+      return {
+        date,
+        note: otherEffect
+          ? `来源把 ${date} 写成${adopted ? "通过/公布" : "其它动作"}，施行日期是 ${otherEffect[0]}`
+          : `来源只把 ${date} 写成通过/公布日，没有说这一天施行`,
+        effectDate: otherEffect?.[0] || null,
+      };
+    }
+  }
+  return null;
+}
+
 export interface AssessOptions {
   fact: TraceFact;
   pages: AnalysablePage[];
@@ -622,6 +723,7 @@ export function assessSource(
   const pageQuantities = quantities(scored + " " + bodyText);
   // 数量断言比对：尊重「超过/以上/低于」的比较方向，单位不同不比较。
   const numeric = compareQuantities(options.fact.text, factQuantities, pageQuantities);
+  let dateConflict: ReturnType<typeof dateRoleConflict> = null;
   // 同一表述片段：汉字三元片段命中，才认为来源真的在讲这件事（二元词重合太松）。
   const factFragments = fragments(options.fact.text);
   const sharedFragment = factFragments.find((fragment) => (scored + " " + bodyText).includes(fragment));
@@ -636,6 +738,9 @@ export function assessSource(
   } else if (negation) {
     relation = "contradicts";
     reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
+  } else if ((dateConflict = dateRoleConflict(options.fact.text, `${scored} ${bodyText}`))) {
+    relation = "contradicts";
+    reasons.push(`日期角色不符：${dateConflict.note}。` + "该日期在本来源里不是施行日，不能作为支持依据。");
   } else if (numeric.kind === "contradicts") {
     relation = "contradicts";
     reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，${numeric.reason}`);
@@ -705,6 +810,38 @@ export function assessSource(
     dateNote += " 事实限定了时间要求，但该来源没有可用发布时间，无法确认时效。";
   }
 
+  // ── 正文质量与证据句 ─────────────────────────────────────
+  // 区分四件事：请求成功 / 正文抓到了 / 正文是样板 / 找到与该说法直接相关的句子。
+  const cleanedBody = bodyText.replace(/\s+/g, " ").trim();
+  const substance = cleanedBody.replace(/[\s\d\p{P}]/gu, "").length;
+  const bodyKeySentence = body?.ok && substance >= 20
+    ? keySentenceFor({
+        factText: options.fact.text,
+        text: cleanedBody,
+        factTerms,
+        quantities: factQuantities,
+      })
+    : null;
+  const passageKeySentence = keySentenceFor({
+    factText: options.fact.text,
+    text: page.passage,
+    factTerms,
+    quantities: factQuantities,
+  });
+  let bodyStatus: SourceAssessment["bodyStatus"];
+  if (!body?.ok) bodyStatus = "fetch_failed";
+  else if (substance < 20) bodyStatus = "boilerplate_only";
+  else if (bodyKeySentence) bodyStatus = "evidence_sentence";
+  else bodyStatus = "main_without_match";
+  const keySentenceFrom: SourceAssessment["keySentenceFrom"] =
+    bodyStatus === "evidence_sentence" ? "body" : passageKeySentence ? "excerpt" : null;
+  const keySentence = bodyStatus === "evidence_sentence" ? bodyKeySentence : passageKeySentence;
+
+  // ── 范围/状态一致性：局部投运不能证明"全国已建成" ────────────
+  const scopeCheck = scopeCompatibility(options.fact.text, cleanedBody || `${page.title} ${page.passage}`);
+  if (!scopeCheck.compatible)
+    reasons.push(`与完整说法存在范围差异：${scopeCheck.note}（该证据只能支持它写到的范围/状态）。`);
+
   if (options.fact.subjectScope) {
     const subjectTerms = terms(options.fact.subjectScope);
     if (subjectTerms.length && coverage(scored + " " + bodyText, subjectTerms) === 0)
@@ -742,7 +879,12 @@ export function assessSource(
     relevance,
     reasons,
     bodyAvailable: body?.ok === true,
-    bodyExcerpt: body?.ok ? excerptAround(body.text, page.passage, factTerms) : null,
+    bodyExcerpt:
+      bodyStatus === "evidence_sentence" && bodyKeySentence
+        ? bodyKeySentence
+        : body?.ok
+          ? excerptAround(body.text, page.passage, factTerms)
+          : null,
     originality,
     reprintMarkers,
     clusterId: options.clusterOf.get(page.id) || "cluster-0",
@@ -751,9 +893,49 @@ export function assessSource(
     citedOrigin: options.grouping?.originOf.get(page.id) || null,
     duplicateOf: duplicateOf ? { primary: duplicateOf.primary, basis: duplicateOf.basis } : null,
     independenceNote: unconfirmed ? options.grouping?.unconfirmedReason.get(page.id) : undefined,
+    bodyStatus,
+    keySentence: keySentence || null,
+    keySentenceFrom,
+    scopeCompatible: scopeCheck.compatible,
+    scopeNote: scopeCheck.note,
     dateStatus,
     dateNote,
   };
+}
+
+/** 把正文切成句子（保留原句，不做改写）。 */
+export function sentences(text: string) {
+  return text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[。！？；])|(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 8);
+}
+
+/**
+ * 挑出与待核查说法直接相关的那一句：优先包含事实关键词 +（数量或时间或状态词）的句子。
+ * 找不到就返回 null —— 不能拿"页面有这几个字"当原文依据。
+ */
+export function keySentenceFor(options: {
+  factText: string;
+  text: string;
+  factTerms: string[];
+  quantities: string[];
+}) {
+  const { factText, text, factTerms, quantities } = options;
+  const factFragments = fragments(factText);
+  let best: { sentence: string; score: number } | null = null;
+  for (const sentence of sentences(text)) {
+    const score = coverage(sentence, factTerms);
+    if (score < 0.34) continue;
+    let bonus = 0;
+    if (factFragments.some((fragment) => sentence.includes(fragment))) bonus += 0.3;
+    if (quantities.some((quantity) => sentence.includes(quantity))) bonus += 0.2;
+    if (/施行|生效|通过|发布|公布|投运|建成|贯通|产量|达到|超过|起/.test(sentence)) bonus += 0.1;
+    const total = score + bonus;
+    if (!best || total > best.score) best = { sentence, score: total };
+  }
+  return best ? best.sentence.slice(0, 400) : null;
 }
 
 function excerptAround(body: string, passage: string, factTerms: string[]) {
@@ -784,18 +966,29 @@ export function assessFact(options: AssessOptions): FactAssessment {
     if (org && (originCounts.get(org) || 0) >= 2) return `origin:${org}`;
     return source.clusterId;
   };
-  const supportClusters = new Set(
-    sources
-      .filter((s) => s.relation === "supports" && s.dateStatus !== "out_of_range" && independent(s))
-      .map((s) => evidenceKey(s)),
+  // 支持计数只认"范围一致 + 未检测到重复"的来源：局部证据即使被标为支持，也不抬高整句说法的支持度。
+  const scopeExcluded = sources.filter((s) => s.relation === "supports" && s.scopeCompatible === false);
+  const countedSupports = sources.filter(
+    (s) => s.relation === "supports" && s.scopeCompatible !== false && s.dateStatus !== "out_of_range" && independent(s),
   );
+  const supportClusters = new Set(countedSupports.map((s) => evidenceKey(s)));
   const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts" && independent(s)).map((s) => s.clusterId));
+  // "取得关键原文"要求：正文里真的找到了与该说法相关的句子，而不只是请求成功。
+  const keySentenceSources = sources.filter((s) => s.bodyStatus === "evidence_sentence");
   const bodyBacked = new Set(
     sources
-      .filter((s) => s.relation === "supports" && s.bodyAvailable && s.dateStatus !== "out_of_range" && independent(s))
+      .filter(
+        (s) =>
+          s.relation === "supports" &&
+          s.bodyStatus === "evidence_sentence" &&
+          s.scopeCompatible !== false &&
+          s.dateStatus !== "out_of_range" &&
+          independent(s),
+      )
       .map((s) => evidenceKey(s)),
   );
   const unconfirmedSupports = sources.filter((s) => s.relation === "supports" && s.independence === "unconfirmed");
+  const bodyOnlySummary = sources.filter((s) => s.relation === "supports" && !s.bodyStatus.startsWith("evidence")).length;
   const unconfirmedSources = sources.filter((s) => s.independence === "unconfirmed").length;
   const supports = sources.filter((s) => s.relation === "supports").length;
   const contradicts = sources.filter((s) => s.relation === "contradicts").length;
@@ -828,6 +1021,12 @@ export function assessFact(options: AssessOptions): FactAssessment {
         .map(([org, count]) => `${count} 条来源共同引用「${org}」的发布数据`)
         .join("；")}，按同一发布机构的二次报道归并，不重复作为证明。`,
     );
+  if (scopeExcluded.length)
+    reasons.push(
+      `${scopeExcluded.length} 条来源虽被判为支持，但只覆盖说法里的局部范围或早期状态（${[...new Set(scopeExcluded.map((s) => s.scopeNote).filter(Boolean))].slice(0, 2).join("；")}），未计入支持数量。`,
+    );
+  if (bodyOnlySummary)
+    reasons.push(`${bodyOnlySummary} 条支持性来源只有搜索摘要或正文未找到对应表述，不能算作「取得关键原文」。`);
   if (unconfirmedSources)
     reasons.push(
       `另有 ${unconfirmedSources} 条来源可能是转载但无法确认，标为「独立性未确认」，不计入独立证据。`,
@@ -851,6 +1050,8 @@ export function assessFact(options: AssessOptions): FactAssessment {
     bodyBackedClusters: bodyBacked.size,
     unconfirmedSources,
     unconfirmedClusters: new Set(unconfirmedSupports.map((s) => s.clusterId)).size,
+    keySentenceSources: keySentenceSources.length,
+    scopeExcludedSources: scopeExcluded.length,
     sharedOrigins: [...originCounts.entries()]
       .filter(([, count]) => count >= 2)
       .map(([org, count]) => ({ org, count })),
@@ -1212,18 +1413,29 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
     if (org && (originCounts.get(org) || 0) >= 2) return `origin:${org}`;
     return source.clusterId;
   };
-  const supportClusters = new Set(
-    sources
-      .filter((s) => s.relation === "supports" && s.dateStatus !== "out_of_range" && independent(s))
-      .map((s) => evidenceKey(s)),
+  // 支持计数只认"范围一致 + 未检测到重复"的来源：局部证据即使被标为支持，也不抬高整句说法的支持度。
+  const scopeExcluded = sources.filter((s) => s.relation === "supports" && s.scopeCompatible === false);
+  const countedSupports = sources.filter(
+    (s) => s.relation === "supports" && s.scopeCompatible !== false && s.dateStatus !== "out_of_range" && independent(s),
   );
+  const supportClusters = new Set(countedSupports.map((s) => evidenceKey(s)));
   const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts" && independent(s)).map((s) => s.clusterId));
+  // "取得关键原文"要求：正文里真的找到了与该说法相关的句子，而不只是请求成功。
+  const keySentenceSources = sources.filter((s) => s.bodyStatus === "evidence_sentence");
   const bodyBacked = new Set(
     sources
-      .filter((s) => s.relation === "supports" && s.bodyAvailable && s.dateStatus !== "out_of_range" && independent(s))
+      .filter(
+        (s) =>
+          s.relation === "supports" &&
+          s.bodyStatus === "evidence_sentence" &&
+          s.scopeCompatible !== false &&
+          s.dateStatus !== "out_of_range" &&
+          independent(s),
+      )
       .map((s) => evidenceKey(s)),
   );
   const unconfirmedSupports = sources.filter((s) => s.relation === "supports" && s.independence === "unconfirmed");
+  const bodyOnlySummary = sources.filter((s) => s.relation === "supports" && !s.bodyStatus.startsWith("evidence")).length;
   const unconfirmedSources = sources.filter((s) => s.independence === "unconfirmed").length;
 
   let relation: FactAssessment["relation"] = "none";
@@ -1239,6 +1451,8 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
     bodyBackedClusters: bodyBacked.size,
     unconfirmedSources,
     unconfirmedClusters: new Set(unconfirmedSupports.map((s) => s.clusterId)).size,
+    keySentenceSources: keySentenceSources.length,
+    scopeExcludedSources: scopeExcluded.length,
     sharedOrigins: [...originCounts.entries()]
       .filter(([, count]) => count >= 2)
       .map(([org, count]) => ({ org, count })),

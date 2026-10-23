@@ -19,8 +19,10 @@ export interface SourceFetch {
   httpStatus: number | null;
   contentType: string;
   bytes: number;
-  /** 去标签后的正文文本；失败时为空串 */
+  /** 去标签后的正文文本（已剔除导航/页脚等样板）；失败时为空串 */
   text: string;
+  /** 去样板前整页文本长度，用于对比"抓到多少、正文占多少" */
+  rawTextLength?: number;
   /** 页面内声明的标题 */
   title: string;
   /** 是否在正文中发现「转载/来源/原文链接」等二次传播标记 */
@@ -95,6 +97,37 @@ export function extractTitle(html: string, fallback: string) {
   if (title) return title[1].replace(/\s+/g, " ").trim() || fallback;
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   return h1 ? h1[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || fallback : fallback;
+}
+
+/**
+ * 去掉导航、菜单、页脚、登录提示等样板区块，只留可能的正文区域。
+ * 先按语义标签与常见 class/id 命名切除，再优先取 <article>/<main>/正文容器。
+ */
+export function extractMainHtml(html: string) {
+  let cleaned = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|template|svg|iframe|form|nav|aside|footer|header)\b[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<(script|style|noscript|template|svg|iframe|form|nav|aside|footer|header)\b[^>]*\/?>/gi, " ");
+  // 常见样板区块（class/id 里带这些词的容器整块丢弃）
+  cleaned = cleaned.replace(
+    /<(div|section|ul|ol|dl|table|p|span)\b[^>]*(?:class|id)\s*=\s*["'][^"']*(?:nav|menu|breadcrumb|crumb|footer|header|sidebar|side-bar|toolbar|share|social|related|recommend|copyright|login|signin|subscribe|advert|banner|popup|modal|comment)[^"']*["'][^>]*>[\s\S]*?<\/\1\s*>/gi,
+    " ",
+  );
+  const candidates: string[] = [];
+  for (const pattern of [
+    /<article\b[^>]*>([\s\S]*?)<\/article\s*>/gi,
+    /<main\b[^>]*>([\s\S]*?)<\/main\s*>/gi,
+    /<div\b[^>]*(?:class|id)\s*=\s*["'][^"']*(?:article|content|detail|main|body|text|zhengwen|TRS_Editor)[^"']*["'][^>]*>([\s\S]*?)<\/div\s*>/gi,
+  ]) {
+    for (const match of cleaned.matchAll(pattern)) candidates.push(match[1]);
+  }
+  if (candidates.length) {
+    // 取文本量最大的候选块（多栏页面里正文通常最长）
+    const best = candidates.sort((a, b) => htmlToText(b).length - htmlToText(a).length)[0];
+    if (htmlToText(best).length >= 40) return best;
+  }
+  const body = cleaned.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1];
+  return body || cleaned;
 }
 
 export function htmlToText(html: string) {
@@ -246,7 +279,9 @@ export async function fetchSource(url: string, options: FetchOptions = {}): Prom
       // Preserve response metadata even when decoding fails.
       Object.assign(base, { finalUrl: parsed.toString(), httpStatus: response.status, contentType, bytes: buffer.byteLength });
       const html = decodeSource(buffer, contentType);
-      const text = htmlToText(html);
+      // 正文与样板分离：导航/页脚不应算作"取得的原文"。
+      const text = htmlToText(extractMainHtml(html));
+      const rawLength = htmlToText(html).length;
       return {
         ...base,
         finalUrl: parsed.toString(),
@@ -254,6 +289,7 @@ export async function fetchSource(url: string, options: FetchOptions = {}): Prom
         httpStatus: response.status,
         contentType,
         bytes: buffer.byteLength,
+        rawTextLength: rawLength,
         text: text.slice(0, 400_000),
         title: extractTitle(html, parsed.hostname),
         reprintMarkers: detectReprintMarkers(text.slice(0, 20_000)),

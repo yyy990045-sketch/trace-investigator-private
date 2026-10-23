@@ -31,6 +31,33 @@ export function ModelReview({ run, at }: { run: RunRecord; at?: string }) {
         {stale ? "以下是变化前的模型意见，不适用于当前新增或修正的证据。" : "模型意见与规则判断单独保留，均需结合原文审阅。"}
         {SHOWCASE ? "以下为已完成调用的原始返回回放，此刻没有重新调用。" : ""}</p>
       <p style={{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{verification!.summary}</p>
+      {((verification as unknown as {
+        findings?: { claimId: string; relation: string; evidence: string; citations: string[]; limitations?: string[] }[];
+        ruleDifference?: string;
+      }).findings || []).map((finding, index) => (
+        <div key={index} className="model-finding">
+          <p className="model-finding-head">
+            对应事实 {finding.claimId} · 模型判断：
+            {finding.relation === "supports" ? "支持" : finding.relation === "contradicts" ? "反对" : finding.relation === "irrelevant" ? "无关" : "无法确认"}
+          </p>
+          <blockquote className="trace-quote">
+            <span className="trace-quote-label">模型引用的证据句（原文摘录）</span>
+            {finding.evidence}
+          </blockquote>
+          {finding.limitations?.length ? (
+            <ul className="trace-notes">
+              {finding.limitations.map((item, i) => (
+                <li key={i}>局限：{item}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ))}
+      {(verification as unknown as { ruleDifference?: string }).ruleDifference ? (
+        <p className="trace-hint">
+          与规则判断的关系：{(verification as unknown as { ruleDifference?: string }).ruleDifference}
+        </p>
+      ) : null}
       <p className="trace-hint">模型意见：{verification!.verdict === "supported" ? "提供的材料支持说法" : "需要继续审阅，不能据此确定"}</p>
       <ul className="trace-notes">{citations.map((citation) => <li key={citation.id}>
         <a href={citation.source} target="_blank" rel="noopener noreferrer">{citation.title || "打开引用"} · {citation.host}</a>

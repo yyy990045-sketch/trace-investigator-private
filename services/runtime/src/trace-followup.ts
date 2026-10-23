@@ -165,6 +165,9 @@ export function buildAssessment(
       .map((page) => clusterOf.get(page.id)),
   ).size;
   const bodyAvailable = [...bodies.values()].filter((body) => body.ok).length;
+  const keySentenceSources = new Set(
+    assessments.flatMap((fact) => fact.sources).filter((source) => source.bodyStatus === "evidence_sentence").map((source) => source.pageId),
+  ).size;
   const search = bundle.search || {};
   const claim = bundle.case?.claim || bundle.case?.question || "";
   const aggregated = aggregateCase({
@@ -198,6 +201,7 @@ export function buildAssessment(
     corrections,
     unconfirmedPages: [...grouping.unconfirmed],
     clusterBasis: Object.fromEntries(grouping.clusterBasis),
+    keySentenceSources,
   };
   return { bundle, assessment };
 }

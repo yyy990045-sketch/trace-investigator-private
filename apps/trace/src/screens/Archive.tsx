@@ -534,6 +534,18 @@ function KeyEvidence({ source }: { source: SourceAssessment }) {
             : `人工修正：${source.manualCorrection.actor} 确认为「${relationText[source.relation]}」：${source.manualCorrection.note}`}
         </p>
       ) : null}
+      <p className="evidence-proves">
+        <b>这条证据证明</b>
+        {source.keySentence ? `「${source.keySentence}」` : source.bodyAvailable ? "该来源正文包含与说法相关的内容。" : "只能证明页面上出现过这段搜索摘要。"}
+      </p>
+      {source.scopeCompatible === false || !source.bodyAvailable ? (
+        <p className="evidence-cannot">
+          <b>不能证明</b>
+          {source.scopeCompatible === false
+            ? `${source.scopeNote}，因此推不出整句说法。`
+            : "没有取得原文正文，无法核对完整上下文。"}
+        </p>
+      ) : null}
       {quote ? <blockquote className="trace-quote">{quote}</blockquote> : null}
     </article>
   );

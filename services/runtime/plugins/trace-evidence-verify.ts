@@ -89,6 +89,10 @@ export default {
     const bodyAvailable = bodies.size
       ? [...bodies.values()].filter((body) => body.ok).length
       : 0;
+    // 只有正文里真的找到对应表述的，才算"取得关键原文"
+    const keySentenceSources = new Set(
+      assessments.flatMap((fact) => fact.sources).filter((source) => source.bodyStatus === "evidence_sentence").map((source) => source.pageId),
+    ).size;
     const search = input.search || {};
     const verdict = aggregateCase({
       facts: assessments,
@@ -120,6 +124,7 @@ export default {
       })),
       duplicatePages: [...duplicatePages],
       unconfirmedPages: [...grouping.unconfirmed],
+      keySentenceSources,
       clusterBasis: Object.fromEntries(grouping.clusterBasis),
       independentSources,
       bodyAvailable,

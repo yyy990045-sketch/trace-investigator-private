@@ -96,7 +96,7 @@ function topSources(caseData, limit = 5) {
 }
 
 const pages = [];
-for (const item of data.cases) {
+for (const item of data.cases.filter((entry) => ["A", "B", "C"].includes(entry.key))) {
   const assessment = item.assessment || {};
   const verdict = assessment.verdict || {};
   const facts = assessment.facts || [];

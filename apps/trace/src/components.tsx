@@ -146,7 +146,17 @@ export function SourceCard({
       <div className="trace-evidence-meta">
         <span>{source.site}</span>
         <span>{source.date || "未标注时间"}</span>
-        <span>{sourceMaterial(source)}</span>
+        <span data-body-status={source.bodyStatus || "unknown"}>
+          {source.bodyStatus === "evidence_sentence"
+            ? source.keySentenceFrom === "body"
+              ? "关键原文已定位"
+              : "仅有摘要可用"
+            : source.bodyStatus === "main_without_match"
+              ? "抓到正文但无对应表述"
+              : source.bodyStatus === "boilerplate_only"
+                ? "正文基本是导航/样板"
+                : sourceMaterial(source)}
+        </span>
         {fresh ? <span className="trace-evidence-fresh">本次追问新增</span> : null}
         {corrected ? <span className="trace-evidence-fixed">人工修正</span> : null}
         {source.independence === "duplicate" ? (
@@ -184,9 +194,14 @@ export function SourceCard({
           本条明确引用「{source.citedOrigin.org}」的发布数据（{source.citedOrigin.quote}）；若其它来源同样引用该机构，按一个原始出处归并。
         </p>
       ) : null}
+      {source.scopeCompatible === false ? (
+        <p className="trace-evidence-scope">范围差异：{source.scopeNote}　→ 该证据不计入整句说法的支持数量。</p>
+      ) : null}
       {keyText ? (
         <blockquote className="trace-quote">
-          <span className="trace-quote-label">{source.bodyExcerpt ? "原文摘录" : "搜索摘要"}</span>
+          <span className="trace-quote-label">
+            {source.keySentenceFrom === "body" ? "关键原文（正文原句）" : source.bodyStatus === "evidence_sentence" ? "关键句（来自搜索摘要）" : "搜索摘要"}
+          </span>
           {keyText}
         </blockquote>
       ) : null}

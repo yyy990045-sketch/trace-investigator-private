@@ -44,7 +44,32 @@ export default {
         documentId: page.id,
         source: page.url,
         score: Number.isFinite(source.relevance) ? source.relevance : 0,
-        excerpt: `对应事实：${source.factId}；${source.bodyAvailable && source.bodyExcerpt ? "由检索链接取得的正文摘录（非全文，最终跳转地址未记录，原始出处待人工核对）" : "仅搜索摘要，未取得此段原文"}；发布时间：${page.date || "未知"}；来源独立性：${source.independence || "未知"}；${source.citedOrigin ? `引用机构：${source.citedOrigin.org}；` : ""}\n${String(excerpt).slice(0, 1000)}`,
+        excerpt: (() => {
+          const material =
+            source.bodyStatus === "evidence_sentence"
+              ? "key_body（已取得关键原文，正文里找到与该说法相关的原句）"
+              : source.bodyStatus === "main_without_match"
+                ? "body_no_match（抓到正文但没有找到涉及该说法的句子）"
+                : source.bodyStatus === "boilerplate_only"
+                  ? "boilerplate（正文基本是导航/样板，不能当原文）"
+                  : source.bodyAvailable && source.bodyExcerpt
+                    ? "excerpt_only（只有搜索摘要或正文摘录）"
+                    : "excerpt_only（只有搜索摘要，未取得此段原文）";
+          const provenance =
+            source.originality === "original_candidate"
+              ? "official_candidate（原始依据候选，出处仍待核对）"
+              : source.originality === "reprint" || source.citedOrigin
+                ? "reprint（转载或二次传播）"
+                : "unknown（出处未判定）";
+          const independence =
+            source.independence === "duplicate"
+              ? `duplicate（与其它来源同源：${source.duplicateOf?.basis || "内容重合"}）`
+              : source.independence === "unconfirmed"
+                ? "unconfirmed（有同源线索但无依据，独立性未确认）"
+                : "unique（本次未检测到重复，不等于已证明独立）";
+          const scope = source.scopeCompatible === false ? `范围差异：${source.scopeNote || "只覆盖局部/早期状态"}；` : "";
+          return `对应事实：${source.factId}；资料类型：${material}；${provenance}；发布时间：${page.date || "未知"}；来源独立性：${independence}；${source.citedOrigin ? `引用机构：${source.citedOrigin.org}；` : ""}${scope}\n${String(excerpt).slice(0, 1000)}`;
+        })(),
       }];
     });
     if (!citations.length)

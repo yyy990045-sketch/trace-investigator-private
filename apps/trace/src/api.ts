@@ -241,6 +241,13 @@ export interface SourceAssessment {
    */
   independence?: "unique" | "duplicate" | "unconfirmed";
   citedOrigin?: { org: string; quote: string } | null;
+  /** 原文状态：拿到正文并找到对应证据句，才算"取得关键原文" */
+  bodyStatus?: "evidence_sentence" | "main_without_match" | "boilerplate_only" | "fetch_failed";
+  keySentence?: string | null;
+  keySentenceFrom?: "body" | "excerpt" | null;
+  /** 与完整说法的范围/状态是否一致 */
+  scopeCompatible?: boolean;
+  scopeNote?: string;
   duplicateOf?: { primary: string; basis: string } | null;
   independenceNote?: string;
   /** 人工修正后保留的系统自动判断 */
@@ -269,6 +276,8 @@ export interface FactAssessment {
   unconfirmedClusters?: number;
   /** 被多条来源共同引用的原始出处（按 1 条独立证据计） */
   sharedOrigins?: { org: string; count: number }[];
+  keySentenceSources?: number;
+  scopeExcludedSources?: number;
   sources: SourceAssessment[];
   reasons: string[];
 }
@@ -337,6 +346,7 @@ export interface TraceBundleView {
     correctionCount?: number;
     unconfirmedPages?: string[];
     clusterBasis?: Record<string, string>;
+    keySentenceSources?: number;
     corrections?: CorrectionRecord[];
   };
   checks: { name: string; passed: boolean; detail: string; status?: string }[];

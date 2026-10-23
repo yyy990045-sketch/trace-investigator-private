@@ -58,6 +58,7 @@ function useDigests() {
       B: pick(["新能源汽车", "产量"]),
       C: pick(["氢能", "加氢"]),
       D: rows.find((row) => row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
+      R: rows.find((row) => row.digest.outcome === "contradicted") || null,
       loading: !SHOWCASE && local.isLoading,
       error: local.isError ? (local.error as Error).message : null,
     };
@@ -307,6 +308,22 @@ export function Entry() {
       </section>
 
       <section className="home-cases">
+        {digests.R ? (
+          <section className="trace-block trace-block-warn" aria-label="案例R 真实反证">
+            <div className="trace-section-head">
+              <h2>真实反证｜「《民法典》自2020年5月28日起施行」</h2>
+              <span>R · 规则与模型都判为与说法相反</span>
+            </div>
+            <p className="trace-lede">
+              2020 年 5 月 28 日是<strong>通过并公布</strong>的日子，正式施行日是 2021 年 1 月 1 日。
+              TRACE 用主席令原文与多家官方转述交叉核对，把这句话判为<strong>存在反证</strong>。
+            </p>
+            <div className="home-actions">
+              <a className="trace-btn trace-btn-primary" href={caseHref(digests.R.digest.runId)}>查看调查过程 <ArrowRight size={14} /></a>
+              <a className="trace-btn" href={archiveHref(digests.R.digest.runId)}>查看调查档案</a>
+            </div>
+          </section>
+        ) : null}
         {digests.D ? <section className="trace-block" aria-label="案例D 模型辅助复核">
           <div className="trace-section-head"><h2>《民法典》施行日期｜模型辅助复核</h2><span>D · 真实模型调用记录</span></div>
           <p className="trace-lede">{bundleOf(digests.D.run)?.case.question}</p>

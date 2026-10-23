@@ -2805,3 +2805,59 @@
     gap: 2px;
   }
 }
+
+/* 原文质量与范围差异提示 */
+.trace-evidence-meta span[data-body-status="main_without_match"],
+.trace-evidence-meta span[data-body-status="boilerplate_only"] {
+  color: #8a6a1f;
+}
+.trace-evidence-meta span[data-body-status="evidence_sentence"] {
+  color: #1f6b4a;
+  font-weight: 600;
+}
+.trace-evidence-scope {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #8a3a2a;
+  background: #fbf0ee;
+  border-radius: 6px;
+  padding: 6px 9px;
+  overflow-wrap: anywhere;
+}
+
+/* 关键证据：这条证据证明什么 / 不能证明什么 */
+.evidence-proves,
+.evidence-cannot {
+  font-size: 12.5px;
+  line-height: 1.7;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.evidence-proves {
+  background: #eef4f0;
+  color: #215c40;
+}
+.evidence-cannot {
+  background: #fbf0ee;
+  color: #8a3a2a;
+}
+.evidence-proves b,
+.evidence-cannot b {
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 700;
+}
+.model-finding {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--trace-line);
+  border-radius: 10px;
+  background: #fdfcf7;
+}
+.model-finding-head {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}

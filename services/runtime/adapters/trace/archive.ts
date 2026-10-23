@@ -26,6 +26,11 @@ export interface ArchiveSource {
   clusterId: string;
   duplicate: boolean;
   independence?: string;
+  bodyStatus?: string;
+  keySentence?: string | null;
+  keySentenceFrom?: string | null;
+  scopeCompatible?: boolean;
+  scopeNote?: string;
   sharedOrigins?: { org: string; count: number }[];
   duplicateOf?: { primary: string; basis: string } | null;
   independenceNote?: string;
