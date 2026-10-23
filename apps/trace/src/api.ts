@@ -752,8 +752,17 @@ export interface CandidateView {
 export interface ClueRelationView {
   name: string;
   entity: {
-    kind: "screen_work" | "book" | "person" | "unknown";
-    role: "target" | "competitor" | "alias" | "source" | "character" | "sequel" | "unconfirmed";
+    kind: "screen_work" | "book" | "person" | "other" | "unknown";
+    role:
+      | "target"
+      | "competitor"
+      | "alias"
+      | "source"
+      | "character"
+      | "sequel"
+      | "remake"
+      | "not_screen_work"
+      | "unconfirmed";
     reason: string;
     sentence: string;
     url: string;
@@ -763,7 +772,7 @@ export interface ClueRelationView {
 
 export interface ClueAssessmentView {
   mode: "clue";
-  targetKind?: "screen_work" | "book" | "person" | "unknown";
+  targetKind?: "screen_work" | "book" | "person" | "other" | "unknown";
   clues: ClueItemView[];
   candidates: CandidateView[];
   relations?: ClueRelationView[];
@@ -773,11 +782,23 @@ export interface ClueAssessmentView {
     nextQueries: { query: string; reason: string }[];
     askUser: string | null;
     auxiliaryClues?: string[];
+    /** 与答案无关但仍未查清的关系疑点 */
+    openRelations?: string[];
   };
   pageCount: number;
   bodyAvailable: number;
   followupCount: number;
   answerCount: number;
+  graph?: {
+    subject: string;
+    relation: string;
+    object: string;
+    reason: string;
+    status: "confirmed" | "conflicting" | "unconfirmed";
+    evidence: { quote: string; url: string; site: string; from: "body" | "excerpt" }[];
+    conflicts: { quote: string; url: string; site: string; from: "body" | "excerpt" }[];
+  }[];
+  pending?: { question: string; query: string; reason: string; subject: string; object: string }[];
 }
 
 /** 线索调查的当前判断（网页、线索与用户补充合并后重新比对）。 */
@@ -797,6 +818,17 @@ export function postClueSearch(runId: string, query: string, reason?: string) {
     "POST",
     { query, ...(reason ? { reason } : {}) },
   );
+}
+
+/** 主动消歧：按「待解决的关系问题」真实检索，补关系后重新判断。 */
+export function postClueAuto(runId: string, max = 2) {
+  if (SHOWCASE) return Promise.reject(readOnly());
+  return traceRequest<{
+    executed: { question: string; query: string; resultCount: number; error: unknown }[];
+    before: { state: string; candidates: string[]; pending: number };
+    after: { state: string; candidates: string[]; pending: number };
+    assessment: ClueAssessmentView;
+  }>(`/v1/runs/${encodeURIComponent(runId)}/trace/clue/auto`, "POST", { max });
 }
 
 /** 补充线索：记下回答，并围绕最接近的候选再检索一次。 */

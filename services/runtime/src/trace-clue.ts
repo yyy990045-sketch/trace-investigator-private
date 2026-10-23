@@ -28,10 +28,22 @@ const CLUE_ANSWER_KIND = "trace.clue.answer";
 
 export interface ClueAssessment {
   mode: "clue";
-  targetKind: "screen_work" | "book" | "person" | "unknown";
+  targetKind: "screen_work" | "book" | "person" | "other" | "unknown";
   clues: ClueItem[];
   candidates: Candidate[];
   relations: Candidate[];
+  /** 有向关系图（谁改编自谁、谁是谁的续集/翻拍/别名） */
+  graph: {
+    subject: string;
+    relation: string;
+    object: string;
+    reason: string;
+    status: "confirmed" | "conflicting" | "unconfirmed";
+    evidence: { quote: string; url: string; site: string; from: "body" | "excerpt" }[];
+    conflicts: { quote: string; url: string; site: string; from: "body" | "excerpt" }[];
+  }[];
+  /** 还没查清、会影响答案的关系疑点 */
+  pending: { question: string; query: string; reason: string; subject: string; object: string }[];
   decision: ClueDecision;
   pageCount: number;
   bodyAvailable: number;
@@ -86,14 +98,39 @@ export function clueAssessment(store: Store, runId: string): ClueAssessment {
   const { bundle, pages, bodies, clues, rounds, answers } = clueState(store, runId);
   const raw = extractCandidates(pages, bodies, [...new Set(clues.flatMap((clue) => clue.terms || []))]);
   const targetKind = detectTargetKind(String(bundle.case?.question || bundle.case?.goal || ""));
-  const { candidates, relations, decision } = evaluateCandidates(raw, clues, pages, bodies, targetKind);
+  const { candidates, relations, graph, pending, decision } = evaluateCandidates(raw, clues, pages, bodies, targetKind);
+  // 只有「会影响答案」的关系疑点才把结论退回不确定：
+  // 也就是待查关系涉及的候选，线索命中数与头名只差 1 条以内。
+  const best = candidates[0];
+  const influential = pending.filter((item) => {
+    if (!best) return false;
+    const other = candidates.find(
+      (candidate) => candidate.name === item.object || candidate.name === item.subject,
+    );
+    if (!other || other === best) return false;
+    return other.matchedClues >= best.matchedClues - 1;
+  });
+  const finalDecision =
+    influential.length && decision.state !== "insufficient"
+      ? {
+          ...decision,
+          state: "ambiguous" as const,
+          headline: `${decision.headline}；但还有 ${influential.length} 个候选的关系没查清`,
+        }
+      : {
+          ...decision,
+          // 与答案无关的关系疑点照实列出，但不影响「找到答案」的结论。
+          ...(pending.length ? { openRelations: pending.map((item) => item.question) } : {}),
+        };
   return {
     mode: "clue",
     targetKind,
     clues,
     candidates,
     relations,
-    decision,
+    graph,
+    pending,
+    decision: finalDecision,
     pageCount: pages.length,
     bodyAvailable: [...bodies.values()].filter((body) => body.ok).length,
     followupCount: rounds.length,
@@ -190,6 +227,63 @@ export function registerClueEndpoints(app: FastifyInstance, store: Store) {
           error: round.error,
         },
         assessment: clueAssessment(store, req.params.id),
+      };
+    },
+  );
+
+  /**
+   * 主动消歧：按「待解决的关系问题」发起真实检索，用新证据补关系，然后重新判断。
+   * 每次只查当前最关键的 1-2 个问题；查不到就保持未确认，不猜。
+   */
+  app.post<{ Params: { id: string }; Body: { max?: number } }>(
+    "/v1/runs/:id/trace/clue/auto",
+    async (req) => {
+      const { run } = clueRun(store, req.params.id);
+      if (!["completed", "failed"].includes(run.status))
+        throw new ExecutionError("RUN_BUSY", "调查还在执行中，请稍后再自动补查。");
+      const before = clueAssessment(store, req.params.id);
+      const roundsDone = before.followupCount;
+      const budget = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
+      const executed: { question: string; query: string; resultCount: number; error: unknown }[] = [];
+      if (roundsDone < 4)
+        for (const item of before.pending.slice(0, budget)) {
+          const round = await searchRound(
+            store,
+            req.params.id,
+            item.query,
+            item.reason,
+            CLUE_SEARCH_KIND,
+          );
+          // 记录「先提出什么问题、再查什么词」，方便复查这一轮到底想解决什么。
+          const step = store.get(
+            `SELECT id FROM steps WHERE run_id=? AND capability_id IN ('trace.clue.candidates','trace.web.search','trace.clue.intake') ORDER BY position LIMIT 1`,
+            req.params.id,
+          );
+          if (step)
+            store.exec(
+              "INSERT INTO evidence VALUES(?,?,?,?,?,?,?)",
+              id("evidence"),
+              req.params.id,
+              step.id,
+              "trace.clue.question",
+              id("hash"),
+              JSON.stringify({ ...item, at: now(), roundQuery: round.query }),
+              now(),
+            );
+          executed.push({ question: item.question, query: round.query, resultCount: round.resultCount, error: round.error });
+          if (round.error) break;
+        }
+      const after = clueAssessment(store, req.params.id);
+      return {
+        executed,
+        before: { state: before.decision.state, candidates: before.candidates.map((c) => c.name), pending: before.pending.length },
+        after: {
+          state: after.decision.state,
+          candidates: after.candidates.map((c) => c.name),
+          pending: after.pending.length,
+          graph: after.graph,
+        },
+        assessment: after,
       };
     },
   );

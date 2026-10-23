@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Check, CircleDashed, Link2, Search, X } from "lucide-react";
 import {
@@ -7,6 +7,7 @@ import {
   fetchClueAssessment,
   postClueAnswer,
   postClueSearch,
+  postClueAuto,
   type CandidateView,
   type ClueAssessmentView,
   type ClueItemView,
@@ -35,9 +36,19 @@ const relationName: Record<string, string> = {
   source: "原著",
   character: "剧中角色",
   sequel: "续作 / 某一季",
+  remake: "翻拍作品",
+  not_screen_work: "不是影视作品",
   unconfirmed: "关系未确认",
   competitor: "候选",
   target: "目标",
+};
+const graphName: Record<string, string> = {
+  alias: "同一部作品的别名",
+  adaptation: "改编自",
+  sequel: "是它的续集",
+  remake: "翻拍自",
+  character_of: "角色出自",
+  competitor: "彼此无关",
 };
 
 const stateCopy: Record<ClueAssessmentView["decision"]["state"], { title: string; tone: string }> = {
@@ -63,6 +74,7 @@ export function ClueCase({
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
+  const [autoState, setAutoState] = useState<"idle" | "running" | "done" | "failed">("idle");
   const assessmentQuery = useQuery({
     queryKey: ["clue-assessment", runId],
     queryFn: () => fetchClueAssessment(runId),
@@ -81,9 +93,55 @@ export function ClueCase({
         .map((item) => item.data as { query: string; reason?: string; resultCount?: number; error?: unknown; requestedAt?: string }),
     [run.evidence],
   );
+  const relationRounds = useMemo(
+    () =>
+      run.evidence
+        .filter((item) => item.kind === "trace.clue.question")
+        .map((item) => item.data as { question: string; query: string; reason: string; subject: string; object: string }),
+    [run.evidence],
+  );
+  const graph = assessment?.graph || [];
+  /** 这一轮关系查询之后，是否真的补到了关系。 */
+  const relationFoundFor = (round: { subject: string; object: string }) => {
+    const fromGraph = graph.filter(
+      (item) =>
+        [item.subject, item.object].includes(round.subject) &&
+        [item.subject, item.object].includes(round.object) &&
+        item.status !== "unconfirmed",
+    );
+    // 有些问题不是「两个作品的关系」，而是「它到底是什么」：候选身份一旦确定也算查清。
+    const typed = (assessment?.candidates || []).filter(
+      (candidate) => [round.subject, round.object].includes(candidate.name) && candidate.entity?.role && candidate.entity.role !== "unconfirmed",
+    );
+    const fromType = typed.length > 1
+      ? [`${typed[0].name}：${relationName[typed[0].entity!.role] || typed[0].entity!.role}`]
+      : [];
+    return [...fromGraph.map((item) => `${item.subject} ——${graphName[item.relation] || item.relation}→ ${item.object}`), ...fromType];
+  };
   const searches = bundle.searches || [];
   const started = run.steps.find((step) => step.capabilityId === "trace.clue.intake");
   const candidates = assessment?.candidates || [];
+
+  // 发现关系疑点就自动补查（只读回放不发请求；同一页面只自动触发一次）。
+  const pendingCount = assessment?.pending?.length || 0;
+  useEffect(() => {
+    if (SHOWCASE || autoState !== "idle" || !pendingCount) return;
+    if ((assessment?.followupCount || 0) >= 4) {
+      setAutoState("done");
+      return;
+    }
+    setAutoState("running");
+    void (async () => {
+      try {
+        await postClueAuto(runId, 2);
+        await cache.invalidateQueries({ queryKey: ["clue-assessment", runId] });
+        await cache.invalidateQueries({ queryKey: ["run", runId] });
+        setAutoState("done");
+      } catch {
+        setAutoState("failed");
+      }
+    })();
+  }, [pendingCount, autoState, assessment?.followupCount, cache, runId]);
   const decision = assessment?.decision;
 
   async function continueSearch(query: string, reason: string) {
@@ -189,6 +247,24 @@ export function ClueCase({
               </div>
             </li>
           ))}
+          {relationRounds.map((round, index) => {
+            const found = relationFoundFor(round);
+            return (
+              <li key={`relation-${index}`} data-done={found.length ? "true" : "false"}>
+                <span className="clue-step-dot" />
+                <div>
+                  <b>关系待确认 · 第 {index + 1} 轮</b>
+                  <p>{round.question}</p>
+                  <p>
+                    正在查询「{round.query}」
+                    {found.length
+                      ? ` · 找到能区分二者的资料：${found.join("；")}`
+                      : " · 这次没有查到能确认关系的资料，仍标为未确认"}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
           <li data-done={assessment ? "true" : "false"}>
             <span className="clue-step-dot" />
             <div>
@@ -223,6 +299,44 @@ export function ClueCase({
               />
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {graph.length ? (
+        <section className="clue-relations" aria-label="作品之间的关系">
+          <header className="clue-section-head">
+            <h2>查到的作品关系</h2>
+            <span>每条都绑定了本次检索到的句子</span>
+          </header>
+          <ul>
+            {graph.map((relation, index) => (
+              <li key={`${relation.subject}-${index}`} data-role={relation.relation}>
+                <div className="clue-relation-head">
+                  <b>{relation.subject}</b>
+                  <span>
+                    {graphName[relation.relation] || relation.relation} → {relation.object}
+                  </span>
+                  {relation.status === "conflicting" ? <em>方向存在冲突</em> : null}
+                </div>
+                <p>{relation.reason}</p>
+                {relation.evidence.slice(0, 1).map((item) => (
+                  <p key={item.url} className="clue-evidence">
+                    「{item.quote}」
+                  </p>
+                ))}
+                {relation.evidence[0]?.url ? (
+                  <a href={relation.evidence[0].url} target="_blank" rel="noreferrer noopener">
+                    <Link2 size={12} /> {relation.evidence[0].site || "打开来源"}
+                  </a>
+                ) : null}
+                {relation.conflicts.length ? (
+                  <p className="clue-missing">
+                    另有来源写成相反方向：「{relation.conflicts[0].quote}」
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -355,6 +469,20 @@ export function ClueCase({
                 )}
               </div>
             ))}
+          </div>
+        ) : null}
+
+        {autoState === "running" ? (
+          <p className="clue-hint">发现关系疑点，正在自动补查（{pendingCount} 个问题）…</p>
+        ) : null}
+        {decision?.openRelations?.length ? (
+          <div className="clue-open-relations">
+            <h3>与答案无关、但还没查清的关系</h3>
+            <ul>
+              {decision.openRelations.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </div>
         ) : null}
 

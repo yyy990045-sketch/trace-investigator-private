@@ -8,6 +8,16 @@
  * 判断不靠关键词出现次数：候选必须与线索在同一句/同一段落共现，且证据句要能展示给用户。
  */
 
+import {
+  extractRelations,
+  planDisambiguation,
+  relationRoleOf,
+  type DirectedRelation,
+  type PendingQuestion,
+} from "./relations.ts";
+
+export type { DirectedRelation, PendingQuestion };
+
 export interface ClueItem {
   id: string;
   /** 线索原文（用户原话或规划出的短句） */
@@ -52,14 +62,23 @@ export interface CandidateMatch {
 }
 
 /** 用户到底在找什么：作品（剧/电影）、书、人，或还没说清。 */
-export type EntityKind = "screen_work" | "book" | "person" | "unknown";
+export type EntityKind = "screen_work" | "book" | "person" | "other" | "unknown";
 
 /**
  * 候选与目标的关系。竞争者才参与排名：
  *  target/competitor 可能是答案；alias/source/character/sequel 是同一部作品的关系项，不是另一部作品。
  *  unconfirmed 表示关系不明确，只展示、不参与排名。
  */
-export type CandidateRelation = "target" | "competitor" | "alias" | "source" | "character" | "sequel" | "unconfirmed";
+export type CandidateRelation =
+  | "target"
+  | "competitor"
+  | "alias"
+  | "source"
+  | "character"
+  | "sequel"
+  | "remake"
+  | "not_screen_work"
+  | "unconfirmed";
 
 export interface EntityInfo {
   kind: EntityKind;
@@ -196,10 +215,9 @@ export function extractCandidates(
     return true;
   });
 
-  // 名称被更长候选包含时，保留更具体的那个（例如「法医秦明之幸存者」与「法医秦明」并存）
-  const kept = workLike.filter(
-    (item) => !candidates.some((other) => other !== item && other.name.includes(item.name) && other.mentions >= item.mentions),
-  );
+  // 不再因为「名字被更长的候选包含」就丢掉短名：
+  // 《无间道》与《无间道风云》是两个作品，包含关系不等于同一对象，是否合并交给关系判断。
+  const kept = workLike;
   // 书名号里的名字优先（更可能是作品名），其余按被提到的次数排。
   return kept
     .sort((a, b) => Number(b.quoted) - Number(a.quoted) || b.mentions - a.mentions)
@@ -246,6 +264,8 @@ export function classifyEntity(
     `(${escaped}\\s*[（(][^）)]{0,16}(女主角|男主角|角色|饰)|由[^。]{0,8}饰演[^。]{0,8}${escaped}|${escaped}\\s*饰演)`,
   );
   const sequelSignal = /(续集|番外|第[二三四五六七八九十2-9]季|Ⅱ|II)/;
+  /** 不是影视作品的写法：歌名、小说、游戏、漫画。 */
+  const nonScreenSignal = /(演唱|歌曲|主题曲|插曲|片尾曲|作词|作曲|音乐专辑|小说|漫画|游戏|文学作品)/;
   /** 翻拍/改编版本：是另一部作品，但不是用户要找的那一部。 */
   const remakeSignal = /(翻拍|改编自|重拍|美版|日版|韩版|remake)/i;
 
@@ -276,6 +296,13 @@ export function classifyEntity(
           ...(fragment ? { sentence: fragment } : {}),
         });
       }
+      else if (nonScreenSignal.test(sentence) && !/(电视剧|电影)/.test(sentence))
+        consider(1, {
+          kind: "other",
+          role: "not_screen_work",
+          reason: "同句说明它是歌曲/小说/游戏，不是影视作品",
+          ...base,
+        });
       else if (workSubject.test(sentence))
         consider(1, { kind: "screen_work", role: "competitor", reason: "同句说明它是一部剧/电影（出品、播出、主演等）", ...base });
       else if (sourceSignal.test(sentence) && sentence.includes(`《${name}》`))
@@ -320,7 +347,15 @@ export function classifyEntity(
  */
 function isRelation(candidate: Candidate, targetKind: EntityKind): boolean {
   const role = candidate.entity?.role || "unconfirmed";
-  if (role === "alias" || role === "source" || role === "character" || role === "sequel") return true;
+  if (
+    role === "alias" ||
+    role === "source" ||
+    role === "character" ||
+    role === "sequel" ||
+    role === "remake" ||
+    role === "not_screen_work"
+  )
+    return true;
   if (targetKind === "unknown") return role === "unconfirmed";
   const kind = candidate.entity?.kind || "unknown";
   return kind !== "unknown" && kind !== targetKind;
@@ -433,20 +468,68 @@ export function evaluateCandidates(
   pages: PageLike[],
   bodies: Map<string, BodyLike>,
   targetKind: EntityKind = "unknown",
-): { candidates: Candidate[]; relations: Candidate[]; decision: ClueDecision } {
-  // 先判断每个候选是什么：只有和目标同类的才参与排名，原著/角色/别名作为关系展示。
+): {
+  candidates: Candidate[];
+  relations: Candidate[];
+  graph: DirectedRelation[];
+  pending: PendingQuestion[];
+  decision: ClueDecision;
+} {
+  // 先抽有向关系（谁改编自谁、谁是谁的续集/翻拍/别名），再由关系决定候选在竞争里的身份。
+  const graph = extractRelations(pages, bodies, raw.map((item) => item.name));
   const classified = raw.map((candidate) => {
-    const entity = classifyEntity(candidate.name, pages, bodies);
+    const byRelation = relationRoleOf(candidate.name, graph);
+    const heuristic = classifyEntity(candidate.name, pages, bodies);
+    // 如果关系图已经说明它是「被改编/被翻拍的原作」，那它本身就是一部作品，
+    // 不能因为某页信息框写了「别名」就把它并掉。
+    const isOriginalWork = graph.some(
+      (relation) =>
+        relation.status === "confirmed" &&
+        (relation.relation === "adaptation" || relation.relation === "remake") &&
+        normalized(relation.object) === normalized(candidate.name),
+    );
+    const entity =
+      byRelation.role === "work"
+        ? isOriginalWork && heuristic.role === "alias"
+          ? { ...heuristic, role: "competitor" as const, reason: "关系图显示它是被改编/被翻拍的原作，本身就是一部作品" }
+          : heuristic
+        : {
+            kind: byRelation.role === "alias" || byRelation.role === "sequel" || byRelation.role === "remake"
+              ? ("screen_work" as const)
+              : byRelation.role === "source"
+                ? ("book" as const)
+                : heuristic.kind,
+            role: byRelation.role === "source"
+              ? ("source" as const)
+              : byRelation.role === "alias"
+                ? ("alias" as const)
+                : byRelation.role === "sequel"
+                  ? ("sequel" as const)
+                  : byRelation.role === "remake"
+                    ? ("remake" as const)
+                    : heuristic.role,
+            reason: byRelation.relation?.reason || heuristic.reason,
+            sentence: byRelation.relation?.evidence[0]?.quote || heuristic.sentence,
+            url: byRelation.relation?.evidence[0]?.url || heuristic.url,
+            site: byRelation.relation?.evidence[0]?.site || heuristic.site,
+          };
     return matchCandidate({ ...candidate, entity }, clues, pages, bodies);
   });
   const relations = classified.filter((item) => isRelation(item, targetKind));
   const candidates = classified
     .filter((item) => !isRelation(item, targetKind))
     .sort((a, b) => b.matchedClues - a.matchedClues || b.score - a.score);
+  const pending = planDisambiguation(
+    candidates.map((item) => ({ name: item.name, matchedClues: item.matchedClues, missingClues: item.missingClues })),
+    graph,
+    clues.map((item) => ({ text: item.text, terms: item.terms || [] })),
+  );
   if (!candidates.length)
     return {
       candidates,
       relations,
+      graph,
+      pending,
       decision: {
         state: "insufficient",
         headline: "这次没有从检索结果里找到可核对的候选",
@@ -467,6 +550,8 @@ export function evaluateCandidates(
     return {
       candidates,
       relations,
+      graph,
+      pending,
       decision: {
         state: "found",
         headline: `线索全部对上：${best.name}`,
@@ -490,6 +575,8 @@ export function evaluateCandidates(
     return {
       candidates,
       relations,
+      graph,
+      pending,
       decision: {
         state: "ambiguous",
         headline: `找到 ${candidates.length} 个可能候选，还差一条能区分的线索`,
@@ -507,6 +594,8 @@ export function evaluateCandidates(
   return {
     candidates,
     relations,
+    graph,
+    pending,
     decision: {
       state: nextQueries.length ? "insufficient" : "found",
       headline: nextQueries.length

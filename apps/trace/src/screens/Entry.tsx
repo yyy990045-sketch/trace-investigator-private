@@ -83,6 +83,7 @@ function useDigests() {
 /** 首页只给短标签，避免把整句说法堆在入口处。 */
 function caseShortName(claim: string) {
   if (claim.includes("法医") || claim.includes("大宝")) return "找线索：国产法医剧";
+  if (claim.includes("八分钟") || claim.includes("火车")) return "找线索：火车循环电影";
   if (claim.includes("民法典")) return "查真假：民法典日期";
   if (claim.includes("个人信息保护法")) return "跨调查经验复用";
   if (claim.includes("氢能") || claim.includes("加氢")) return "查真假：氢能网络";
@@ -217,7 +218,7 @@ export function Entry() {
       detail: "只记得几个情节，帮我找到一部电视剧。",
       text: "我记得以前看过一部国产破案剧，男主好像是法医，有个人叫大宝，想不起电视剧名字了。",
       mode: "clue" as const,
-      showcaseRunId: "run_f71cff1d-780a-4a67-8b14-3b6e788c9c2d",
+      showcaseRunId: "run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb",
     },
     {
       key: "冲突",
