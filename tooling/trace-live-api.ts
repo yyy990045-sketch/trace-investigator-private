@@ -90,6 +90,11 @@ async function readBody(req: Request): Promise<unknown> {
 function scrub(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
+function redact(text: string) {
+  return text
+    .replace(/(?<![0-9a-fA-F])1[3-9]\\d{9}(?![0-9a-fA-F])/g, "[手机号已隐去]")
+    .replace(/(?<!\\d)\\d{17}[\\dXx](?!\\d)/g, "[证件号已隐去]");
+}
 async function budget(req: Request) {
   // Global cap is intentionally in addition to per-IP caps: spoofed IPs cannot escape daily spend limits.
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
@@ -183,13 +188,14 @@ export async function investigate(body: unknown) {
     error:attempt.error?.code || null,
   };
   const existing = new Set(snapshot.pages.map((p)=>p.url));
-  const added = attempt.pages.filter((page)=>!existing.has(page.url)).slice(0, 8);
+  const added = attempt.pages.filter((page)=>!existing.has(page.url)).slice(0, 8)
+    .map((page) => ({ ...page, passage: redact(page.passage), title: redact(page.title) }));
   const pages = [...snapshot.pages, ...added].slice(0, 24);
   const bodies = [...snapshot.bodies];
   for (const page of added.slice(0,2)) {
     // Failed original-text fetch is recorded as absence of body, never synthetic text.
     const fetched = await fetchSource(page.url, { timeoutMs:4500, maxBytes:350000 });
-    bodies.push({ id:page.id, text:fetched.ok?fetched.text.slice(0,4800):"",
+    bodies.push({ id:page.id, text:fetched.ok?redact(fetched.text.slice(0,4800)):"",
       ok:fetched.ok, reprintMarkers:fetched.reprintMarkers });
   }
   const next: Snapshot = {
