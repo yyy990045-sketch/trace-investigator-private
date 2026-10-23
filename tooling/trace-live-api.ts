@@ -151,12 +151,46 @@ function analyse(snapshot: Snapshot) {
   // 开放式对照问题不能被当成一个真假断言；先展示各来源实际给出的数字。
   const compareQuestion = /为什么|为何|两组|两种说法|差异|不一样|不同|口径/.test(snapshot.claim) &&
     (snapshot.claim.match(/\d+(?:\.\d+)?/g) || []).filter((x) => Number(x) >= 100).length >= 2;
-  const figures = [...new Map(fact.sources.flatMap((source) =>
-    (source.quantityEvidence || []).map((f) => [f.statisticalSource + "|" + f.value + f.unit, {
-      publisher:f.statisticalSource, value:f.value, unit:f.unit, sentence:redact(f.sentence).slice(0,230),
-      scope:f.scope || "",url:f.url,from:f.from,year:f.year,
-    }] as const),
-  )).values()].slice(0, 8);
+  type Figure = {publisher:string;value:number;unit:string;sentence:string;scope:string;url:string;from:"body"|"excerpt";year:string};
+  const figureMap = new Map<string, Figure>();
+  for (const source of fact.sources) {
+    for (const f of source.quantityEvidence || []) {
+      const key = f.statisticalSource + "|" + f.value + f.unit;
+      if (!figureMap.has(key)) figureMap.set(key,{
+        publisher:f.statisticalSource,value:f.value,unit:f.unit,
+        sentence:redact(f.sentence).slice(0,230),scope:f.scope||"",url:f.url,from:f.from,year:f.year,
+      });
+    }
+  }
+  // 多数字提问时，单断言数量绑定可能没有产出 QuantityEvidence。
+  // 回退为"来源原句明确包含用户提到的数值"的保守记录，仅标实际发表站点，
+  // 不凭单页共现推断统计机构，也不据此判定差异的具体原因。
+  if (compareQuestion && figureMap.size < 2) {
+    const values = [...new Set((snapshot.claim.match(/\\d+(?:\\.\\d+)?/g)||[])
+      .map(Number).filter((n)=>Number.isFinite(n)&&n>=10&&!(n>=1900&&n<=2100)))];
+    for (const source of fact.sources) {
+      if (source.relevance < 0.1 || source.relation === "irrelevant") continue;
+      const passages = [source.keySentence || "",source.excerpt || ""].filter(Boolean);
+      for (const value of values) {
+        const number = String(value);
+        const matched = passages.flatMap((p)=>p.split(/[。！？\n]/))
+          .find((piece)=>new RegExp("(^|[^0-9.])"+number.replace(".","\\.")+"(?=$|[^0-9.])").test(piece));
+        if (!matched || matched.trim().length < 10) continue;
+        const unit = matched.includes(number+"万辆") ? "万辆" :
+          matched.includes(number+"万") ? "万" : "";
+        const publisher = source.citedOrigin?.org || source.site;
+        const key = publisher+"|"+number+unit;
+        if (figureMap.has(key)) continue;
+        figureMap.set(key,{
+          publisher,value,unit,sentence:redact(matched).slice(0,230),
+          scope:"统计范围未单独核实",url:source.url,
+          from:source.bodyStatus==="evidence_sentence"?"body":"excerpt",
+          year:(snapshot.claim.match(/(?:19|20)\\d{2}年/)||[])[0]||"",
+        });
+      }
+    }
+  }
+  const figures = [...figureMap.values()].slice(0,8);
   const openQuestion = /^为什么|^为何|^如何|^怎么|^什么原因/.test(snapshot.claim.trim());
   const label = verdict.outcome === "supported" ? "有依据支持" :
     verdict.outcome === "contradicted" ? "存在反证" :
