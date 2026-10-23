@@ -732,6 +732,7 @@ export interface CandidateMatchView {
   site: string;
   title: string;
   from: "body" | "excerpt";
+  scope?: "sentence" | "paragraph" | "page";
 }
 
 export interface CandidateView {
@@ -756,6 +757,7 @@ export interface ClueAssessmentView {
     headline: string;
     nextQueries: { query: string; reason: string }[];
     askUser: string | null;
+    auxiliaryClues?: string[];
   };
   pageCount: number;
   bodyAvailable: number;

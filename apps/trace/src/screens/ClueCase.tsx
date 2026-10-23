@@ -215,6 +215,12 @@ export function ClueCase({
           </div>
         ) : null}
 
+        {decision?.state === "found" && decision.auxiliaryClues?.length ? (
+          <p className="clue-hint">
+            说明：{decision.auxiliaryClues.join("、")} 属于题材/地区类线索，网页里没有和片名出现在同一句，按整页内容判断，未单独取证。
+          </p>
+        ) : null}
+
         {candidates.length > 1 && decision?.state === "found" ? (
           <div className="clue-explain">
             <h3>为什么不是其他候选</h3>
@@ -401,7 +407,10 @@ function CandidateCard({
                   <a href={match.url} target="_blank" rel="noreferrer noopener">
                     <Link2 size={12} /> {match.site || match.title}
                   </a>
-                  <span className="clue-from">{match.from === "body" ? "网页正文" : "搜索摘要"}</span>
+                  <span className="clue-from">
+                    {match.from === "body" ? "网页正文" : "搜索摘要"}
+                    {match.scope === "page" ? " · 同一网页内出现，未同句" : match.scope === "paragraph" ? " · 同段出现" : ""}
+                  </span>
                 </>
               ) : (
                 <p className="clue-missing">还没有找到对应证据</p>

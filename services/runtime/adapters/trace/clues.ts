@@ -47,6 +47,8 @@ export interface CandidateMatch {
   title: string;
   /** 证据句来自网页正文还是搜索摘要（摘要不能冒充全文） */
   from: "body" | "excerpt";
+  /** 证据强度：同句 > 同段 > 同一网页（地区/题材这类线索常不与片名同句） */
+  scope: "sentence" | "paragraph" | "page";
 }
 
 export interface Candidate {
@@ -77,6 +79,8 @@ export interface ClueDecision {
   nextQueries: { query: string; reason: string }[];
   /** 无法区分时，向用户要的一条补充线索 */
   askUser: string | null;
+  /** 题材/地区这类辅助线索没能同句核实：结论仍成立，但要说清楚 */
+  auxiliaryClues?: string[];
 }
 
 const STOP_NAMES = new Set([
@@ -207,10 +211,10 @@ export function matchCandidate(
   const matches: CandidateMatch[] = [];
   for (const clue of clues) {
     let hit: CandidateMatch | null = null;
+    const hasTerm = (value: string) => clue.terms.some((term) => normalized(value).includes(normalized(term)));
     for (const page of pages) {
       if (!page.url) continue;
       const body = bodies.get(page.id);
-      const hasTerm = (value: string) => clue.terms.some((term) => normalized(value).includes(normalized(term)));
       // 正文优先，其次搜索摘要：命中位置要标清楚，摘要不能冒充全文。
       const blocks: { from: "body" | "excerpt"; text: string }[] = [
         ...(body?.ok ? [{ from: "body" as const, text: body.text.slice(0, 20_000) }] : []),
@@ -220,7 +224,7 @@ export function matchCandidate(
         for (const sentence of block.text.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).filter(Boolean)) {
           const pure = normalized(sentence);
           if (!pure.includes(normalized(candidate.name)) || !hasTerm(sentence)) continue;
-          hit = { clueId: clue.id, clue: clue.text, found: true, sentence: snippetAround(sentence, candidate.name), url: page.url, site: page.site, title: page.title, from: block.from };
+          hit = { clueId: clue.id, clue: clue.text, found: true, sentence: snippetAround(sentence, candidate.name), url: page.url, site: page.site, title: page.title, from: block.from, scope: "sentence" };
           break;
         }
         if (hit) break;
@@ -228,12 +232,37 @@ export function matchCandidate(
           const pure = normalized(paragraph);
           if (pure.length > 600) continue;
           if (!pure.includes(normalized(candidate.name)) || !hasTerm(paragraph)) continue;
-          hit = { clueId: clue.id, clue: clue.text, found: true, sentence: snippetAround(paragraph, candidate.name), url: page.url, site: page.site, title: page.title, from: block.from };
+          hit = { clueId: clue.id, clue: clue.text, found: true, sentence: snippetAround(paragraph, candidate.name), url: page.url, site: page.site, title: page.title, from: block.from, scope: "paragraph" };
           break;
         }
         if (hit) break;
       }
       if (hit) break;
+    }
+    // 地区/题材这类线索通常不会和片名出现在同一句里：退到「同一网页内出现」，
+    // 但把强度明确标成 page，界面上会写清「同一网页内出现，未同句」。
+    if (!hit && (clue.kind === "region" || clue.kind === "genre")) {
+      for (const page of pages) {
+        if (!page.url) continue;
+        const mentioned = page.title.includes(candidate.name) || page.passage.includes(candidate.name);
+        if (!mentioned) continue;
+        const body = bodies.get(page.id);
+        const haystack = [page.title, page.passage, body?.ok ? body.text.slice(0, 4000) : ""].join("\n");
+        if (!hasTerm(haystack)) continue;
+        const sentence = haystack.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).find((item) => hasTerm(item)) || "";
+        hit = {
+          clueId: clue.id,
+          clue: clue.text,
+          found: true,
+          sentence: sentence.slice(0, 160),
+          url: page.url,
+          site: page.site,
+          title: page.title,
+          from: body?.ok ? "body" : "excerpt",
+          scope: "page",
+        };
+        break;
+      }
     }
     matches.push(
       hit || {
@@ -245,6 +274,7 @@ export function matchCandidate(
         site: "",
         title: "",
         from: "excerpt" as const,
+        scope: "sentence" as const,
       },
     );
   }
@@ -280,7 +310,11 @@ export function evaluateCandidates(
   const runnerUp = candidates[1];
   const total = clues.length;
   const tie = Boolean(runnerUp && runnerUp.matchedClues === best.matchedClues && best.score - runnerUp.score < 2);
-  if (best.matchedClues === total && !tie)
+  // 题材/地区这类线索常常只出现在网页别处：它们没同句命中时不算决定性缺口，但必须写进结论。
+  const auxiliary = clues.filter((clue) => clue.kind === "genre" || clue.kind === "region").map((clue) => clue.text);
+  const auxiliaryMissing = best.missingClues.filter((text) => auxiliary.includes(text));
+  const decisiveMissing = best.missingClues.filter((text) => !auxiliary.includes(text));
+  if (!decisiveMissing.length && !tie)
     return {
       candidates,
       decision: {
@@ -288,6 +322,7 @@ export function evaluateCandidates(
         headline: `线索全部对上：${best.name}`,
         nextQueries: [],
         askUser: null,
+        ...(auxiliaryMissing.length ? { auxiliaryClues: auxiliaryMissing } : {}),
       },
     };
 
