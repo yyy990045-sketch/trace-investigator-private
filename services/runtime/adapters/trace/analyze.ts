@@ -24,6 +24,7 @@ export interface TraceFact {
 }
 
 export interface AnalysablePage {
+  sourceOrigin?: "operator_url" | "search";
   id: string;
   url: string;
   site: string;
@@ -40,7 +41,26 @@ export interface BodyEvidence {
   reprintMarkers: string[];
 }
 
+export interface QuantityEvidence {
+  subject: string;
+  metric: string;
+  year: string;
+  value: number;
+  unit: string;
+  approximate: boolean;
+  sentence: string;
+  context: string;
+  publisher: string;
+  statisticalSource: string;
+  scope: string;
+  scopeBasis: string;
+  url: string;
+  from: "body" | "excerpt";
+  relation: "supports" | "contradicts" | "unclear";
+}
+
 export interface SourceAssessment {
+  sourceOrigin?: "operator_url" | "search";
   pageId: string;
   url: string;
   site: string;
@@ -82,6 +102,7 @@ export interface SourceAssessment {
   /** 范围/状态是否与该说法一致；不一致时不计入支持 */
   scopeCompatible?: boolean;
   scopeNote?: string;
+  quantityEvidence?: QuantityEvidence[];
   /** 被并入哪一条、依据是什么 */
   duplicateOf?: { primary: string; basis: string } | null;
   /** 独立性未确认的原因 */
@@ -208,14 +229,15 @@ export function compareQuantities(factText: string, factQuantities: string[], pa
     const sameUnit = pageItems.filter((item) => item.unit === factItem.unit);
     if (!sameUnit.length) continue;
     const shown = sameUnit.slice(0, 3).map((item) => `${item.value}${item.unit}`).join("、");
-    if (sameUnit.some((item) => item.value === factItem.value))
+    if (!up && !down && sameUnit.some((item) => item.value === factItem.value))
       return {
         kind: "supports" as const,
         exact: true,
         reason: `同一计量单位下数量一致：${factItem.value}${factItem.unit}。`,
       };
     if (up) {
-      const larger = sameUnit.filter((item) => item.value > factItem.value).sort((a, b) => a.value - b.value);
+      const inclusive = /至少|不低于|以上/.test(factText);
+      const larger = sameUnit.filter((item) => inclusive ? item.value >= factItem.value : item.value > factItem.value).sort((a, b) => a.value - b.value);
       if (larger.length)
         return {
           kind: "supports" as const,
@@ -232,7 +254,8 @@ export function compareQuantities(factText: string, factQuantities: string[], pa
       };
     }
     if (down) {
-      if (sameUnit.some((item) => item.value < factItem.value))
+      const inclusive = /至多|最多|以下|不超过/.test(factText);
+      if (sameUnit.some((item) => inclusive ? item.value <= factItem.value : item.value < factItem.value))
         return {
           kind: "supports" as const,
           exact: false,
@@ -251,6 +274,113 @@ export function compareQuantities(factText: string, factQuantities: string[], pa
     };
   }
   return { kind: null, exact: true, reason: "" };
+}
+
+const QUANTITY_UNIT = "万辆|亿元|万元|万吨|万台|亿台|公里|千米|平方米|辆|吨|台|人|家|个|元|%|万|亿";
+const normalizedQuantityText = (text: string) => text.normalize("NFKC").replace(/[産產車銷萬輛國數據協會]/g,
+  (s) => ({"産":"产","產":"产","車":"车","銷":"销","萬":"万","輛":"辆","國":"国","數":"数","據":"据","協":"协","會":"会"}[s] || s));
+
+/** A bound observation, never a bag of all the numbers on the page. */
+export function quantityEvidenceFor(fact: TraceFact, page: AnalysablePage, text: string, from: "body" | "excerpt"): QuantityEvidence[] {
+  const claim = normalizedQuantityText(fact.text);
+  const metric = ["出口量", "销售量", "销量", "产量", "营业收入", "收入", "数量"].find((item) => claim.includes(item));
+  if (!metric) return [];
+  const at = claim.indexOf(metric);
+  const subject = claim.slice(0, at).replace(/(?:19|20)\d{2}年|中国大陆|中国|我国|全国|全年|年度|的|据|数据显示/g, "").trim();
+  const year = claim.match(/(?:19|20)\d{2}/)?.[0] || fact.timeScope?.match(/(?:19|20)\d{2}/)?.[0];
+  if (!subject || !year) return [];
+  const title = normalizedQuantityText(page.title);
+  const whole = normalizedQuantityText(text);
+  const titleYear = title.match(/(?:19|20)\d{2}/)?.[0];
+  // Annual report metadata is attached to the document, not borrowed from a remote paragraph.
+  const annualTitle = titleYear === year && /统计公报|年(?:12月|全年).*运行情况/.test(title);
+  const host = (() => { try { return new URL(page.url).hostname; } catch { return ""; } })();
+  const nbs = /(^|\.)stats\.gov\.cn$/.test(host);
+  const miit = /(^|\.)miit\.gov\.cn$/.test(host);
+  const nationalChina = /中国|我国|全国/.test(claim + (fact.subjectScope || ""));
+  const sourceNote = whole.match(/(?:注[：:]?[^。\n]{0,20})?上述数据来自中国汽车工业协会[^。\n]*/)?.[0] ||
+    whole.match(/中国汽车工业协会[^。\n]{0,30}(?:发布|数据|获悉)[^。\n]{0,30}/)?.[0] || "";
+  const caam = /中国汽车工业协会/.test(sourceNote);
+  const scopeBasis = nbs ? whole.match(/规模以上工业主要产品产量[^\n。]{0,40}/)?.[0] || "" : sourceNote;
+  const statisticalSource = nbs ? "国家统计局" : caam ? "中国汽车工业协会" : "统计来源未注明";
+  const scope = nbs && scopeBasis ? "规模以上工业主要产品产量统计" : caam
+    ? "中国汽车工业协会汽车工业统计（原页未细列企业覆盖边界）" : "适用统计范围未确认";
+  const result: QuantityEvidence[] = [];
+  const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  for (const paragraph of paragraphs) {
+    // A single paragraph can supply an immediately attached annual context, not other paragraphs.
+    const paragraphSentences = sentences(paragraph);
+    for (const [sentenceIndex, sentence] of paragraphSentences.entries()) {
+      const s = normalizedQuantityText(sentence);
+      const previous = paragraphSentences[sentenceIndex - 1] || "";
+      const previousYears = [...new Set(normalizedQuantityText(previous).match(/(?:19|20)\d{2}/g) || [])];
+      const attachedYear = /^(?:其中|同期|当年|全年)/.test(s) && previous.length <= 500 && previousYears.length === 1 && previousYears[0] === year;
+      const subjectAt = s.indexOf(subject);
+      if (subjectAt < 0) continue;
+      const prefix = s.slice(0, subjectAt);
+      // A national claim cannot borrow another country/province's observation.
+      // Missing geography is accepted only from explicitly attached national context.
+      const otherRegion = /美国|日本|德国|法国|英国|印度|韩国|俄罗斯|欧洲|欧盟|全球|世界|海外|广东|浙江|江苏|山东|安徽|四川|湖北|湖南|河南|河北|江西|福建|广西|云南|贵州|海南|山西|陕西|甘肃|青海|辽宁|吉林|黑龙江|北京|上海|天津|重庆|深圳|香港|澳门|台湾|内蒙古|新疆|西藏|宁夏|[\p{Script=Han}]{2,6}(?:省|市|自治区|地区)/u;
+      if (nationalChina && (otherRegion.test(prefix) ||
+        !/中国|我国|全国/.test(prefix + (attachedYear ? previous : "")) && !(annualTitle && (nbs || miit)))) continue;
+      const sentenceYears = [...new Set(s.match(/(?:19|20)\d{2}/g) || [])];
+      const periodText = s + (attachedYear ? "。" + normalizedQuantityText(previous) : "");
+      // Reject partial-year, monthly and relative-year figures even in an annual report.
+      const monthRange = periodText.match(/(\d{1,2})\s*(?:[－—–\-~～]|至|到)\s*(\d{1,2})月/);
+      if (monthRange && (Number(monthRange[1]) !== 1 || Number(monthRange[2]) !== 12)) continue;
+      const fullYearRange = !!monthRange && Number(monthRange[1]) === 1 && Number(monthRange[2]) === 12;
+      const period = fullYearRange || /全年|年度/.test(s);
+      const targetMonth = claim.match(/(?:19|20)\d{2}年\s*(\d{1,2})月/)?.[1];
+      // Annual and monthly production must not share a bucket. In particular,
+      // '其中…153万辆' inherits December from its own paragraph, not the annual row.
+      const monthlyContext = /(?:19|20)\d{2}年\s*\d{1,2}月|(?:^|[，,。])\s*\d{1,2}月/.test(periodText);
+      if (!targetMonth && monthlyContext && !fullYearRange) continue;
+      if (targetMonth && (period || !new RegExp(`(?:^|年|[，,。])\\s*${targetMonth}月`).test(s + (attachedYear ? "。" + previous : "")))) continue;
+      if (/^(?:上年|去年|前年|上年度|去年同期|上年同期|同期)/.test(s) || /上半年|下半年|季度/.test(s)) continue;
+      if (!sentenceYears.length && previousYears.some((item) => item !== year)) continue;
+      if (sentenceYears.length ? sentenceYears.length !== 1 || sentenceYears[0] !== year
+        : !attachedYear && !(annualTitle && (period || /统计公报/.test(title)))) continue;
+      if (/预计|预测|有望|目标|计划|力争/.test(s)) continue;
+      const afterSubject = s.slice(subjectAt + subject.length);
+      // Stop before another subject/clause, so production cannot borrow a later sales/export number.
+      const directMetric = metric === "产量" ? "(?:年)?产量" : metric === "销量" || metric === "销售量" ? "(?:年)?(?:销量|销售量)" : metric;
+      const direct = afterSubject.match(new RegExp(`^\\s*(?:${year}年)?\\s*(?:${directMetric})\\s*(?:为|达|达到|完成|实现|共|是|约为|约|近|接近|超过|突破|逾|不足|低于|不超过|至少|在)*\\s*(\\d+(?:\\.\\d+)?)\\s*(${QUANTITY_UNIT})\\s*(左右|上下|以上|以下)?`));
+      const paired = !direct && (metric === "产量" || metric === "销量" || metric === "销售量")
+        ? afterSubject.match(new RegExp(`^\\s*(?:年)?产销(?:量)?\\s*(?:分别(?:为|达|达到|完成)?|分别)\\s*(\\d+(?:\\.\\d+)?)\\s*(${QUANTITY_UNIT})?\\s*(?:和|及|、)\\s*(\\d+(?:\\.\\d+)?)\\s*(${QUANTITY_UNIT})`)) : null;
+      if (!direct && !paired) continue;
+      const value = direct ? Number(direct[1]) : Number(metric === "产量" ? paired![1] : paired![3]);
+      const unit = direct ? direct[2] : paired![2] || paired![4];
+      const local = direct?.[0] || paired![0] || "";
+      const approximate = /约|左右|上下|接近|近\s*\d/.test(local);
+      // A source-side bound such as '突破1300' is not an exact observation of 1300.
+      if (!approximate && /超过|突破|逾|不足|低于|不超过|至少|以上|以下/.test(local)) continue;
+      result.push({subject, metric, year, value, unit, approximate, sentence,
+        context: sentenceYears.length ? "年份与指标同句" : attachedYear ? previous : page.title,
+        publisher: nbs ? "国家统计局" : miit ? "工业和信息化部" : page.site,
+        statisticalSource, scope, scopeBasis, url: page.url, from, relation:"unclear"});
+    }
+  }
+  return [...new Map(result.map((item) => [`${item.value}|${item.unit}|${item.statisticalSource}|${item.approximate}`, item])).values()];
+}
+
+function compareBoundQuantity(claim: string, evidence: QuantityEvidence[]) {
+  const match = normalizedQuantityText(claim).match(new RegExp(`(不超过|不低于|超过|高于|多于|至少|以上|低于|少于|至多|最多|以下|达到|为|等于)?\\s*(\\d+(?:\\.\\d+)?)\\s*(${QUANTITY_UNIT})`));
+  if (!match) return { kind:"unclear" as const, evidence:[] as QuantityEvidence[], reason:"数量条件未能完整识别，不能判断。" };
+  const threshold = Number(match[2]), unit = match[3], op = match[1] || "等于";
+  const relevant = evidence.filter((item) => item.unit === unit);
+  const exact = relevant.filter((item) => !item.approximate);
+  const selected = exact.length ? exact : relevant;
+  const compared = selected.map((item) => ({ ...item, relation: item.approximate ? "unclear" as const :
+    ((/不超过|至多|最多|以下/.test(op) ? item.value <= threshold : /低于|少于/.test(op) ? item.value < threshold :
+      /不低于|至少|以上|达到/.test(op) ? item.value >= threshold : /超过|高于|多于/.test(op) ? item.value > threshold : item.value === threshold)
+      ? "supports" as const : "contradicts" as const) }));
+  const values = new Set(exact.map((item) => item.value));
+  if (!compared.length || values.size > 1) return { kind:"unclear" as const, evidence:compared,
+    reason:values.size > 1 ? "同一来源有多个与目标指标对应的精确数值，无法确定适用口径，标为无法确认。" : "未找到主体、指标、年份和单位绑定的原始证据句，不从不同段落拼接数字。" };
+  const first=compared[0];
+  return {kind:first.relation,evidence:compared,reason:first.approximate
+    ? `原句使用近似表述（绑定数值为${first.value}${first.unit}），不能证明严格「${op}${threshold}${unit}」。`
+    : `同一证据句中，${first.year}年${first.subject}${first.metric}为${first.value}${first.unit}，按${first.statisticalSource}口径，${first.relation === "supports" ? "符合" : "不符合"}「${op}${threshold}${unit}」。`};
 }
 
 export function parseDate(value: string): Date | null {
@@ -720,15 +850,19 @@ export function assessSource(
   const negation = negationNear(scored, factTerms);
   // 只有"数量断言"参与数值比对：年份/月/日不算证据，出现"2025年"不代表说对了产量。
   const factQuantities = quantities(options.fact.text);
-  const pageQuantities = quantities(scored + " " + bodyText);
-  // 数量断言比对：尊重「超过/以上/低于」的比较方向，单位不同不比较。
-  const numeric = compareQuantities(options.fact.text, factQuantities, pageQuantities);
+  const bodyQuantities = factQuantities.length ? quantityEvidenceFor(options.fact, page, bodyText, "body") : [];
+  const excerptQuantities = factQuantities.length ? quantityEvidenceFor(options.fact, page, page.passage, "excerpt") : [];
+  const bound = compareBoundQuantity(options.fact.text, bodyQuantities.length ? bodyQuantities : excerptQuantities);
+  const numeric = { ...bound, kind: factQuantities.length ? bound.kind : null, exact: true };
   let dateConflict: ReturnType<typeof dateRoleConflict> = null;
   // 同一表述片段：汉字三元片段命中，才认为来源真的在讲这件事（二元词重合太松）。
   const factFragments = fragments(options.fact.text);
   const sharedFragment = factFragments.find((fragment) => (scored + " " + bodyText).includes(fragment));
 
-  if (relevance < 0.12) {
+  if (factQuantities.length) {
+    relation = bound.kind;
+    reasons.push(numeric.reason);
+  } else if (relevance < 0.12) {
     relation = "irrelevant";
     reasons.push(
       `与该事实几乎无关（关键词重合度 ${(relevance * 100).toFixed(0)}%），仅作为检索命中记录保留，不参与判断。`,
@@ -814,7 +948,7 @@ export function assessSource(
   // 区分四件事：请求成功 / 正文抓到了 / 正文是样板 / 找到与该说法直接相关的句子。
   const cleanedBody = bodyText.replace(/\s+/g, " ").trim();
   const substance = cleanedBody.replace(/[\s\d\p{P}]/gu, "").length;
-  const bodyKeySentence = body?.ok && substance >= 20
+  const bodyKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "body")?.sentence || null : body?.ok && substance >= 20
     ? keySentenceFor({
         factText: options.fact.text,
         text: cleanedBody,
@@ -822,7 +956,7 @@ export function assessSource(
         quantities: factQuantities,
       })
     : null;
-  const passageKeySentence = keySentenceFor({
+  const passageKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "excerpt")?.sentence || null : keySentenceFor({
     factText: options.fact.text,
     text: page.passage,
     factTerms,
@@ -869,6 +1003,7 @@ export function assessSource(
   }
 
   return {
+    sourceOrigin: page.sourceOrigin || "search",
     pageId: page.id,
     url: page.url,
     site: page.site,
@@ -898,6 +1033,7 @@ export function assessSource(
     keySentenceFrom,
     scopeCompatible: scopeCheck.compatible,
     scopeNote: scopeCheck.note,
+    quantityEvidence: numeric.evidence,
     dateStatus,
     dateNote,
   };
@@ -1034,7 +1170,11 @@ export function assessFact(options: AssessOptions): FactAssessment {
   if (relation === "supports")
     reasons.push(`${supportClusters.size} 个未检测到重复的来源簇被规则判为支持（其中 ${bodyBacked.size} 个取得网页正文）；未检测到重复不代表已证明独立。`);
   if (relation === "contradicts") reasons.push(`${opposeClusters.size} 个未检测到重复的来源簇被规则判为相反说法，仍需核对原始出处。`);
-  if (relation === "mixed") reasons.push("同时存在支持与相反说法，需要人工判断。");
+  if (relation === "mixed") {
+    const systems = new Set(sources.filter((source) => source.relation === "supports" || source.relation === "contradicts")
+      .flatMap((source) => source.quantityEvidence || []).filter((item) => item.statisticalSource !== "统计来源未注明").map((item) => item.statisticalSource));
+    reasons.push(systems.size > 1 ? "存在不同统计来源与口径对门槛的不同判断；先明确适用范围，不认定同口径来源直接矛盾。" : "同时存在支持与相反说法，需要人工判断。");
+  }
   if (relation === "none" && outOfRangeSupports > 0)
     reasons.push(
       `${outOfRangeSupports} 条来源内容相关，但发布时间或所指期间不满足事实的时间要求，不能作为当前结论的依据。`,
@@ -1132,10 +1272,16 @@ export function aggregateCase(input: {
   const bodyBackedTotal = facts.reduce((n, f) => n + f.bodyBackedClusters, 0);
 
   if (mixed.length) {
-    reasons.push(`${mixed.length} 条事实同时存在支持与相反说法，交由人工判断，不单方面下结论。`);
+    const numericSources = mixed.flatMap((fact) => fact.sources.filter((source) => source.relation === "supports" || source.relation === "contradicts").flatMap((source) => source.quantityEvidence || []))
+      .filter((item) => !item.approximate && item.statisticalSource !== "统计来源未注明");
+    const systems = [...new Set(numericSources.map((item) => item.statisticalSource))];
+    const scopeDifference = systems.length > 1 && new Set(numericSources.map((item) => item.value)).size > 1;
+    reasons.push(scopeDifference
+      ? `统计口径差异：${systems.join("、")}分别提供不同统计值；未指定统计来源和覆盖范围时不能合并裁决，不能据此认定同口径来源直接矛盾或任何一方错误。`
+      : `${mixed.length} 条事实同时存在支持与相反说法，交由人工判断，不单方面下结论。`);
     return {
       outcome: "disputed",
-      headline: "存在相互矛盾的说法，需要人工判断。",
+      headline: scopeDifference ? "统计口径差异：需要明确适用的统计来源与范围。" : "存在相互矛盾的说法，需要人工判断。",
       confidence: "low",
       reasons,
       counts,
@@ -1230,14 +1376,16 @@ export function outcomeLabel(outcome: Outcome) {
  */
 export function buildStatement(claim: string, verdict: CaseAssessment) {
   const suffix =
-    `检索命中 ${verdict.counts.pages} 条网页，其中 ${verdict.counts.independentSources} 个来源簇未检测到重复、${verdict.counts.bodyAvailable} 份取得网页正文。` +
+    `共收录 ${verdict.counts.pages} 条网页材料，其中 ${verdict.counts.independentSources} 个来源簇未检测到重复、${verdict.counts.bodyAvailable} 份取得网页正文。` +
     verdict.reasons.join(" ");
   if (verdict.outcome === "supported")
     return `就「${claim}」而言，现有公开来源支持该说法。${verdict.headline}${suffix}仍需人工复核关键原文后再作为正式依据。`;
   if (verdict.outcome === "contradicted")
     return `就「${claim}」而言，现有公开来源与待核查说法相反。${suffix}`;
   if (verdict.outcome === "disputed")
-    return `就「${claim}」而言，公开来源存在相互矛盾的说法，本档案不单方面下结论。${suffix}`;
+    return verdict.headline.includes("统计口径差异")
+      ? `就「${claim}」而言，按不同统计口径会得到不同判断。未指定口径时保留「存在争议」类型，这不表示两个同口径来源直接矛盾。${suffix}`
+      : `就「${claim}」而言，公开来源存在相互矛盾的说法，本档案不单方面下结论。${suffix}`;
   if (verdict.outcome === "outdated")
     return `就「${claim}」而言，现有来源时效或原文依据不足，不能视为当前有效结论。${suffix}`;
   return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;

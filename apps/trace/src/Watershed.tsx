@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowRight, Download, GitCompare } from "lucide-react";
 import { outcomeText, relationText, varyingToken, type CaseDigest } from "./api";
 import { archiveHref, caseHref, formatTime } from "./components";
+import { statisticalScopePair, statisticalCardHtml } from "./presentation";
 
 /** 把证据句前的站点样板（来源：/浏览字号/当前位置…）去掉，只留判断用得上的那句。 */
 export function cleanSentence(value?: string | null) {
@@ -34,9 +35,13 @@ export interface WatershedSide {
 
 function Side({ side, highlight, tone }: { side: WatershedSide; highlight?: string | null; tone: "left" | "right" }) {
   const { digest } = side;
-  const sources = digest.sources;
+  const sources = [...digest.sources].sort((a, b) => {
+    const boundOriginal = (source: typeof a) => Number(source.quantityEvidence?.some((item) =>
+      item.from === "body" && !item.approximate && item.statisticalSource !== "统计来源未注明"));
+    return boundOriginal(b) - boundOriginal(a);
+  });
   const keySentences = sources
-    .filter((source) => source.keySentence && source.relation !== "irrelevant")
+    .filter((source) => source.keySentence && (source.relation === "supports" || source.relation === "contradicts"))
     .slice(0, 2);
   const fallback = sources.filter((source) => source.relation === "supports" || source.relation === "contradicts").slice(0, 2);
   const shown = keySentences.length ? keySentences : fallback;
@@ -139,6 +144,14 @@ export function Watershed({
 }) {
   const diff = useMemo(() => varyingToken(left.claim, right.claim), [left.claim, right.claim]);
   const [focus, setFocus] = useState<"left" | "right">("right");
+  const scopes = /超过\s*1300\s*万辆/.test(right.claim) ? statisticalScopePair(right.digest.sources) : null;
+
+  function downloadVisualCard() {
+    if (!scopes) return;
+    const url = URL.createObjectURL(new Blob([statisticalCardHtml(right.claim, scopes)], {type:"text/html;charset=utf-8"}));
+    const anchor=document.createElement("a");anchor.href=url;anchor.download="新能源汽车产量·视觉对照卡.html";anchor.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
 
   function downloadCard() {
     const lines = [
@@ -217,13 +230,15 @@ export function Watershed({
             </button>
           </div>
           <button type="button" className="trace-btn trace-btn-ghost" onClick={downloadCard}>
-            <Download size={14} /> 生成事实对照卡
+            <Download size={14} /> 下载文字报告（Markdown）
           </button>
           {cardHref ? (
             <a className="trace-btn" href={cardHref} download>
-              <Download size={14} /> 下载静态对照卡
+              <Download size={14} /> 下载静态文字报告
             </a>
           ) : null}
+          {scopes ? <button type="button" className="trace-btn trace-btn-primary" onClick={downloadVisualCard}><Download size={14} /> 下载视觉对照卡（单页HTML）</button> : null}
+          {scopes && cardHref ? <a className="trace-btn" href={cardHref.replace("新能源产量对照卡.md","新能源产量视觉对照卡.png")} download><Download size={14} /> 下载PNG对照卡</a> : null}
         </div>
       </header>
 
@@ -235,6 +250,19 @@ export function Watershed({
         <Side side={right} highlight={diff?.right} tone="right" />
       </div>
 
+      {scopes ? <section id="ws-quantity-scope" className="ws-scope" aria-label="为什么答案不同：统计口径差异">
+        <header><h3>为什么答案不同</h3><p>针对“超过1300万辆”，先明确使用哪套统计口径。</p></header>
+        <div className="ws-scope-grid">
+          <article><h4>国家统计局</h4><strong>{scopes.nbs.value}<small>{scopes.nbs.unit}</small></strong><b>支持超过1300万辆</b><p>{scopes.nbs.scope}</p>
+            <details><summary>查看真正包含数字的原始证据句</summary><blockquote>{scopes.nbs.sentence}</blockquote><p className="trace-hint">年份上下文：{scopes.nbs.context}</p><a href={scopes.nbs.url} target="_blank" rel="noreferrer noopener">打开国家统计局原文</a></details>
+          </article>
+          <div className="ws-scope-difference"><b>统计口径<br />差异</b><span>不能当作<br />同口径直接矛盾</span></div>
+          <article><h4>中国汽车工业协会</h4><strong>{scopes.caam.value}<small>{scopes.caam.unit}</small></strong><b>未超过1300万辆</b><p>工信部引用中汽协数据；原页未细列企业覆盖边界。</p>
+            <details><summary>查看真正包含数字的原始证据句</summary><blockquote>{scopes.caam.sentence}</blockquote><p className="trace-hint">年份上下文：{scopes.caam.context}</p><a href={scopes.caam.url} target="_blank" rel="noreferrer noopener">打开工信部原文</a></details>
+          </article>
+        </div><p className="ws-scope-note">两组数据都保留。未指定统计来源和适用范围时，结论保留“存在争议（统计口径差异）”；不自动认定其中一方错误。</p>
+      </section> : null}
+
       <div className="ws-why">
         <h3>为什么判断不同</h3>
         <ul>
@@ -242,7 +270,7 @@ export function Watershed({
             <b>{diff ? `${diff.left} → ${diff.right}` : "条件不同"}</b>
             {left.digest.outcome === right.digest.outcome
               ? "：两次调查的结论类型相同，说明这一处改动没有改变证据格局。"
-              : `：左侧「${left.digest.outcome ? outcomeText[left.digest.outcome] : "记录"}」，右侧「${
+              : scopes ? "：1200万辆与1300万辆的门槛不同；1300万辆还涉及统计来源与覆盖范围差异，不是同口径权威来源直接矛盾。" : `：左侧「${left.digest.outcome ? outcomeText[left.digest.outcome] : "记录"}」，右侧「${
                   right.digest.outcome ? outcomeText[right.digest.outcome] : "记录"
                 }」，差异来自证据对这两个条件的不同表述。`}
           </li>

@@ -121,6 +121,17 @@ export function extractMainHtml(html: string) {
   ]) {
     for (const match of cleaned.matchAll(pattern)) candidates.push(match[1]);
   }
+  // Statistical bulletins contain nested divs and tables. A lazy </div> match can
+  // stop at the first inner block and silently discard the actual statistics.
+  for (const open of cleaned.matchAll(/<div\b[^>]*(?:class|id)\s*=\s*["'][^"']*(?:article|content|detail|main|body|text|zhengwen|TRS_Editor)[^"']*["'][^>]*>/gi)) {
+    const tags = /<\/?div\b[^>]*>/gi;
+    tags.lastIndex = open.index! + open[0].length;
+    let depth = 1, tag: RegExpExecArray | null;
+    while ((tag = tags.exec(cleaned))) {
+      depth += /^<\//.test(tag[0]) ? -1 : /\/>$/.test(tag[0]) ? 0 : 1;
+      if (depth === 0) { candidates.push(cleaned.slice(open.index! + open[0].length, tag.index)); break; }
+    }
+  }
   if (candidates.length) {
     // 取文本量最大的候选块（多栏页面里正文通常最长）
     const best = candidates.sort((a, b) => htmlToText(b).length - htmlToText(a).length)[0];

@@ -58,7 +58,7 @@ function useDigests() {
       A: pick(["个人信息保护法"]),
       B: pick(["新能源汽车", "产量"]),
       C: pick(["氢能", "加氢"]),
-      D: rows.find((row) => row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
+      D: rows.find((row) => row.digest.claim.includes("民法典") && row.digest.claim.includes("2021年1月1日") && row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
       R: rows.find((row) => row.digest.outcome === "contradicted") || null,
       // 跨调查经验复用：新调查命中了历史经验（通过日/施行日混淆）
       E: pick(["2021年8月20日"]) || null,

@@ -12,6 +12,7 @@
 import { outcomeLabel } from "./analyze.ts";
 
 export interface ArchiveSource {
+  sourceOrigin?: "operator_url" | "search";
   url: string;
   site: string;
   title: string;
@@ -31,6 +32,7 @@ export interface ArchiveSource {
   keySentenceFrom?: string | null;
   scopeCompatible?: boolean;
   scopeNote?: string;
+  quantityEvidence?: import("./analyze.ts").QuantityEvidence[];
   sharedOrigins?: { org: string; count: number }[];
   duplicateOf?: { primary: string; basis: string } | null;
   independenceNote?: string;
@@ -199,6 +201,7 @@ export function renderArchive(input: ArchiveInput) {
                 : "（未检测到重复）"
           }`,
           `   - 站点：${source.site}；标注发布时间：${source.date || "未提供"}`,
+          `   - 来源入口：${source.sourceOrigin === "operator_url" ? "操作者提供的公开网址（正文真实抓取，不冒充搜索命中）" : "元宝搜索命中"}`,
           `   - 时效：${source.dateStatus === "in_range" ? "在适用时间范围内" : source.dateStatus === "out_of_range" ? "在适用时间范围之外" : "无法确认"}（${source.dateNote}）`,
           `   - 材料类型：${!source.bodyAvailable ? "仅搜索摘要（未取得正文，不能据此确认原始出处）" : source.originality === "reprint" || source.citedOrigin
                 ? "二次报道或转载（已取得网页正文，需追溯所引原始依据）"
@@ -206,6 +209,7 @@ export function renderArchive(input: ArchiveInput) {
           }`,
           `   - 摘要摘录：${(source.excerpt || "").slice(0, 400)}`,
           ...(source.bodyExcerpt ? [`   - 原文摘录：${source.bodyExcerpt.slice(0, 400)}`] : []),
+          ...(source.quantityEvidence || []).map((item) => `   - 数量绑定：${item.year}年 / ${item.subject} / ${item.metric} / ${item.value}${item.unit}${item.approximate ? "（约数，不能证明严格门槛）" : ""}；发布机构：${item.publisher}；统计来源：${item.statisticalSource}；适用范围：${item.scope}；原始证据句：${item.sentence}；年份上下文：${item.context}；口径依据：${item.scopeBasis || "原页未说明"}`),
           `   - 判定依据：${(source.reasons || []).join(" ")}`,
         ].join("\n"),
       ),

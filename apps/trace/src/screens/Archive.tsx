@@ -282,8 +282,8 @@ export function Archive() {
       {opposing.length ? (
         <section className="trace-block trace-block-warn">
           <div className="trace-section-head">
-            <h2>来源之间的矛盾</h2>
-            <span>{opposing.length} 条来源与说法相反</span>
+            <h2>{verdict.headline.includes("统计口径差异") ? "不同统计口径下的判断" : "来源之间的矛盾"}</h2>
+            <span>{verdict.headline.includes("统计口径差异") ? "这些口径未超过门槛，不表示其他统计错误" : `${opposing.length} 条来源与说法相反`}</span>
           </div>
           <div className="trace-key-evidence">
             {opposing.map((source) => (
