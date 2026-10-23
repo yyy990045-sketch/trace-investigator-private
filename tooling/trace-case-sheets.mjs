@@ -44,14 +44,17 @@ function oneLiner(item) {
   const independent = item.assessment?.independentSources ?? 0;
   const bodies = item.assessment?.bodyAvailable ?? 0;
   const supportClusters = fact.independentClusters ?? 0;
-  const shape = `${pages} 条网页${merged ? `有 ${merged} 条被判为同一篇内容而合并` : ""}${
-    unconfirmed ? `${merged ? "、" : "有 "}${unconfirmed} 条独立性未确认不计入` : ""
-  }，最终 ${independent} 个独立来源、${bodies} 份原文正文`;
+  const origins = (fact.sharedOrigins || []).length
+    ? `；另有 ${(fact.sharedOrigins || []).map((o) => `${o.count} 条报道共同引用「${o.org}」的发布数据`).join("、")}，按 1 条计`
+    : "";
+  const shape = `${pages} 条网页${merged ? `有 ${merged} 条能指认是同一篇内容而合并` : ""}${
+    unconfirmed ? `${merged ? "、" : "有 "}${unconfirmed} 条只有同源线索、标为独立性未确认` : ""
+  }，最终 ${independent} 个未检测到重复的来源、${bodies} 份原文正文${origins}`;
   if (item.key === "A")
-    return `中国人大网等官方站点与全文发布页都写明「自 2021 年 11 月 1 日起施行」；${shape}；其中 ${supportClusters} 个独立来源簇支持该事实，结论落在可点击的官方网址上。`;
+    return `中国人大网等官方站点与全文发布页都写明「自 2021 年 11 月 1 日起施行」；${shape}；其中 ${supportClusters} 个支持来源簇，结论落在可点击的官方网址上。`;
   if (item.key === "B")
-    return `政府网、统计局、央广网、中国经济网给出同年同口径的产量数字；${shape}；${supportClusters} 个独立来源簇支持「超过 1200 万辆」，同期出现的「汽车总产销 3100 万辆」属于另一个指标，没有被拿来当新能源产量的证据。`;
-  return `能查到的都是「某条干线/某个走廊投运」的局部报道，没有任何来源直接说「已建成覆盖全国的网络」；${shape}；其中只有 ${supportClusters} 个独立来源簇支持该说法，追加真实检索与人工修正之后结论依然是证据不足，并写明还缺什么。`;
+    return `政府网、统计局、央广网、中国经济网给出同年同口径的产量数字；${shape}；${supportClusters} 个支持来源簇支持「超过 1200 万辆」，同期出现的「汽车总产销 3100 万辆」属于另一个指标，没有被拿来当新能源产量的证据。`;
+  return `能查到的都是「某条干线/某个走廊投运」的局部报道，没有任何来源直接说「已建成覆盖全国的网络」；${shape}；其中只有 ${supportClusters} 个支持来源簇，追加真实检索与人工修正之后结论依然是证据不足，并写明还缺什么。`;
 }
 
 const exe =

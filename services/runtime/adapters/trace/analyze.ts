@@ -58,8 +58,15 @@ export interface SourceAssessment {
   /** 同源/转载聚类：同一簇只算一条独立证据 */
   clusterId: string;
   duplicate: boolean;
-  /** 独立性：independent 计入独立证据；duplicate 已并入同源簇；unconfirmed 可能同源但证据不足 */
-  independence: "independent" | "duplicate" | "unconfirmed";
+  /**
+   * 独立性三态：
+   *  duplicate    有明确依据证明是同一篇内容（并入同源簇，不计入独立证据）
+   *  unconfirmed  有同源线索但证据不足（同标题/相似摘要/跨站同编号等），不计入独立证据
+   *  unique       未检测到重复——只是"没发现重复"，不等于"已证实独立"
+   */
+  independence: "unique" | "duplicate" | "unconfirmed";
+  /** 该来源明确引用的原始数据出处（如"中国汽车工业协会"），用于避免把二次报道当多份独立证据 */
+  citedOrigin?: { org: string; quote: string } | null;
   /** 被并入哪一条、依据是什么 */
   duplicateOf?: { primary: string; basis: string } | null;
   /** 独立性未确认的原因 */
@@ -86,6 +93,8 @@ export interface FactAssessment {
   unconfirmedSources?: number;
   /** 其中涉及的支持性来源簇数 */
   unconfirmedClusters?: number;
+  /** 被多条来源共同引用的原始出处（按 1 条独立证据计） */
+  sharedOrigins?: { org: string; count: number }[];
   /** 内容相关但时间要求不满足的来源数，用于区分「没有证据」与「证据过期」 */
   outOfRangeSupports: number;
   sources: SourceAssessment[];
@@ -344,6 +353,8 @@ export function articleKey(value: string) {
     /(c\d{6,}-\d{4,})/,
     /(c\d{4}-\d{2}-\d{2}\/\d{4,})/,
     /(article\/\d+)/,
+    // 文件名里的长数字编号（很多站点用 /n/1234567.html 这种形式）
+    /\/(\d{5,})\.html?$/,
   ];
   for (const pattern of patterns) {
     const hit = text.match(pattern);
@@ -371,6 +382,21 @@ function bodyGrams(text: string) {
   return out;
 }
 
+/**
+ * 识别来源明确引用的原始数据出处（例：据中国汽车工业协会发布的数据…）。
+ * 只认"机构名 + 发布/公布/统计/数据"这种显式表述，不做语义猜测。
+ */
+export function citedOriginOf(text: string): { org: string; quote: string } | null {
+  if (!text) return null;
+  const match = text.match(
+    /(?:据|根据|来自)?\s*([\u4e00-\u9fa5]{2,12}(?:统计局|局|部|委|署|协会|研究院|研究中心|中心|银行|联合会))\s*(?:发布|公布|披露|统计|数据|通报|测算)/,
+  );
+  if (!match) return null;
+  const org = match[1].replace(/^(据|根据|来自)/, "");
+  if (org.length < 3) return null;
+  return { org, quote: match[0].slice(0, 40).trim() };
+}
+
 export interface SourceGrouping {
   /** pageId → clusterId */
   clusterOf: Map<string, string>;
@@ -382,6 +408,10 @@ export interface SourceGrouping {
   unconfirmedReason: Map<string, string>;
   /** clusterId → 判定依据 */
   clusterBasis: Map<string, string>;
+  /** pageId → 明确引用的原始出处 */
+  originOf: Map<string, { org: string; quote: string }>;
+  /** 被两个以上来源共同引用的原始出处 */
+  sharedOrigins: Map<string, string[]>;
 }
 
 /**
@@ -411,6 +441,13 @@ export function groupSources(
   const canonical = pages.map((page) => canonicalUrl(page.url));
   const keys = pages.map((page) => articleKey(page.url));
   const titles = pages.map((page) => normalizeTitle(page.title));
+  const originOf = new Map<string, { org: string; quote: string }>();
+  for (const page of pages) {
+    const body = bodies?.get(page.id);
+    const text = body?.ok && body.text.length > 200 ? body.text.slice(0, 4000) : `${page.title} ${page.passage}`;
+    const origin = citedOriginOf(text);
+    if (origin) originOf.set(page.id, origin);
+  }
   const bodies5 = pages.map((page) => {
     const body = bodies?.get(page.id);
     return body?.ok && body.text.length >= 400 ? bodyGrams(body.text) : null;
@@ -418,18 +455,40 @@ export function groupSources(
   for (let i = 0; i < pages.length; i++) {
     for (let j = i + 1; j < pages.length; j++) {
       const reasons: string[] = [];
+      const sameHost =
+        registrableHost(pages[i].url) !== "" && registrableHost(pages[i].url) === registrableHost(pages[j].url);
       if (canonical[i] && canonical[i] === canonical[j]) reasons.push("同一网址（含镜像地址还原）");
-      if (keys[i] && keys[i] === keys[j]) reasons.push(`同一文章编号 ${keys[i]}`);
+      // 文章编号只在同一发布方内可比：不同网站的编号体系互不相干
+      if (keys[i] && keys[i] === keys[j]) {
+        if (sameHost) reasons.push(`同一发布方的同一文章编号 ${keys[i]}`);
+        else
+          unconfirmedPairs.push({
+            a: i,
+            b: j,
+            reason: `不同网站出现相同文章编号（${keys[i]}），无法确认是否为同一篇，需人工核对`,
+          });
+      }
 
       const titleSim = titleSimilarity(pages[i].title, pages[j].title);
-      if (titles[i].length >= 12 && titles[i] === titles[j]) reasons.push("标题完全一致");
+      const sameTitle = titles[i].length >= 12 && titles[i] === titles[j];
+      // 同标题只是同源线索：没有正文/编号/转载声明可核对时，标为独立性未确认
+      if (sameTitle)
+        unconfirmedPairs.push({
+          a: i,
+          b: j,
+          reason: "不同网站标题完全一致，但没有正文、文章编号或转载声明可核对",
+        });
       else if (
         titleSim >= 0.86 &&
         pages[i].date &&
         pages[j].date &&
         pages[i].date.slice(0, 10) === pages[j].date.slice(0, 10)
       )
-        reasons.push(`标题几乎一致（${(titleSim * 100).toFixed(0)}%）且同日发布`);
+        unconfirmedPairs.push({
+          a: i,
+          b: j,
+          reason: `不同网站标题几乎一致（${(titleSim * 100).toFixed(0)}%）且同日，但没有正文或转载关系可核对`,
+        });
 
       // 摘要或正文逐字一致，本身就是可指认的依据（同一篇通稿被多家转载）
       const passageA = pages[i].passage.replace(/\s+/g, "");
@@ -518,7 +577,14 @@ export function groupSources(
     }
   }
 
-  return { clusterOf, duplicateOf, unconfirmed, unconfirmedReason, clusterBasis };
+  const sharedOrigins = new Map<string, string[]>();
+  for (const [pageId, origin] of originOf) {
+    sharedOrigins.set(origin.org, [...(sharedOrigins.get(origin.org) || []), pageId]);
+  }
+  for (const [org, ids] of [...sharedOrigins])
+    if (ids.length < 2) sharedOrigins.delete(org);
+
+  return { clusterOf, duplicateOf, unconfirmed, unconfirmedReason, clusterBasis, originOf, sharedOrigins };
 }
 
 /** 兼容旧调用：只取簇映射（测试与简单用途）。 */
@@ -653,7 +719,7 @@ export function assessSource(
     ? "duplicate"
     : unconfirmed
       ? "unconfirmed"
-      : "independent";
+      : "unique";
   if (duplicateOf) {
     const primary = options.pages.find((item) => item.id === duplicateOf.primary);
     reasons.push(
@@ -682,6 +748,7 @@ export function assessSource(
     clusterId: options.clusterOf.get(page.id) || "cluster-0",
     duplicate: duplicateOf !== null,
     independence,
+    citedOrigin: options.grouping?.originOf.get(page.id) || null,
     duplicateOf: duplicateOf ? { primary: duplicateOf.primary, basis: duplicateOf.basis } : null,
     independenceNote: unconfirmed ? options.grouping?.unconfirmedReason.get(page.id) : undefined,
     dateStatus,
@@ -704,17 +771,29 @@ export function assessFact(options: AssessOptions): FactAssessment {
     .map((page) => assessSource(page, options))
     .sort((a, b) => Number(b.relation === "supports") - Number(a.relation === "supports") || b.relevance - a.relevance);
 
-  const independent = (source: SourceAssessment) => source.independence === "independent";
+  // 没有正面依据就不宣称独立：这里只要求"未检测到与别的来源重复"。
+  const independent = (source: SourceAssessment) => source.independence === "unique";
+  // 引用同一个官方出处的多篇报道属于二次解读，按 1 条独立证据计。
+  const originCounts = new Map<string, number>();
+  for (const source of sources) {
+    const org = source.citedOrigin?.org;
+    if (org) originCounts.set(org, (originCounts.get(org) || 0) + 1);
+  }
+  const evidenceKey = (source: SourceAssessment) => {
+    const org = source.citedOrigin?.org;
+    if (org && (originCounts.get(org) || 0) >= 2) return `origin:${org}`;
+    return source.clusterId;
+  };
   const supportClusters = new Set(
     sources
       .filter((s) => s.relation === "supports" && s.dateStatus !== "out_of_range" && independent(s))
-      .map((s) => s.clusterId),
+      .map((s) => evidenceKey(s)),
   );
   const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts" && independent(s)).map((s) => s.clusterId));
   const bodyBacked = new Set(
     sources
       .filter((s) => s.relation === "supports" && s.bodyAvailable && s.dateStatus !== "out_of_range" && independent(s))
-      .map((s) => s.clusterId),
+      .map((s) => evidenceKey(s)),
   );
   const unconfirmedSupports = sources.filter((s) => s.relation === "supports" && s.independence === "unconfirmed");
   const unconfirmedSources = sources.filter((s) => s.independence === "unconfirmed").length;
@@ -739,6 +818,16 @@ export function assessFact(options: AssessOptions): FactAssessment {
       `已合并 ${mergedSources.length} 条同源/转载页面（依据：${basis || "内容高度重合"}），按 1 条独立证据计算。`,
     );
   }
+  // 共同原始出处：同一个机构的数据被多条来源转述/解读，只能算一条独立证据
+  const sharedOriginHits = [...originCounts.entries()].filter(
+    ([org, count]) => count >= 2 && sources.some((s) => s.relation === "supports" && s.citedOrigin?.org === org),
+  );
+  if (sharedOriginHits.length)
+    reasons.push(
+      `有 ${sharedOriginHits
+        .map(([org, count]) => `${count} 条来源共同引用「${org}」的发布数据`)
+        .join("；")}，属同一原始出处的二次报道，按 1 条独立证据计。`,
+    );
   if (unconfirmedSources)
     reasons.push(
       `另有 ${unconfirmedSources} 条来源可能是转载但无法确认，标为「独立性未确认」，不计入独立证据。`,
@@ -762,6 +851,9 @@ export function assessFact(options: AssessOptions): FactAssessment {
     bodyBackedClusters: bodyBacked.size,
     unconfirmedSources,
     unconfirmedClusters: new Set(unconfirmedSupports.map((s) => s.clusterId)).size,
+    sharedOrigins: [...originCounts.entries()]
+      .filter(([, count]) => count >= 2)
+      .map(([org, count]) => ({ org, count })),
     supports,
     contradicts,
     unclear,
@@ -1107,17 +1199,29 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
     };
   });
 
-  const independent = (source: SourceAssessment) => source.independence === "independent";
+  // 没有正面依据就不宣称独立：这里只要求"未检测到与别的来源重复"。
+  const independent = (source: SourceAssessment) => source.independence === "unique";
+  // 引用同一个官方出处的多篇报道属于二次解读，按 1 条独立证据计。
+  const originCounts = new Map<string, number>();
+  for (const source of sources) {
+    const org = source.citedOrigin?.org;
+    if (org) originCounts.set(org, (originCounts.get(org) || 0) + 1);
+  }
+  const evidenceKey = (source: SourceAssessment) => {
+    const org = source.citedOrigin?.org;
+    if (org && (originCounts.get(org) || 0) >= 2) return `origin:${org}`;
+    return source.clusterId;
+  };
   const supportClusters = new Set(
     sources
       .filter((s) => s.relation === "supports" && s.dateStatus !== "out_of_range" && independent(s))
-      .map((s) => s.clusterId),
+      .map((s) => evidenceKey(s)),
   );
   const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts" && independent(s)).map((s) => s.clusterId));
   const bodyBacked = new Set(
     sources
       .filter((s) => s.relation === "supports" && s.bodyAvailable && s.dateStatus !== "out_of_range" && independent(s))
-      .map((s) => s.clusterId),
+      .map((s) => evidenceKey(s)),
   );
   const unconfirmedSupports = sources.filter((s) => s.relation === "supports" && s.independence === "unconfirmed");
   const unconfirmedSources = sources.filter((s) => s.independence === "unconfirmed").length;
@@ -1135,6 +1239,9 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
     bodyBackedClusters: bodyBacked.size,
     unconfirmedSources,
     unconfirmedClusters: new Set(unconfirmedSupports.map((s) => s.clusterId)).size,
+    sharedOrigins: [...originCounts.entries()]
+      .filter(([, count]) => count >= 2)
+      .map(([org, count]) => ({ org, count })),
     supports: sources.filter((s) => s.relation === "supports").length,
     contradicts: sources.filter((s) => s.relation === "contradicts").length,
     unclear: sources.filter((s) => s.relation === "unclear").length,

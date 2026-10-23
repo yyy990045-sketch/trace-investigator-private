@@ -231,8 +231,8 @@ export function Case() {
           </div>
           <p className="case-now-text">{verdict.statement}</p>
           <div className="case-now-counts">
-            <span>
-              独立来源 <b>{assessment?.independentSources ?? "—"}</b>
+            <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
+              未检测到重复 <b>{assessment?.independentSources ?? "—"}</b>
             </span>
             <span>
               原文正文 <b>{assessment?.bodyAvailable ?? "—"}</b>

@@ -480,23 +480,55 @@ describe("来源独立性判定", () => {
     expect(grouping.clusterOf.get("a")).toBe(grouping.clusterOf.get("b"));
   });
 
-  it("标题相同但缺正文与编号：判为独立性未确认，不并簇", async () => {
+  it("跨站标题完全一致：只作线索，判独立性未确认而不合并", async () => {
     const { groupSources } = await import("../services/runtime/adapters/trace/analyze.ts");
-    const pages = [
+    const grouping = groupSources([
       { id: "a", url: "https://news.example.com/a.html", site: "甲站", title: "我国首条跨区域氢能重卡干线投运", date: "", passage: "甲站自己写的导语，描述线路投运情况与配套。" },
       { id: "b", url: "https://auto.example.org/b.html", site: "乙站", title: "我国首条跨区域氢能重卡干线投运", date: "", passage: "乙站另一段完全不同措辞的报道，讲同一件事。" },
-    ];
-    const grouping = groupSources(pages);
-    // 标题完全一致（≥12 字）属于可指认依据，会被合并
-    expect(grouping.clusterOf.get("a")).toBe(grouping.clusterOf.get("b"));
-
-    const soft = groupSources([
-      { id: "c", url: "https://c.example.cn/c.html", site: "丙站", title: "氢能重卡干线投运情况综述", date: "", passage: "丙站综述。" },
-      { id: "d", url: "https://d.example.cn/d.html", site: "丁站", title: "氢能重卡干线投运情况一览", date: "", passage: "丁站一览。" },
     ]);
-    expect(soft.clusterOf.get("c")).not.toBe(soft.clusterOf.get("d"));
-    expect(soft.unconfirmed.has("c")).toBe(true);
-    expect(soft.unconfirmed.has("d")).toBe(true);
+    expect(grouping.clusterOf.get("a")).not.toBe(grouping.clusterOf.get("b"));
+    expect(grouping.unconfirmed.has("a")).toBe(true);
+    expect(grouping.unconfirmed.has("b")).toBe(true);
+    expect(grouping.unconfirmedReason.get("a")).toContain("标题完全一致");
+  });
+
+  it("不同网站出现相同文章编号：属线索，不合并", async () => {
+    const { groupSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const grouping = groupSources([
+      { id: "a", url: "https://a.example.com/n/1234567.html", site: "甲站", title: "某地氢能项目投运", date: "2025-04-15", passage: "甲站摘要，讲项目投运。" },
+      { id: "b", url: "https://b.example.org/n/1234567.html", site: "乙站", title: "某地氢能项目投运情况", date: "2025-04-15", passage: "乙站摘要，讲同一件事但措辞不同。" },
+    ]);
+    expect(grouping.clusterOf.get("a")).not.toBe(grouping.clusterOf.get("b"));
+    expect(grouping.unconfirmed.has("a")).toBe(true);
+    expect(grouping.unconfirmedReason.get("a")).toContain("相同文章编号");
+  });
+
+  it("多条来源引用同一官方发布：只算一条独立证据", async () => {
+    const { groupSources, assessFact } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const fact = { id: "f", text: "2024年本市新能源汽车产量超过120万辆", queries: ["产量"] } as any;
+    const pages = [
+      { id: "a", url: "https://a.example.com/1.html", site: "甲报", title: "新能源汽车产量超120万辆", date: "2025-01-20", passage: "2024年本市新能源汽车产量超过120万辆，同比增长明显。", score: 0.9 },
+      { id: "b", url: "https://b.example.com/2.html", site: "乙台", title: "新能源汽车年产量创新高", date: "2025-01-21", passage: "本市2024年新能源汽车产量超过120万辆，创历史新高。", score: 0.8 },
+    ];
+    const bodies = new Map(
+      pages.map((page) => [
+        page.id,
+        {
+          ok: true,
+          text:
+            "据中国汽车工业协会发布的数据，" +
+            (page.id === "a" ? "2024年本市新能源汽车产量超过120万辆，同比增长明显。" : "本市2024年新能源汽车产量超过120万辆，创历史新高。") +
+            "行业整体保持增长。".repeat(40),
+          reprintMarkers: [] as string[],
+        },
+      ]),
+    );
+    const grouping = groupSources(pages, bodies);
+    expect(grouping.sharedOrigins.get("中国汽车工业协会")?.length).toBe(2);
+    const factAssessment = assessFact({ fact, pages, bodies, clusterOf: grouping.clusterOf, duplicatePages: new Set(), grouping });
+    expect(factAssessment.supports).toBeGreaterThanOrEqual(1);
+    expect(factAssessment.independentClusters).toBe(1);
+    expect(factAssessment.reasons.join(" ")).toContain("中国汽车工业协会");
   });
 
   it("独立性未确认的支持来源不计入独立证据簇", async () => {

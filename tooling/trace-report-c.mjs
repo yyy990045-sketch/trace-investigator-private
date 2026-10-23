@@ -20,9 +20,10 @@ const item = data.cases.find((entry) => entry.key === "C");
 
 const REL = { supports: "支持", contradicts: "反对", unclear: "无法确认", irrelevant: "无关", mixed: "存在争议", none: "无可用来源" };
 const versions = item.revisions.revisions;
+const latest = versions[versions.length - 1] || {};
 const v1 = versions[0]?.assessment || {};
-const v2 = versions[1]?.assessment || {};
-const v3 = versions[2]?.assessment || {};
+const v2 = latest.assessment || {};
+const v3 = latest.assessment || {}; // 结论与缺口一律以最新一版为准
 const f1 = (v1.facts || [])[0] || {};
 const f2 = (v2.facts || [])[0] || {};
 const f3 = (v3.facts || [])[0] || {};
@@ -118,9 +119,9 @@ const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><tit
   f3.sources.filter((source) => source.independence === "duplicate").length
 } 条被判为同一篇内容（同标题或摘要逐字一致），${
   f3.sources.filter((source) => source.independence === "unconfirmed").length
-} 条判为"独立性未确认"，最终 ${v3.independentSources} 个独立来源、支持性来源仍然只有 ${
+} 条判为"独立性未确认"，最终 ${v3.independentSources} 个未检测到重复的来源，支持性来源仍然只有 ${
   f3.independentClusters ?? 0
-} 个独立来源簇。每条来源的理由里写着合并依据（标题一致／摘要逐字一致／同一文章编号／正文重合）。</li>
+} 个支持来源簇。每条来源的理由里写着合并依据（标题一致／摘要逐字一致／同一文章编号／正文重合）。</li>
 <li><b>支持性来源缺原文正文。</b>即便是唯一被判支持的那条（光明网《中国石化：西部陆海新通道"氢走廊"正式投运》），当时也只拿到搜索摘要，没有取到正文——按规则"支持性判断必须至少一份原文正文"，这一条不足以支撑结论。</li>
 </ol>
 
@@ -130,12 +131,11 @@ const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><tit
 <span class="meta">请求时间 ${esc(followup?.requestedAt || "")}　·　返回 ${followup?.resultCount ?? "—"} 条结果　·　RequestId ${esc(followup?.requestId || "—")}</span></div>
 <p>这条检索式不是随便写的：它把待核查说法里的"全国""建成""覆盖""高速公路"拆成可命中的关键词，试图找到"站数量/里程/覆盖率"这类能量化"网络完整性"的来源。</p>
 
-<h2>五、追加搜索发现了什么（第 2 版）</h2>
+<h2>五、追加搜索发现了什么（首版与最新版对比）</h2>
 <table><thead><tr><th>版本</th><th>结论</th><th>独立来源</th><th>原文正文</th><th>支持</th><th>无法确认</th><th>独立支持簇</th></tr></thead>
 <tbody>
 <tr><td>第 1 版</td><td>证据不足</td><td>${v1.independentSources}</td><td>${v1.bodyAvailable}</td><td>${f1.supports ?? 0}</td><td>${f1.unclear ?? 0}</td><td>${f1.independentClusters ?? 0}</td></tr>
-<tr><td>第 2 版</td><td>证据不足</td><td>${v2.independentSources}</td><td>${v2.bodyAvailable}</td><td>${f2.supports ?? 0}</td><td>${f2.unclear ?? 0}</td><td>${f2.independentClusters ?? 0}</td></tr>
-<tr><td>第 3 版</td><td>证据不足</td><td>${v3.independentSources}</td><td>${v3.bodyAvailable}</td><td>${f3.supports ?? 0}</td><td>${f3.unclear ?? 0}</td><td>${f3.independentClusters ?? 0}</td></tr>
+<tr><td>最新第 ${latest.revision} 版</td><td>证据不足</td><td>${v2.independentSources}</td><td>${v2.bodyAvailable}</td><td>${f2.supports ?? 0}</td><td>${f2.unclear ?? 0}</td><td>${f2.independentClusters ?? 0}</td></tr>
 </tbody></table>
 <p>追加之后：独立来源 ${v1.independentSources} → ${v2.independentSources}（+${(v2.independentSources ?? 0) - (v1.independentSources ?? 0)}），取得原文正文 ${v1.bodyAvailable} → ${v2.bodyAvailable}；同时第一次出现了一条被判为"支持"的来源。新增的来源里有几条是有价值的旁证（例如"我国氢气年产能超 5100 万吨"、跨区域干线投运报道），但它们说明的是产业现状，仍然回答不了"网络是否已覆盖全国"。</p>
 
@@ -143,8 +143,15 @@ const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><tit
 <ul>${correctionList}</ul>
 <p>两条修正的方向相反：一条把"局部投运"认定为支持，另一条把"十五五展望"排除为本事实无关。修正只改关系判断，<b>原始搜索返回与网页摘录一个字都没有动</b>；系统自动判断、修正人、原因与影响同时保留在档案里。</p>
 
+<h3>共同原始出处</h3>
+<p>${
+  (f3.sharedOrigins || []).length
+    ? `有 ${(f3.sharedOrigins || []).map((item) => `${item.count} 条来源明确引用「${item.org}」的发布数据`).join("、")}。这类报道属于同一原始发布机构的二次转述或解读，结论里按 1 条独立证据计，不因为被多家转述就提高支持度。`
+    : "本轮没有检测到两条以上来源共同引用同一官方发布，因此没有按「同源出处」合并。"
+}</p>
+
 <h2>七、为什么最终仍然证据不足</h2>
-<p>第 3 版的状态：${v3.independentSources} 个独立来源、${v3.bodyAvailable} 份原文正文，<b>支持性来源只有 ${f3.independentClusters ?? 0} 个独立来源簇</b>，而且这条唯一的支持来源只有搜索摘要。规则要求"至少 2 个互不转载的独立来源、且至少 1 份取得原文正文"，两项都不满足，所以结论保持不变。</p>
+<p>最新第 ${latest.revision} 版的状态：${v3.independentSources} 个未检测到重复的来源、${v3.bodyAvailable} 份原文正文，<b>支持性来源只有 ${f3.independentClusters ?? 0} 个独立来源簇</b>，而且这条唯一的支持来源只有搜索摘要。规则要求"至少 2 个互不转载的独立来源、且至少 1 份取得原文正文"，两项都不满足，所以结论保持不变。</p>
 <p class="warn">关键点：人工修正让判断更准确（把该算支持的算成支持、该排除的排除），但没有让结论变好看。系统不会为了让结果显得聪明而改变判定口径。</p>
 <h3>档案里明确写出的缺口</h3>
 <ul>${openQuestions.map((text) => `<li>${esc(text)}</li>`).join("") || "<li>无遗留缺口。</li>"}</ul>
@@ -211,8 +218,7 @@ const md = `# ${fileBase}
 | 版本 | 结论 | 独立来源 | 原文正文 | 支持 | 无法确认 | 独立支持簇 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 第 1 版 | 证据不足 | ${v1.independentSources} | ${v1.bodyAvailable} | ${f1.supports ?? 0} | ${f1.unclear ?? 0} | ${f1.independentClusters ?? 0} |
-| 第 2 版 | 证据不足 | ${v2.independentSources} | ${v2.bodyAvailable} | ${f2.supports ?? 0} | ${f2.unclear ?? 0} | ${f2.independentClusters ?? 0} |
-| 第 3 版 | 证据不足 | ${v3.independentSources} | ${v3.bodyAvailable} | ${f3.supports ?? 0} | ${f3.unclear ?? 0} | ${f3.independentClusters ?? 0} |
+| 最新第 ${latest.revision} 版 | 证据不足 | ${v2.independentSources} | ${v2.bodyAvailable} | ${f2.supports ?? 0} | ${f2.unclear ?? 0} | ${f2.independentClusters ?? 0} |
 
 ## 六、人工纠正了哪些判断
 
@@ -224,6 +230,12 @@ ${corrections
       }`,
   )
   .join("\n")}
+
+## 六之二、共同原始出处
+
+${(f3.sharedOrigins || []).length
+  ? `- 有 ${(f3.sharedOrigins || []).map((item) => `${item.count} 条来源明确引用「${item.org}」的发布数据`).join("、")}：属同一原始发布机构的二次转述或解读，结论里按 1 条独立证据计。`
+  : "- 本轮没有检测到两条以上来源共同引用同一官方发布。"}
 
 ## 七、为什么最终仍然证据不足
 

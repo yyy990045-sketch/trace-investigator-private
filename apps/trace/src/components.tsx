@@ -155,6 +155,9 @@ export function SourceCard({
         {source.independence === "unconfirmed" ? (
           <span className="trace-evidence-unconfirmed">独立性未确认</span>
         ) : null}
+        {source.citedOrigin ? (
+          <span className="trace-evidence-origin">引用「{source.citedOrigin.org}」发布数据</span>
+        ) : null}
       </div>
       {corrected ? (
         <CorrectionDiff
@@ -173,7 +176,12 @@ export function SourceCard({
       ) : null}
       {source.independence === "unconfirmed" ? (
         <p className="trace-evidence-reprint">
-          可能与别的来源同源，但缺少正文/文章编号等可核对依据（{source.independenceNote || "相似度接近"}），因此不计入独立证据。
+          有同源线索但没有可核对依据（{source.independenceNote || "相似度接近"}）：按「独立性未确认」处理，不计入独立证据。
+        </p>
+      ) : null}
+      {source.citedOrigin ? (
+        <p className="trace-evidence-reprint">
+          本条明确引用「{source.citedOrigin.org}」的发布数据（{source.citedOrigin.quote}）；若其它来源同样引用该机构，结论里只算 1 条独立证据。
         </p>
       ) : null}
       {keyText ? (
@@ -414,18 +422,25 @@ export function EvidenceMap({ fact }: { fact: FactAssessment }) {
           <div className="evidence-map-lane" key={lane.key} data-lane={lane.key} data-empty={lane.count ? "false" : "true"}>
             <span className="evidence-map-lane-label">{lane.label}</span>
             <span className="evidence-map-lane-count">{lane.count}</span>
-            {lane.key === "supports" ? <span className="evidence-map-lane-note">独立来源 {lane.clusters}</span> : null}
+            {lane.key === "supports" ? (
+              <span className="evidence-map-lane-note">支持来源簇 {lane.clusters}</span>
+            ) : null}
           </div>
         ))}
       </div>
       <div className="evidence-map-foot">
         <span>检索网页 {total} 条</span>
-        <span>独立证据 {fact.independentClusters || 0} 簇</span>
-        {reprints ? <span>同源转载合并 {reprints} 条（依据见来源明细）</span> : <span>未发现可指认的同源转载</span>}
+        <span>未检测到重复的簇 {fact.independentClusters || 0} 个</span>
+        {reprints ? <span>同源转载合并 {reprints} 条（依据见来源明细）</span> : null}
         {(fact.unconfirmedSources || 0) > 0 ? (
           <span className="evidence-map-unconfirmed">{fact.unconfirmedSources} 条独立性未确认（未计入）</span>
         ) : null}
-        <span>取到原文正文 {bodies} 份</span>
+        {(fact.sharedOrigins || []).length ? (
+          <span>
+            {(fact.sharedOrigins || []).map((item) => `${item.count} 条同引「${item.org}」`).join("；")}，按 1 条计
+          </span>
+        ) : null}
+        <span>原文正文 {bodies} 份</span>
       </div>
     </div>
   );

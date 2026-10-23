@@ -217,8 +217,12 @@ export interface SourceAssessment {
   duplicate: boolean;
   dateStatus: "in_range" | "out_of_range" | "unknown";
   dateNote: string;
-  /** 独立性：independent 计入独立证据；duplicate 已并入同源簇；unconfirmed 可能同源但证据不足 */
-  independence?: "independent" | "duplicate" | "unconfirmed";
+  /**
+   * 独立性三态：unique 未检测到重复（不等于"已证实独立"）；
+   * duplicate 有明确依据证明同源；unconfirmed 有同源线索但证据不足。
+   */
+  independence?: "unique" | "duplicate" | "unconfirmed";
+  citedOrigin?: { org: string; quote: string } | null;
   duplicateOf?: { primary: string; basis: string } | null;
   independenceNote?: string;
   /** 人工修正后保留的系统自动判断 */
@@ -245,6 +249,8 @@ export interface FactAssessment {
   irrelevant?: number;
   unconfirmedSources?: number;
   unconfirmedClusters?: number;
+  /** 被多条来源共同引用的原始出处（按 1 条独立证据计） */
+  sharedOrigins?: { org: string; count: number }[];
   sources: SourceAssessment[];
   reasons: string[];
 }

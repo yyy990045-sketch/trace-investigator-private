@@ -218,8 +218,8 @@ export function Archive() {
         </div>
         <p className="trace-verdict-text">{verdict.statement}</p>
         <div className="trace-counts">
-          <span>
-            独立来源 <b>{verdict.counts.independentSources}</b>
+          <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
+            未检测到重复 <b>{verdict.counts.independentSources}</b>
           </span>
           <span>
             取得原文 <b>{verdict.counts.bodyAvailable}</b>

@@ -2664,3 +2664,11 @@
 .evidence-map-unconfirmed {
   color: #5c6470;
 }
+
+/* 共同原始出处标记 */
+.trace-evidence-origin {
+  color: #2c5d7a;
+  background: #eaf2f7;
+  border-radius: 4px;
+  padding: 0 5px;
+}

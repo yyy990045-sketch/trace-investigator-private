@@ -26,10 +26,12 @@ export interface ArchiveSource {
   clusterId: string;
   duplicate: boolean;
   independence?: string;
+  sharedOrigins?: { org: string; count: number }[];
   duplicateOf?: { primary: string; basis: string } | null;
   independenceNote?: string;
   dateStatus: string;
   dateNote: string;
+  citedOrigin?: { org: string; quote: string } | null;
   reasons: string[];
   /** 人工修正后保留的自动判断 */
   autoRelation?: string;
@@ -48,6 +50,7 @@ export interface ArchiveFact {
   irrelevant?: number;
   unconfirmedSources?: number;
   unconfirmedClusters?: number;
+  sharedOrigins?: { org: string; count: number }[];
   outOfRangeSupports: number;
   reasons: string[];
   sources: ArchiveSource[];
@@ -144,8 +147,12 @@ export function renderArchive(input: ArchiveInput) {
       `### ${index + 1}. ${fact.fact}`,
       ``,
       `- 判断：${relationLabel[fact.relation] || fact.relation}`,
-      `- 独立来源簇：${fact.independentClusters} 个（其中取得原文正文 ${fact.bodyBackedClusters} 个）${
-      fact.unconfirmedSources ? `；另有 ${fact.unconfirmedSources} 条可能同源但无法确认，未计入` : ""
+      `- 未检测到重复的来源簇：${fact.independentClusters} 个（其中取得原文正文 ${fact.bodyBackedClusters} 个）${
+      fact.unconfirmedSources ? `；另有 ${fact.unconfirmedSources} 条有同源线索但无法确认，未计入` : ""
+    }${
+      fact.sharedOrigins?.length
+        ? `；${fact.sharedOrigins.map((item) => `${item.count} 条来源共同引用「${item.org}」的发布数据，按 1 条计`).join("；")}`
+        : ""
     }`,
       `- 命中来源条数：支持 ${fact.supports} 条、反对 ${fact.contradicts} 条、无法确认 ${fact.unclear ?? 0} 条、无关 ${fact.irrelevant ?? 0} 条`,
       `- 判断理由：`,
@@ -165,7 +172,7 @@ export function renderArchive(input: ArchiveInput) {
               ? `（与同源来源内容重复：${source.duplicateOf?.basis || "内容重合"}，按 1 条独立证据计）`
               : source.independence === "unconfirmed"
                 ? `（独立性未确认：${source.independenceNote || "可能同源但证据不足"}，不计入独立证据）`
-                : "（独立性已确认）"
+                : "（未检测到重复）"
           }`,
           `   - 站点：${source.site}；标注发布时间：${source.date || "未提供"}`,
           `   - 时效：${source.dateStatus === "in_range" ? "在适用时间范围内" : source.dateStatus === "out_of_range" ? "在适用时间范围之外" : "无法确认"}（${source.dateNote}）`,
@@ -232,6 +239,7 @@ export function renderArchive(input: ArchiveInput) {
     ``,
     `- 事实与检索式由人工确认，系统未执行 AI 事实拆解，也未调用任何模型对结论背书。`,
     `- 证据关系默认由规则判断；带「人工修正」标记的条目以人工判断为准，系统自动判断同时保留在本档案中。`,
+    `- 来源独立性只有两种正面结论：能指认依据的按「同源转载」合并；有线索但无依据的标「独立性未确认」且不计入独立证据。其余条目仅表示「未检测到重复」，不代表已经证明独立。`,
     `- 结论只基于本档案列出的公开来源；未列出的来源不构成本次结论的依据。`,
     `- 检索命中不等于事实为真：支持性判断要求多个独立来源，且至少一个来源取得原文正文；只有摘要时明确标注。`,
     `- 同源/转载页面若内容高度雷同会按 1 条独立证据计数；来源明细里没有「同源转载」标注，表示本次未触发合并。若要反驳结论，请直接打开上列网址复核原文。`,

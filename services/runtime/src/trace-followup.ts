@@ -280,7 +280,7 @@ function describeChanges(previous: any, current: any, context: { followups: numb
   const sourceDelta = (current.independentSources || 0) - (previous.independentSources || 0);
   if (sourceDelta)
     changes.push(
-      `独立来源由 ${previous.independentSources || 0} 个变为 ${current.independentSources || 0} 个（${
+      `未检测到重复的来源由 ${previous.independentSources || 0} 个变为 ${current.independentSources || 0} 个（${
         sourceDelta > 0 ? "+" : ""
       }${sourceDelta}）。`,
     );
@@ -305,7 +305,7 @@ function describeChanges(previous: any, current: any, context: { followups: numb
       );
     if ((old.independentClusters || 0) !== (fact.independentClusters || 0))
       changes.push(
-        `事实「${title}」的独立来源由 ${old.independentClusters || 0} 个变为 ${fact.independentClusters || 0} 个。`,
+        `事实「${title}」的支持来源簇由 ${old.independentClusters || 0} 个变为 ${fact.independentClusters || 0} 个。`,
       );
     const unclearDelta = (fact.unclear || 0) - (old.unclear || 0);
     if (unclearDelta)

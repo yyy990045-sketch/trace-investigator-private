@@ -429,7 +429,10 @@ export function Entry() {
 function HeroCase({ digest }: { digest: CaseDigest }) {
   const steps = useMemo(() => {
     const list: { label: string; detail: string }[] = [];
-    list.push({ label: "检索结果", detail: `${digest.independentSources} 个独立来源 · ${digest.bodyBacked} 份原文正文` });
+    list.push({
+      label: "检索结果",
+      detail: `${digest.independentSources} 个未检测到重复的来源 · ${digest.bodyBacked} 份原文正文`,
+    });
     for (const query of digest.followupQueries)
       list.push({ label: "追加检索", detail: query });
     for (const correction of digest.corrections)
@@ -455,8 +458,8 @@ function HeroCase({ digest }: { digest: CaseDigest }) {
         <span>{digest.statement.replace(/^就「.*?」而言，/, "")}</span>
       </p>
       <div className="hero-case-counts">
-        <span>
-          独立来源 <b>{digest.independentSources}</b>
+        <span title="未检测到与其它来源重复的来源簇">
+          未检测到重复 <b>{digest.independentSources}</b>
         </span>
         <span>
           原文正文 <b>{digest.bodyBacked}</b>
@@ -522,7 +525,7 @@ function CaseCard({
           <div className="home-case-verdict" data-outcome={digests.outcome || "insufficient"}>
             <b>{digests.outcome ? outcomeText[digests.outcome] : "记录"}</b>
             <span>
-              独立来源 {digests.independentSources} · 原文 {digests.bodyBacked}
+              未检测到重复 {digests.independentSources} · 原文 {digests.bodyBacked}
               {digests.versions > 1 ? ` · ${digests.versions} 版档案` : ""}
             </span>
           </div>
@@ -531,7 +534,7 @@ function CaseCard({
             <ol className="home-case-trace">
               <li>
                 <span>来源</span>
-                {`${digests.independentSources} 个独立来源 · ${digests.bodyBacked} 份原文`}
+                {`${digests.independentSources} 个未检测到重复的来源 · ${digests.bodyBacked} 份原文`}
               </li>
               {digests.followupQueries.slice(0, 1).map((query, index) => (
                 <li key={index}>
