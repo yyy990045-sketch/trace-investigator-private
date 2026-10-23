@@ -29,9 +29,15 @@ try {
     await page.goto(base + "/#/", { waitUntil: "networkidle" });
     await page.locator(".clue-example").filter({ hasText: item.button }).first().click();
     await page.waitForURL((url) => url.hash.includes(item.id), { timeout: 15000 });
-    await page.getByText(item.marker, { exact: false }).first().waitFor();
-    if (item.button === "查冲突")
+    if (item.button === "查冲突") {
+      const numbers = page.locator(".case-now .trace-quantity-diff");
+      if (!(await numbers.count())) throw new Error("调查结果首屏没有两组数字对照：" + (await page.locator(".case-now").innerText()).slice(0,500));
+      await numbers.getByText("1316.8", { exact: false }).first().waitFor({ state: "visible" });
+      await numbers.getByText("1288.8", { exact: false }).first().waitFor({ state: "visible" });
       await page.screenshot({ path: output + "/case-conflict-desktop.png", fullPage: true });
+    } else {
+      await page.getByText(item.marker, { exact: false }).filter({ visible: true }).first().waitFor();
+    }
   }
   await page.goto(base + "/#/", { waitUntil: "networkidle" });
   await page.getByRole("link", { name: /查看真实调查/ }).click();
