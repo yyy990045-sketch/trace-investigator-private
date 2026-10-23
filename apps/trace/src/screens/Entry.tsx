@@ -105,6 +105,7 @@ export function Entry() {
   const [useModel, setUseModel] = useState(false);
   const [modelConsent, setModelConsent] = useState(false);
   const [clueQuestion, setClueQuestion] = useState("");
+  const [heroMode, setHeroMode] = useState<"verification" | "clue">("verification");
   const [clueBusy, setClueBusy] = useState(false);
   const [clueModelConsent, setClueModelConsent] = useState(false);
   const [clueError, setClueError] = useState<string | null>(null);
@@ -190,10 +191,10 @@ export function Entry() {
   }
 
   async function submitClue() {
-    await submitClueWith(clueQuestion);
+    await submitClueWith(clueQuestion, heroMode);
   }
 
-  async function submitClueWith(value: string) {
+  async function submitClueWith(value: string, mode: "verification" | "clue" = heroMode) {
     const trimmed = value.trim();
     if (trimmed.length < 4) {
       setClueError("再多说一点：记得的情节、人物、时间都可以。");
@@ -202,9 +203,19 @@ export function Entry() {
     setClueBusy(true);
     setClueError(null);
     try {
-      const project = await ensureClueProject();
-      const run = await startClueInvestigation(project, trimmed, clueModelConsent);
-      nav(`/cases/${run.id}`);
+      if (mode === "verification") {
+        const project = await ensureProject(false);
+        const run = await startInvestigation(project, {
+          question: trimmed,
+          claim: trimmed,
+          facts: [{ id: "fact-1", text: trimmed, queries: [trimmed] }],
+        });
+        nav(`/cases/${run.id}`);
+      } else {
+        const project = await ensureClueProject();
+        const run = await startClueInvestigation(project, trimmed, clueModelConsent);
+        nav(`/cases/${run.id}`);
+      }
     } catch (e) {
       setClueError((e as Error).message);
     } finally {
@@ -268,7 +279,7 @@ export function Entry() {
     }
     if (example.mode === "clue") {
       setClueQuestion(example.text);
-      await submitClueWith(example.text);
+      await submitClueWith(example.text, "clue");
       return;
     }
     setBusy(true);
@@ -293,7 +304,7 @@ export function Entry() {
       <section className="clue-hero" aria-label="用一句话开始调查">
         <span className="clue-hero-brand">TRACE｜线索侦探</span>
         <h1>记不清？查不明？给我线索，我来追查。</h1>
-        <p className="clue-hero-lede">从零碎线索中寻找答案，用真实搜索核对来源。查不到的，不乱猜。</p>
+        <p className="clue-hero-lede">输入待核实的说法或模糊线索，TRACE 会真实搜索、核对证据。查不到的，不乱猜。</p>
         {SHOWCASE ? (
           <div className="clue-hero-input" aria-label="历史调查演示入口">
             <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
@@ -303,11 +314,17 @@ export function Entry() {
           </div>
         ) : (
           <div className="clue-hero-input">
+            <div role="group" aria-label="调查方式" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="trace-btn" aria-pressed={heroMode === "verification"} onClick={() => setHeroMode("verification")}>查证说法</button>
+              <button type="button" className="trace-btn" aria-pressed={heroMode === "clue"} onClick={() => setHeroMode("clue")}>寻找线索</button>
+            </div>
             <textarea
               aria-label="你想查什么"
               rows={2}
               maxLength={500}
-              placeholder="例如：我以前看过一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档，想不起叫什么了。"
+              placeholder={heroMode === "verification"
+                ? "例如：网传《个人信息保护法》从2021年8月20日开始施行，这是真的吗？"
+                : "例如：我记得一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档。"}
               value={clueQuestion}
               onChange={(event) => setClueQuestion(event.target.value)}
               onKeyDown={(event) => {
@@ -319,11 +336,11 @@ export function Entry() {
               disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
               onClick={() => void submitClue()}
             >
-              <Search size={16} /> {clueBusy ? "正在追查…" : "开始调查"}
+              <Search size={16} /> {clueBusy ? "正在调查…" : heroMode === "verification" ? "开始核查" : "开始找线索"}
             </button>
           </div>
         )}
-        {!SHOWCASE ? (
+        {!SHOWCASE && heroMode === "clue" ? (
           <label className="clue-hero-note" style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input type="checkbox" checked={clueModelConsent} onChange={(event) => setClueModelConsent(event.target.checked)} />
             同意将这次线索发送给已配置的模型辅助生成搜索词（不勾选仍可使用规则检索）
