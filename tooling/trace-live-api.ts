@@ -93,7 +93,8 @@ function scrub(value: unknown, max: number): string {
 function redact(text: string) {
   return text
     .replace(/(?<![0-9a-fA-F])1[3-9]\d{9}(?![0-9a-fA-F])/g, "[手机号已隐去]")
-    .replace(/(?<!\d)\d{17}[\dXx](?!\d)/g, "[证件号已隐去]");
+    .replace(/(?<!\d)\d{17}[\dXx](?!\d)/g, "[证件号已隐去]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[联系邮箱已隐去]");
 }
 async function budget(req: Request) {
   // Global cap is intentionally in addition to per-IP caps: spoofed IPs cannot escape daily spend limits.
