@@ -92,8 +92,8 @@ function scrub(value: unknown, max: number): string {
 }
 function redact(text: string) {
   return text
-    .replace(/(?<![0-9a-fA-F])1[3-9]\\d{9}(?![0-9a-fA-F])/g, "[手机号已隐去]")
-    .replace(/(?<!\\d)\\d{17}[\\dXx](?!\\d)/g, "[证件号已隐去]");
+    .replace(/(?<![0-9a-fA-F])1[3-9]\d{9}(?![0-9a-fA-F])/g, "[手机号已隐去]")
+    .replace(/(?<!\d)\d{17}[\dXx](?!\d)/g, "[证件号已隐去]");
 }
 async function budget(req: Request) {
   // Global cap is intentionally in addition to per-IP caps: spoofed IPs cannot escape daily spend limits.
@@ -170,7 +170,9 @@ function analyse(snapshot: Snapshot) {
   };
 }
 
-export async function investigate(body: unknown) {
+export async function investigate(body: unknown, dependencies: { search?: typeof searchPro; source?: typeof fetchSource } = {}) {
+  const doSearch = dependencies.search || searchPro;
+  const doSource = dependencies.source || fetchSource;
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("请填写调查信息。");
   const input = body as Record<string, unknown>;
   const claim = scrub(input.claim, 400);
@@ -181,7 +183,7 @@ export async function investigate(body: unknown) {
     ? unseal(input.snapshot, claim)
     : {v:1 as const, claim, pages:[] as SavedPage[], bodies:[] as SavedBody[], rounds:[] as Round[], exp:Date.now()+30*60_000};
   // The query text originates from the user, never from model inference.
-  const attempt: SearchAttempt = await searchPro(query, { maxAttempts:1, timeoutMs:13500 });
+  const attempt: SearchAttempt = await doSearch(query, { maxAttempts:1, timeoutMs:13500 });
   const round: Round = {
     query, at:attempt.requestedAt, httpStatus:attempt.httpStatus,
     count:attempt.resultCount, requestId:attempt.requestId, durationMs:attempt.durationMs,
@@ -194,7 +196,7 @@ export async function investigate(body: unknown) {
   const bodies = [...snapshot.bodies];
   for (const page of added.slice(0,2)) {
     // Failed original-text fetch is recorded as absence of body, never synthetic text.
-    const fetched = await fetchSource(page.url, { timeoutMs:4500, maxBytes:350000 });
+    const fetched = await doSource(page.url, { timeoutMs:4500, maxBytes:350000 });
     bodies.push({ id:page.id, text:fetched.ok?redact(fetched.text.slice(0,4800)):"",
       ok:fetched.ok, reprintMarkers:fetched.reprintMarkers });
   }
