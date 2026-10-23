@@ -121,26 +121,36 @@ export const ASSEMBLY: AssemblyStep[] = [
   { capabilityId: "trace.archive.export", version: "1.0.0", config: {} },
 ];
 
-export async function ensureProject(): Promise<ProjectRecord> {
+export async function ensureProject(withModel = false): Promise<ProjectRecord> {
   if (SHOWCASE) throw readOnly();
+  const name = withModel ? "溯证 TRACE 模型复核调查流程" : PROJECT_NAME;
+  const assembly = withModel ? [
+    ...ASSEMBLY.slice(0, 4),
+    { capabilityId: "trace.model.context", version: "1.0.0", config: {} },
+    { capabilityId: "model.verify", version: "1.0.0", config: {}, timeoutMs: 60000, retries: 0 },
+    ASSEMBLY[4],
+    { capabilityId: "trace.model.archive", version: "1.0.0", config: {} },
+  ] : ASSEMBLY;
   const projects = await client.projects();
-  const existing = projects.find((p) => p.name === PROJECT_NAME);
+  const existing = projects.find((p) => p.name === name);
   if (existing) {
     // 能力序列变化时不允许静默替换，交给界面提示重新装配。
     const same =
-      existing.steps.length === ASSEMBLY.length &&
-      existing.steps.every((s, i) => s.capabilityId === ASSEMBLY[i].capabilityId);
+      existing.steps.length === assembly.length &&
+      existing.steps.every((s, i) => s.capabilityId === assembly[i].capabilityId && s.version === assembly[i].version);
     if (!same)
       throw new Error(
         "现有调查流程的项目装配与当前版本不一致，请在 Studio 中新建项目后重试，或删除旧项目。",
       );
+    if (!existing.validation.ready)
+      throw new Error("当前调查流程有未满足的权限或依赖，请刷新能力状态并核对项目装配。");
     return existing;
   }
   return client.createProject({
-    name: PROJECT_NAME,
+    name,
     layout: "business",
-    permissions: PERMISSIONS,
-    steps: ASSEMBLY,
+    permissions: withModel ? [...PERMISSIONS, "model:invoke"] : PERMISSIONS,
+    steps: assembly,
   });
 }
 
@@ -160,6 +170,13 @@ export async function searchAvailability() {
   };
 }
 
+export async function modelAvailability() {
+  if (SHOWCASE) return { available: false, reason: "历史记录只读展示，不发起模型调用。" };
+  const catalog = await client.catalog();
+  const provider = catalog.providers.find((item) => item.id === "platform-model");
+  return { available: provider?.available === true, reason: provider?.reason || "模型服务尚不可用。" };
+}
+
 export interface FactDraft {
   id: string;
   text: string;
@@ -174,7 +191,7 @@ export interface CaseDraft {
   facts: FactDraft[];
 }
 
-export function startInvestigation(project: ProjectRecord, draft: CaseDraft) {
+export function startInvestigation(project: ProjectRecord, draft: CaseDraft, modelConsent = false) {
   return client.execute(
     project.id,
     {
@@ -192,6 +209,7 @@ export function startInvestigation(project: ProjectRecord, draft: CaseDraft) {
         })),
       },
       dataConsent: true,
+      modelConsent,
     },
     project.revision,
   );
@@ -372,6 +390,9 @@ export const stepText: Record<string, string> = {
   "trace.facts.confirm": "事实确认",
   "trace.web.search": "联网检索",
   "trace.evidence.verify": "证据核验",
+  "trace.model.context": "准备复核",
+  "model.verify": "模型复核",
+  "trace.model.archive": "档案导出",
   "human.confirm": "人工确认",
   "trace.archive.export": "档案导出",
 };

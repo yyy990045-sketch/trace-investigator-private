@@ -121,6 +121,9 @@ export function renderArchive(input: ArchiveInput) {
   const receiptPath = `/v1/runs/${runId}/receipt`;
   const files = archiveFilenames(revision);
   const corrections = (assessment.corrections || []).filter(Boolean);
+  // A later revision may include new evidence. Never carry first-pass model advice forward.
+  const modelReview = revision === 1 && bundle?.modelReviewVerified === true ? bundle?.verification : null;
+  const modelCitations = modelReview ? (bundle?.citations || []).filter((citation: any) => modelReview.citations.includes(citation.id)) : [];
 
   const lines: string[] = [
     `# 调查档案${revision > 1 ? `（第 ${revision} 版）` : ""}：${caseInfo.claim || caseInfo.question || "调查档案"}`,
@@ -237,7 +240,7 @@ export function renderArchive(input: ArchiveInput) {
     ``,
     `## 六、本档案的边界`,
     ``,
-    `- 事实与检索式由人工确认，系统未执行 AI 事实拆解，也未调用任何模型对结论背书。`,
+    `- 事实与检索式由人工确认，系统未执行 AI 事实拆解。${modelReview ? "本版另有真实模型复核意见，须结合原文审阅，不覆盖规则结论。" : "本版没有可用的模型复核意见；旧版意见不得作为本版新证据的核验。"}`,
     `- 证据关系默认由规则判断；带「人工修正」标记的条目以人工判断为准，系统自动判断同时保留在本档案中。`,
     `- 来源独立性只有两种正面结论：能指认依据的按「同源转载」合并；有线索但无依据的标「独立性未确认」且不计入独立证据。其余条目仅表示「未检测到重复」，不代表已经证明独立。`,
     `- 结论只基于本档案列出的公开来源；未列出的来源不构成本次结论的依据。`,
@@ -248,6 +251,14 @@ export function renderArchive(input: ArchiveInput) {
     ``,
     `导出时间：${generatedAt}；运行：${runId}；版本：${revision}。`,
   ];
+
+  if (modelReview) lines.push(
+    "", "## 七、模型语义复核（辅助意见）", "",
+    `- 模型意见：${modelReview.verdict === "supported" ? "提供的材料支持说法" : "需要继续审阅"}`,
+    String(modelReview.summary), "",
+    ...modelCitations.map((citation: any) => `- [引用 ${citation.id}](${citation.source})：${String(citation.excerpt).slice(0, 600)}`),
+    "", "模型意见只针对当次提供的事实与摘录；网页摘要、局部报道和同源转载不构成充分证明。",
+  );
 
   const json = {
     archiveKind: "trace-investigation-archive",
@@ -262,6 +273,7 @@ export function renderArchive(input: ArchiveInput) {
     facts,
     openQuestions: assessment.openQuestions || [],
     corrections,
+    modelReview: modelReview ? { verification: modelReview, citations: modelCitations, status: "completed" } : null,
     search,
     searches: bundle?.searches || [],
     bodies: bundle?.bodies || [],

@@ -53,19 +53,19 @@ export class Engine {
       );
     const invalid = this.registry.validate(uploadSchema, input);
     if (invalid) throw new ExecutionError("INPUT_SCHEMA_INVALID", invalid);
+    if (p.steps.some((step: AssemblyStep) => {
+      const def = this.registry.get(step.capabilityId, step.version);
+      return def?.effects.includes("external_data") && def.permissions.includes("model:invoke");
+    }) && input.modelConsent !== true)
+      throw new ExecutionError("MODEL_CONSENT_REQUIRED", "模型复核需要本次问题和证据的独立外发授权；检索授权不能替代。");
     // 外发授权：发往外部模型需 modelConsent，发往外部检索服务需 dataConsent。
-    if (
-      p.steps.some((s: AssemblyStep) =>
-        this.registry
-          .get(s.capabilityId, s.version)
-          ?.effects.includes("external_data"),
-      ) &&
-      input.modelConsent !== true &&
-      input.dataConsent !== true
-    )
+    if (p.steps.some((s: AssemblyStep) => {
+      const def = this.registry.get(s.capabilityId, s.version);
+      return def?.effects.includes("external_data") && !def.permissions.includes("model:invoke");
+    }) && input.dataConsent !== true)
       throw new ExecutionError(
         "DATA_CONSENT_REQUIRED",
-        "该组合会向外发送资料，需要本次任务的明确授权。",
+        "外部检索需要本次检索式的独立外发授权；模型授权不能替代。",
       );
     const rid = id("run"),
       at = now();

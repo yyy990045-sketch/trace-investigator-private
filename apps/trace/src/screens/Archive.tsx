@@ -19,6 +19,7 @@ import {
 } from "../api";
 import { BackLink, Tag, VersionCompare, archiveHref, caseHref, formatTime, impactText, relationTone } from "../components";
 import { relationText } from "../api";
+import { ModelReview } from "../ModelReview";
 
 export function Archive() {
   const { runId = "" } = useParams();
@@ -169,6 +170,8 @@ export function Archive() {
           ))}
         </ul>
       </section>
+
+      <ModelReview run={run} at={showCurrent ? undefined : shown?.at} />
 
       {versions.length ? (
         <details className="trace-details trace-versionbar">
@@ -418,10 +421,12 @@ export function Archive() {
       <details className="trace-details trace-tech">
         <summary>判断方法与过程记录（技术细节，供复查）</summary>
         <ul className="trace-notes">
-          <li>{caseInfo?.modeNote || "事实与检索式由人工确认，系统未执行 AI 事实拆解。"}</li>
+          <li>事实与检索式由人工确认，系统未执行 AI 事实拆解；模型语义复核是否完成以上方独立记录为准。</li>
           <li>支持性判断要求 ≥2 个独立来源，且至少一份取得原文正文；内容雷同的转载按 1 条计算。</li>
           <li>数量断言只在同一计量单位下比较，并尊重「超过 / 以上 / 低于」等比较方向。</li>
-          <li>系统未调用任何模型为结论背书；结论文本里的判断全部来自本档案列出的来源。</li>
+          <li>{run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")
+            ? "模型意见在上方单列；追问和修正后的新证据尚需重新进行模型复核。规则结论与模型意见不能互相替代。"
+            : "本次没有已完成的模型复核；结论文本里的规则判断来自本档案列出的来源。"}</li>
           {(bundle?.checks || []).map((check, index) => (
             <li key={index}>
               {check.name}：{check.status === "not_evaluated" ? "未完成" : check.passed ? "通过" : "未通过"} ·{" "}

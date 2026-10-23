@@ -8,6 +8,7 @@ import {
   client,
   digestOf,
   ensureProject,
+  modelAvailability,
   outcomeText,
   sampleCases,
   searchAvailability,
@@ -64,6 +65,7 @@ function useDigests() {
 export function Entry() {
   const nav = useNavigate();
   const availability = useQuery({ queryKey: ["search-availability"], queryFn: searchAvailability });
+  const model = useQuery({ queryKey: ["model-availability"], queryFn: modelAvailability, enabled: !SHOWCASE });
   const digests = useDigests();
   const [question, setQuestion] = useState("");
   const [claim, setClaim] = useState("");
@@ -71,6 +73,9 @@ export function Entry() {
   const [planOpen, setPlanOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useModel, setUseModel] = useState(true);
+  const [modelConsent, setModelConsent] = useState(false);
+  const modelBlocked = useModel && model.data?.available !== true;
 
   const blocked = !SHOWCASE && availability.data?.available !== true;
   const blockerReason = availability.isError
@@ -114,6 +119,10 @@ export function Entry() {
       setError("先写下一句需要调查的问题。");
       return;
     }
+    if (useModel && (modelBlocked || !modelConsent)) {
+      setError(modelBlocked ? "模型尚不可用，请先完成本机配置。" : "请先确认本次问题和证据摘录的模型外发授权。");
+      return;
+    }
     const prepared = facts
       .map((fact, index) => {
         const text = fact.text.trim() || effectiveClaim;
@@ -133,12 +142,12 @@ export function Entry() {
     }
     setBusy(true);
     try {
-      const project = await ensureProject();
+      const project = await ensureProject(useModel);
       const run = await startInvestigation(project, {
         question: trimmedQuestion,
         claim: effectiveClaim,
         facts: prepared,
-      });
+      }, useModel && modelConsent);
       nav(`/cases/${run.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -197,14 +206,36 @@ export function Entry() {
                 value={claim}
                 onChange={(e) => setClaim(e.target.value)}
               />
+              <label className="trace-label" htmlFor="trace-review-mode">核查方式</label>
+              <select id="trace-review-mode" className="trace-input" value={useModel ? "model" : "manual"}
+                onChange={(event) => { setUseModel(event.target.value === "model"); setModelConsent(false); }}>
+                <option value="model">联网取证 + 模型语义复核</option>
+                <option value="manual">联网取证 + 规则与人工核查</option>
+              </select>
+              {useModel ? (
+                <div>
+                  {modelBlocked ? (
+                    <p className="trace-hint" role="status">
+                      {model.isError ? "无法读取模型状态，请确认运行服务已启动。" : "模型尚未就绪，请由操作者完成本机配置并重启运行服务。"}
+                      <button type="button" className="trace-btn trace-btn-quiet" onClick={() => void model.refetch()}>刷新模型状态</button>
+                    </p>
+                  ) : null}
+                  <label className="trace-hint" style={{ display: "flex", alignItems: "start", gap: 10, padding: "12px 0", minHeight: 44 }}>
+                    <input type="checkbox" checked={modelConsent} disabled={modelBlocked}
+                      style={{ width: 20, height: 20, flexShrink: 0 }}
+                      onChange={(event) => setModelConsent(event.target.checked)} />
+                    同意将本次问题、待核查事实和证据摘录发送至已配置的模型进行复核；模型意见仍需人工审阅。
+                  </label>
+                </div>
+              ) : null}
               <div className="home-form-actions">
                 <button
                   type="button"
                   className="trace-btn trace-btn-primary trace-btn-lg"
-                  disabled={busy || blocked || question.trim().length < 2}
+                  disabled={busy || blocked || question.trim().length < 2 || (useModel && (modelBlocked || !modelConsent))}
                   onClick={submit}
                 >
-                  <Search size={16} /> {busy ? "正在立案…" : "开始调查"}
+                  <Search size={16} /> {busy ? "正在立案…" : useModel ? "开始模型调查" : "开始人工核查"}
                 </button>
                 <span className="home-form-hint">检索式会发到元宝搜索，来源与结论保存在本机运行记录里。</span>
               </div>

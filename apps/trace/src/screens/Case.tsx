@@ -23,6 +23,7 @@ import {
   type SourceAssessment,
 } from "../api";
 import { BackLink, FactBlock, StepRail, Tag, archiveHref, formatTime } from "../components";
+import { ModelReview } from "../ModelReview";
 
 export function Case() {
   const { runId = "" } = useParams();
@@ -197,6 +198,10 @@ export function Case() {
           调查过程 ·{" "}
           {run.status === "completed"
             ? "已完成"
+            : run.status === "rejected"
+              ? "已驳回"
+              : run.status === "canceled"
+                ? "已取消"
             : run.status === "failed"
               ? "已中断"
               : approval
@@ -213,6 +218,14 @@ export function Case() {
       </header>
 
       <StepRail run={run} />
+      <ModelReview run={run} />
+
+      {run.status === "rejected" || run.status === "canceled" ? (
+        <section className="trace-blocker" role="status">
+          <strong>{run.status === "rejected" ? "人工确认已驳回" : "调查已取消"}</strong>
+          <p>这次调查已终止，没有交付档案。已取得的证据和模型返回仅作为过程记录保留。</p>
+        </section>
+      ) : null}
 
       {verdict ? (
         <section className="case-now" data-outcome={verdict.outcome}>
@@ -222,6 +235,10 @@ export function Case() {
             <span className="case-now-state">
               {run.status === "completed"
                 ? "调查已完成"
+                : run.status === "rejected"
+                  ? "人工确认已驳回"
+                  : run.status === "canceled"
+                    ? "调查已取消"
                 : run.status === "waiting_approval"
                   ? "等待人工确认"
                   : run.status === "failed"
