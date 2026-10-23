@@ -68,6 +68,16 @@ const PATTERNS: { test: RegExp; type: RelationType; reason: string }[] = [
 
 ];
 
+/** 两个名字是否像同一个对象的不同写法：互相包含，或重合度很高。 */
+function similarNames(a: string, b: string) {
+  const left = clean(a);
+  const right = clean(b);
+  if (!left || !right) return false;
+  if (left.includes(right) || right.includes(left)) return true;
+  const shared = [...new Set(left)].filter((char) => right.includes(char)).length;
+  return shared / Math.max(left.length, right.length) >= 0.6;
+}
+
 function evidenceOf(page: PageLike, sentence: string, from: "body" | "excerpt"): RelationEvidence {
   return { quote: sentence.slice(0, 160), url: page.url, site: page.site, from };
 }
@@ -170,14 +180,12 @@ export function extractRelations(
         }
 
         // 「《A》就是《B》」「《A》是《B》第一部」这类写法，说明是同指（同一部作品的不同叫法）。
-        const sameRef = sentence.match(
-          /《([^》]{2,24})》[^。]{0,8}(?:就是|即|也就是|亦作|又称)[^。]{0,8}《([^》]{2,24})》|《([^》]{2,24})》[^。]{0,6}(?:第一部|第1部|首部)[^。]{0,8}《([^》]{2,24})》/,
-        );
+        const sameRef = sentence.match(/《([^》]{2,24})》[^。]{0,8}(?:就是|即|也就是|亦作|又称)[^。]{0,8}《([^》]{2,24})》/);
         if (sameRef) {
-          const [a, b] = sameRef[3] ? [sameRef[4], sameRef[3]] : [sameRef[1], sameRef[2]];
-          const subject = (a || "").trim();
-          const object = (b || "").trim();
-          if (subject && object && clean(subject) !== clean(object))
+          const subject = (sameRef[1] || "").trim();
+          const object = (sameRef[2] || "").trim();
+          // 「就是 / 即」在中文里用法太松，只接受名字本身高度相似的一对（例如《无间道1》与《无间道》）。
+          if (subject && object && clean(subject) !== clean(object) && similarNames(subject, object))
             push({
               subject,
               relation: "alias",

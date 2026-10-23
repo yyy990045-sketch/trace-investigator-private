@@ -274,6 +274,35 @@ export function registerClueEndpoints(app: FastifyInstance, store: Store) {
           if (round.error) break;
         }
       const after = clueAssessment(store, req.params.id);
+      // 把「这一轮结束时的候选关系与状态」写进记录，便于事后复查这次到底确认了什么。
+      const step = store.get(
+        `SELECT id FROM steps WHERE run_id=? AND capability_id IN ('trace.clue.candidates','trace.web.search','trace.clue.intake') ORDER BY position LIMIT 1`,
+        req.params.id,
+      );
+      if (step)
+        store.exec(
+          "INSERT INTO evidence VALUES(?,?,?,?,?,?,?)",
+          id("evidence"),
+          req.params.id,
+          step.id,
+          "trace.clue.relations",
+          id("hash"),
+          JSON.stringify({
+            at: now(),
+            targetKind: after.targetKind,
+            queries: executed.map((item) => ({ question: item.question, query: item.query, resultCount: item.resultCount })),
+            candidates: after.candidates.map((item) => ({
+              name: item.name,
+              role: item.entity?.role || "unconfirmed",
+              matchedClues: item.matchedClues,
+              missingClues: item.missingClues,
+            })),
+            graph: after.graph,
+            pending: after.pending,
+            state: after.decision.state,
+          }),
+          now(),
+        );
       return {
         executed,
         before: { state: before.decision.state, candidates: before.candidates.map((c) => c.name), pending: before.pending.length },
