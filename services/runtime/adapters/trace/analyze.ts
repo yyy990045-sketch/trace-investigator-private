@@ -723,7 +723,7 @@ export function assessSource(
   if (duplicateOf) {
     const primary = options.pages.find((item) => item.id === duplicateOf.primary);
     reasons.push(
-      `与「${primary?.site || duplicateOf.primary}」实为同一篇内容（${duplicateOf.basis}），按 1 条独立证据计算。`,
+      `与「${primary?.site || duplicateOf.primary}」有同源依据（${duplicateOf.basis}），合并为一个来源簇，不重复计数。`,
     );
   } else if (unconfirmed) {
     reasons.push(
@@ -815,7 +815,7 @@ export function assessFact(options: AssessOptions): FactAssessment {
   if (mergedSources.length) {
     const basis = [...new Set(mergedSources.map((s) => s.duplicateOf?.basis).filter(Boolean))].slice(0, 2).join("；");
     reasons.push(
-      `已合并 ${mergedSources.length} 条同源/转载页面（依据：${basis || "内容高度重合"}），按 1 条独立证据计算。`,
+      `已合并 ${mergedSources.length} 条同源/转载页面（依据：${basis || "内容高度重合"}），同源材料不重复计数；其他来源的独立性未因此得到证明。`,
     );
   }
   // 共同原始出处：同一个机构的数据被多条来源转述/解读，只能算一条独立证据
@@ -826,15 +826,15 @@ export function assessFact(options: AssessOptions): FactAssessment {
     reasons.push(
       `有 ${sharedOriginHits
         .map(([org, count]) => `${count} 条来源共同引用「${org}」的发布数据`)
-        .join("；")}，属同一原始出处的二次报道，按 1 条独立证据计。`,
+        .join("；")}，按同一发布机构的二次报道归并，不重复作为证明。`,
     );
   if (unconfirmedSources)
     reasons.push(
       `另有 ${unconfirmedSources} 条来源可能是转载但无法确认，标为「独立性未确认」，不计入独立证据。`,
     );
   if (relation === "supports")
-    reasons.push(`${supportClusters.size} 个独立来源支持该事实（其中 ${bodyBacked.size} 个取得原文正文）。`);
-  if (relation === "contradicts") reasons.push(`${opposeClusters.size} 个独立来源对该事实给出相反说法。`);
+    reasons.push(`${supportClusters.size} 个未检测到重复的来源簇被规则判为支持（其中 ${bodyBacked.size} 个取得网页正文）；未检测到重复不代表已证明独立。`);
+  if (relation === "contradicts") reasons.push(`${opposeClusters.size} 个未检测到重复的来源簇被规则判为相反说法，仍需核对原始出处。`);
   if (relation === "mixed") reasons.push("同时存在支持与相反说法，需要人工判断。");
   if (relation === "none" && outOfRangeSupports > 0)
     reasons.push(
@@ -986,21 +986,21 @@ export function aggregateCase(input: {
   }
   const minClusters = Math.min(...supported.map((f) => f.independentClusters));
   if (minClusters < 2) {
-    reasons.push("支持性来源只有一个独立来源簇；单一来源不足以确认事实。");
+    reasons.push("支持性材料只有一个未检测到重复的来源簇；材料不足以确认事实。");
     return {
       outcome: "insufficient",
-      headline: "独立来源不足，暂不下结论。",
+      headline: "支持性来源簇不足，暂不下结论。",
       confidence: "low",
       reasons,
       counts,
     };
   }
   reasons.push(
-    `${supported.length}/${facts.length} 条事实由 ≥2 个独立来源支持，且至少一个来源取得原文正文。`,
+    `${supported.length}/${facts.length} 条事实满足规则条件：≥2 个未检测到重复的支持来源簇，且至少一个取得网页正文。来源独立性与原始出处仍需人工核对。`,
   );
   return {
     outcome: "supported",
-    headline: "现有公开来源支持待核查说法，并已排除同源转载。",
+    headline: "现有材料经规则判为支持；已执行同源检测，不能据此声称排除了全部转载或证明来源独立。",
     confidence: bodyBackedTotal >= 2 ? "medium" : "low",
     reasons,
     counts,
@@ -1029,7 +1029,7 @@ export function outcomeLabel(outcome: Outcome) {
  */
 export function buildStatement(claim: string, verdict: CaseAssessment) {
   const suffix =
-    `已检索 ${verdict.counts.independentSources} 个独立来源、${verdict.counts.bodyAvailable} 份原文正文。` +
+    `检索命中 ${verdict.counts.pages} 条网页，其中 ${verdict.counts.independentSources} 个来源簇未检测到重复、${verdict.counts.bodyAvailable} 份取得网页正文。` +
     verdict.reasons.join(" ");
   if (verdict.outcome === "supported")
     return `就「${claim}」而言，现有公开来源支持该说法。${verdict.headline}${suffix}仍需人工复核关键原文后再作为正式依据。`;
@@ -1112,7 +1112,7 @@ export function openQuestions(facts: FactAssessment[]): string[] {
     if (fact.relation === "supports" && fact.bodyBackedClusters === 0)
       notes.push(`「${label}」只有搜索摘要，还缺可访问的原文正文。`);
     if (fact.relation === "supports" && fact.independentClusters < 2)
-      notes.push(`「${label}」只有一个独立来源，还需要第二个互不转载的来源。`);
+      notes.push(`「${label}」只有一个未检测到重复的支持来源簇，还需补充并核对其他来源的原始出处。`);
     if (fact.relation === "none" && fact.outOfRangeSupports > 0)
       notes.push(`「${label}」找到相关内容但不符合时间要求，还缺该期间内的来源。`);
     if (fact.relation === "none" && fact.outOfRangeSupports === 0)

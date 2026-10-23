@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { RunRecord } from "@personal/capability-sdk";
+import { evidenceWording, sourceMaterial } from "./presentation";
 import {
   SHOWCASE,
   outcomeText,
@@ -76,7 +77,7 @@ export function impactText(impact: {
   if (impact.supportsBefore !== impact.supportsAfter)
     parts.push(`支持来源 ${impact.supportsBefore} → ${impact.supportsAfter} 条`);
   if (impact.clustersBefore !== impact.clustersAfter)
-    parts.push(`独立来源 ${impact.clustersBefore} → ${impact.clustersAfter} 个`);
+    parts.push(`未检测到重复的来源簇 ${impact.clustersBefore} → ${impact.clustersAfter} 个`);
   const outcome = (value: string) => outcomeText[value as keyof typeof outcomeText] || value;
   const verdict =
     impact.verdictBefore === impact.verdictAfter
@@ -145,8 +146,7 @@ export function SourceCard({
       <div className="trace-evidence-meta">
         <span>{source.site}</span>
         <span>{source.date || "未标注时间"}</span>
-        <span>{source.bodyAvailable ? "原文正文已取" : "仅搜索摘要"}</span>
-        <span>{originalityText[source.originality]}</span>
+        <span>{sourceMaterial(source)}</span>
         {fresh ? <span className="trace-evidence-fresh">本次追问新增</span> : null}
         {corrected ? <span className="trace-evidence-fixed">人工修正</span> : null}
         {source.independence === "duplicate" ? (
@@ -171,7 +171,7 @@ export function SourceCard({
       ) : null}
       {source.duplicate ? (
         <p className="trace-evidence-reprint">
-          与另一条来源为同一篇内容（依据：{source.duplicateOf?.basis || "内容重合"}），按 1 条独立证据计算。
+          与另一条来源有同源依据（{source.duplicateOf?.basis || "内容重合"}），合并计数，不重复作为证明。
         </p>
       ) : null}
       {source.independence === "unconfirmed" ? (
@@ -181,7 +181,7 @@ export function SourceCard({
       ) : null}
       {source.citedOrigin ? (
         <p className="trace-evidence-reprint">
-          本条明确引用「{source.citedOrigin.org}」的发布数据（{source.citedOrigin.quote}）；若其它来源同样引用该机构，结论里只算 1 条独立证据。
+          本条明确引用「{source.citedOrigin.org}」的发布数据（{source.citedOrigin.quote}）；若其它来源同样引用该机构，按一个原始出处归并。
         </p>
       ) : null}
       {keyText ? (
@@ -217,7 +217,7 @@ export function SourceCard({
           <summary>为什么这样判断</summary>
           <ul className="trace-notes">
             {source.reasons.map((reason, index) => (
-              <li key={index}>{reason}</li>
+              <li key={index}>{evidenceWording(reason)}</li>
             ))}
             <li>{source.dateNote}</li>
           </ul>
@@ -309,7 +309,7 @@ export function FactBlock({
           无关 <b>{fact.irrelevant ?? 0}</b>
         </span>
         <span>
-          独立来源 <b>{fact.independentClusters}</b>
+          未检测到重复的簇 <b>{fact.independentClusters}</b>
         </span>
         <span>
           取得原文 <b>{fact.bodyBackedClusters}</b>
@@ -324,7 +324,7 @@ export function FactBlock({
               source={source}
               cluster={clusterById.get(source.clusterId)}
               fresh={freshPageIds.has(source.pageId)}
-              onFollowup={(item) => onFollowup(fact, item)}
+              onFollowup={SHOWCASE ? undefined : (item) => onFollowup(fact, item)}
               onCorrect={onCorrect}
             />
           ))}
@@ -336,9 +336,9 @@ export function FactBlock({
       )}
 
       <div className="trace-fact-foot">
-        <button type="button" className="trace-btn trace-btn-ghost" onClick={() => onFollowup(fact)}>
+        {SHOWCASE ? null : <button type="button" className="trace-btn trace-btn-ghost" onClick={() => onFollowup(fact)}>
           就这条事实补充检索
-        </button>
+        </button>}
         {irrelevant.length ? (
           <details className="trace-details">
             <summary>{irrelevant.length} 条命中但与本事实无关（不计入判断）</summary>
@@ -471,7 +471,7 @@ export function VersionCompare({
       <div className="version-compare-row version-compare-head" role="row">
         <span role="columnheader">版本</span>
         <span role="columnheader">结论</span>
-        <span role="columnheader">独立来源</span>
+        <span role="columnheader">未检测到重复</span>
         <span role="columnheader">原文</span>
         <span role="columnheader">追加检索</span>
         <span role="columnheader">人工修正</span>
@@ -503,7 +503,7 @@ export function VersionCompare({
             <span role="cell">{item.followupCount || 0}</span>
             <span role="cell">{item.correctionCount || 0}</span>
             <span role="cell" className="version-compare-change">
-              {item.changes?.length ? item.changes[0] : item.revision === 1 ? "首次交付" : "无变化"}
+              {item.changes?.length ? evidenceWording(item.changes[0]) : item.revision === 1 ? "首次交付" : "无变化"}
             </span>
           </button>
         );

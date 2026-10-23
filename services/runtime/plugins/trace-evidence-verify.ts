@@ -80,7 +80,7 @@ export default {
     const assessments = facts.map((fact) =>
       assessFact({ fact, pages, bodies, clusterOf, duplicatePages, grouping }),
     );
-    // 独立来源只算"独立性已确认"的簇：重复的并入同源簇，未确认的单独计数。
+    // 兼容契约字段 independentSources：这里只计未检测到重复且无待确认线索的簇，并未证明独立。
     const independentSources = new Set(
       pages
         .filter((page) => !duplicatePages.has(page.id) && !grouping.unconfirmed.has(page.id))
@@ -170,16 +170,16 @@ export default {
         {
           name: "同源转载",
           passed: true,
-          detail: `检索到 ${pages.length} 条网页，按内容雷同与同站关系合并为 ${independentSources} 个独立来源簇，${duplicatePages.size} 条被判为重复来源（不计入独立证据）。`,
+          detail: `检索到 ${pages.length} 条网页，${duplicatePages.size} 条有依据判为重复并合并；${independentSources} 个来源簇未检测到重复。未触发合并不代表已排除同源转载。`,
         },
         {
-          name: "独立来源",
+          name: "未检测到重复的来源簇",
           passed: independentSources >= 2,
           status: independentSources >= 2 ? ("passed" as const) : ("not_evaluated" as const),
           detail:
             independentSources >= 2
-              ? `存在 ${independentSources} 个相互独立的来源簇。`
-              : `只有 ${independentSources} 个独立来源簇，单一来源不足以确认事实。`,
+              ? `有 ${independentSources} 个来源簇未检测到重复；这项检查不证明来源独立。`
+              : `只有 ${independentSources} 个来源簇未检测到重复，材料不足以确认事实。`,
         },
         {
           name: "原文依据",

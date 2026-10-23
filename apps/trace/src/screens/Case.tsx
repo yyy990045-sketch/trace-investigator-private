@@ -23,7 +23,10 @@ import {
   type SourceAssessment,
 } from "../api";
 import { BackLink, FactBlock, StepRail, Tag, archiveHref, formatTime } from "../components";
+import { InvestigationStory } from "../InvestigationStory";
+import { InvestigationRoles } from "../InvestigationRoles";
 import { ModelReview } from "../ModelReview";
+import { evidenceWording } from "../presentation";
 
 export function Case() {
   const { runId = "" } = useParams();
@@ -212,13 +215,13 @@ export function Case() {
         <p className="trace-lede">
           立案 {formatTime(run.createdAt)}
           {search ? ` · 已检索 ${search.totalQueries + followups.length} 次` : ""}
-          {assessment ? ` · 独立来源 ${assessment.independentSources} 个` : ""}
+          {assessment ? ` · 未检测到重复的来源簇 ${assessment.independentSources} 个` : ""}
           {followups.length ? ` · 追加检索 ${followups.length} 次` : ""}
         </p>
       </header>
 
-      <StepRail run={run} />
-      <ModelReview run={run} />
+      <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
+      <InvestigationRoles run={run} />
 
       {run.status === "rejected" || run.status === "canceled" ? (
         <section className="trace-blocker" role="status">
@@ -230,7 +233,7 @@ export function Case() {
       {verdict ? (
         <section className="case-now" data-outcome={verdict.outcome}>
           <div className="case-now-head">
-            <span className="case-now-label">当前结论</span>
+            <span className="case-now-label">当前规则结论</span>
             <b>{outcomeText[verdict.outcome]}</b>
             <span className="case-now-state">
               {run.status === "completed"
@@ -246,7 +249,8 @@ export function Case() {
                     : "正在检索与核验"}
             </span>
           </div>
-          <p className="case-now-text">{verdict.statement}</p>
+          <p className="case-now-text">{evidenceWording(verdict.statement)}</p>
+          <p className="trace-hint">来源簇仅按已识别的同源线索归并；未检测到重复不等于已证明来源独立。</p>
           <div className="case-now-counts">
             <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
               未检测到重复 <b>{assessment?.independentSources ?? "—"}</b>
@@ -293,7 +297,7 @@ export function Case() {
             <>
               <ul className="trace-verdict-changes">
                 {revisions.changes.map((item, index) => (
-                  <li key={index}>{item}</li>
+                  <li key={index}>{evidenceWording(item)}</li>
                 ))}
               </ul>
               <div className="trace-versions-actions">
@@ -339,7 +343,7 @@ export function Case() {
                 {revisions.revisions.slice(1).map((item) => (
                   <li key={item.revision}>
                     第 {item.revision} 版（{formatTime(item.at)}）：
-                    {item.changes?.length ? item.changes.join("；") : "与上一版相比结论与来源统计没有变化。"}
+                    {item.changes?.length ? evidenceWording(item.changes.join("；")) : "与上一版相比结论与来源统计没有变化。"}
                   </li>
                 ))}
               </ul>
@@ -370,7 +374,7 @@ export function Case() {
               <div className="trace-verdict-head">
                 <h2>{outcomeText[verdict.outcome]}</h2>
               </div>
-              <p className="trace-verdict-text">{verdict.statement}</p>
+              <p className="trace-verdict-text">{evidenceWording(verdict.statement)}</p>
             </div>
           ) : null}
           <div className="trace-approve-form">
@@ -535,6 +539,8 @@ export function Case() {
           <span className="trace-hint">结论不满意时，可以换检索式继续查，记录不会丢。</span>
         </div>
       )}
+
+      <ModelReview run={run} />
 
       {bundle?.searches?.length ? (
         <details className="trace-details trace-tech">

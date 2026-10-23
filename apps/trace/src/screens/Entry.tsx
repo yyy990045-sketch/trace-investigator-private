@@ -18,7 +18,8 @@ import {
   type CaseDigest,
   type FactDraft,
 } from "../api";
-import { Tag, caseHref, formatTime } from "../components";
+import { Tag, archiveHref, caseHref, formatTime } from "../components";
+import { evidenceWording } from "../presentation";
 
 const MAX_FACTS = 6;
 const MAX_QUERIES = 6;
@@ -53,9 +54,10 @@ function useDigests() {
     const pick = (keys: string[]) => rows.find((row) => keys.some((key) => row.digest.claim.includes(key))) || null;
     return {
       rows,
-      A: pick(["个人信息保护法", "民法典"]),
+      A: pick(["个人信息保护法"]),
       B: pick(["新能源汽车", "产量"]),
       C: pick(["氢能", "加氢"]),
+      D: rows.find((row) => row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
       loading: !SHOWCASE && local.isLoading,
       error: local.isError ? (local.error as Error).message : null,
     };
@@ -161,20 +163,13 @@ export function Entry() {
       <section className="home-hero">
         <div className="home-hero-copy">
           <span className="home-brand">溯证 TRACE</span>
-          <h1>
-            一句可疑的说法，
-            <br />
-            值不值得信？
-          </h1>
-          <p className="home-lede">
-            它去真实检索、抓取原文，按同一内容归并来源，逐条说明「支持 / 反对 / 无法确认」的理由。
-            证据不够就明确说不下结论，并写出还缺什么。
-          </p>
+          <h1>网上说的，是真的吗？</h1>
+          <p className="home-lede">追查原始出处、比较证据、发现疑点，让每个结论都能复查。</p>
 
           {SHOWCASE ? (
             <div className="home-actions">
               <a className="trace-btn trace-btn-primary trace-btn-lg" href={hero ? caseHref(hero.digest.runId) : "#/"}>
-                查看完整调查 <ArrowRight size={16} />
+                查看完整调查过程 <ArrowRight size={16} />
               </a>
               <span className="home-mode">
                 <ShieldQuestion size={14} /> 历史真实调查记录（只读，不联网）
@@ -252,6 +247,29 @@ export function Entry() {
             </div>
           )}
 
+          <ul className="home-roles">
+            <li>
+              <b>元宝搜索</b>
+              <span>负责查找公开来源，抓取网页正文</span>
+            </li>
+            <li>
+              <b>规则引擎</b>
+              <span>逐条判断支持、反对、无法确认，并写出理由</span>
+            </li>
+            <li data-model={digests.D ? "true" : "false"}>
+              <b>DeepSeek 辅助复核</b>
+              <span>
+                {digests.D
+                  ? "只在该案例真实调用过，只给辅助语义意见，不替代原文"
+                  : "当前展示的案例没有调用模型，因此不显示模型意见"}
+              </span>
+            </li>
+            <li>
+              <b>你</b>
+              <span>确认结论、纠正判断，改过的地方留痕</span>
+            </li>
+          </ul>
+
           <ul className="home-claims">
             <li>
               <Link2 size={15} />
@@ -264,7 +282,7 @@ export function Entry() {
               <ShieldQuestion size={15} />
               <span>
                 <b>证据不够就不下结论</b>
-                只有「≥2 个独立来源 + 至少 1 份原文正文」才给支持结论，否则写清还缺什么。
+                未检测到重复不等于来源独立；区分原始依据候选、二次报道和搜索摘要，保留缺口。
               </span>
             </li>
             <li>
@@ -289,8 +307,22 @@ export function Entry() {
       </section>
 
       <section className="home-cases">
+        {digests.D ? <section className="trace-block" aria-label="案例D 模型辅助复核">
+          <div className="trace-section-head"><h2>《民法典》施行日期｜模型辅助复核</h2><span>D · 真实模型调用记录</span></div>
+          <p className="trace-lede">{bundleOf(digests.D.run)?.case.question}</p>
+          <p>在真实搜索取得证据后，DeepSeek 对所提供摘录给出辅助意见，引用保留原始链接。规则判断、模型意见和人工确认分别展示。</p>
+          <p className="trace-hint">{(() => {
+            const call = digests.D.run.modelCalls?.findLast((item) => item.status === "completed");
+            const output = digests.D.run.steps.find((step) => step.capabilityId === "model.verify")?.output as { verification?: { citations?: string[] } } | undefined;
+            return `${call ? `${call.model} · ${(call.durationMs / 1000).toFixed(1)} 秒 · ` : ""}${output?.verification?.citations?.length || 0} 条真实引用。历史记录回放，不是此刻重新调用。`;
+          })()}</p>
+          <div className="home-actions">
+            <a className="trace-btn trace-btn-primary" href={caseHref(digests.D.digest.runId)}>查看模型复核记录 <ArrowRight size={14} /></a>
+            <a className="trace-btn" href={archiveHref(digests.D.digest.runId)}>查看对应调查档案</a>
+          </div>
+        </section> : null}
         <div className="home-section-head">
-          <h2>三个真实案例</h2>
+          <h2>A / B / C · 三次真实查询</h2>
           <span>{SHOWCASE ? "点开就是当时的真实调查记录" : "点开看真实调查，或带入表单重新跑一次"}</span>
         </div>
         <div className="home-case-grid">
@@ -486,7 +518,7 @@ function HeroCase({ digest }: { digest: CaseDigest }) {
       <h2 className="hero-case-claim">{digest.claim}</h2>
       <p className="hero-case-verdict">
         <b>{digest.outcome ? outcomeText[digest.outcome] : "记录"}</b>
-        <span>{digest.statement.replace(/^就「.*?」而言，/, "")}</span>
+        <span>{evidenceWording(digest.statement).replace(/^就「.*?」而言，/, "")}</span>
       </p>
       <div className="hero-case-counts">
         <span title="未检测到与其它来源重复的来源簇">

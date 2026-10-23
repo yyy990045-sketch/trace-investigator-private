@@ -689,6 +689,43 @@ export function currentAssessment(run: RunRecord): NonNullable<TraceBundleView["
  * 一个案例的摘要：首页卡片、首页主推面板、跨页跳转都从这里取数，
  * 保证「首页看到的数字」和「调查记录里的数字」是同一份。
  */
+/** 模型辅助语义复核：只有在这次调查里真实调用并完成时才存在。 */
+export interface ModelReview {
+  available: boolean;
+  model: string;
+  durationMs: number | null;
+  verdict: string;
+  summary: string;
+  citations: { id: string; source: string; excerpt: string }[];
+}
+
+export function modelReviewOf(run: RunRecord): ModelReview | null {
+  const step = stepOf(run, "model.verify");
+  if (!step || step.status !== "completed") return null;
+  const output = (step.output || {}) as {
+    verification?: { summary?: string; verdict?: string; citations?: string[] };
+    citations?: { id: string; source: string; excerpt?: string }[];
+  };
+  const verification = output.verification;
+  if (!verification?.summary) return null;
+  const pool = output.citations || [];
+  const wanted = verification.citations || [];
+  const call = ((run as unknown as { modelCalls?: { model: string; status: string; durationMs: number }[] }).modelCalls || []).find(
+    (item) => item.status === "completed",
+  );
+  return {
+    available: true,
+    model: call?.model || "平台已配置模型",
+    durationMs: call?.durationMs ?? null,
+    verdict: verification.verdict || "unclear",
+    summary: verification.summary,
+    citations: wanted
+      .map((id) => pool.find((item) => item.id === id))
+      .filter((item): item is { id: string; source: string; excerpt?: string } => !!item)
+      .map((item) => ({ id: item.id, source: item.source, excerpt: (item.excerpt || "").slice(0, 600) })),
+  };
+}
+
 export interface CaseDigest {
   runId: string;
   question: string;
@@ -705,6 +742,8 @@ export interface CaseDigest {
   corrections: CorrectionRecord[];
   factCounts: { supports: number; contradicts: number; unclear: number; irrelevant: number };
   latestChange: string[];
+  /** 只有在这次调查里真的跑过模型复核才有值 */
+  modelReview: ModelReview | null;
 }
 
 export function digestOf(run: RunRecord): CaseDigest {
@@ -738,5 +777,6 @@ export function digestOf(run: RunRecord): CaseDigest {
       irrelevant: facts.reduce((sum, fact) => sum + (fact.irrelevant || 0), 0),
     },
     latestChange: revisions.length ? revisions[revisions.length - 1].changes || [] : [],
+    modelReview: modelReviewOf(run),
   };
 }

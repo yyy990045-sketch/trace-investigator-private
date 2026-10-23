@@ -107,6 +107,14 @@ function escapeCell(value: unknown) {
   return String(value ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 160);
 }
 
+// New exports may include an older assessment snapshot; clarify its system wording only.
+function preciseWording(text: string) {
+  return text.replace(/已排除同源转载/g, "已执行同源检测，来源独立性仍待核对")
+    .replace(/相互独立的来源簇/g, "未检测到重复的来源簇")
+    .replace(/独立来源簇|独立来源/g, "未检测到重复的来源簇")
+    .replace(/独立证据/g, "归并后的证据");
+}
+
 export function archiveFilenames(revision: number) {
   const suffix = revision <= 1 ? "" : `-v${revision}`;
   return { markdown: `调查档案${suffix}.md`, json: `调查档案${suffix}.json` };
@@ -114,8 +122,16 @@ export function archiveFilenames(revision: number) {
 
 export function renderArchive(input: ArchiveInput) {
   const { runId, bundle, assessment, revision, generatedAt, actor, changes = [] } = input;
-  const verdict = assessment.verdict || {};
-  const facts = assessment.facts || [];
+  const rawVerdict = assessment.verdict || {};
+  const verdict = { ...rawVerdict,
+    headline: preciseWording(rawVerdict.headline || ""),
+    statement: preciseWording(rawVerdict.statement || ""),
+    reasons: (rawVerdict.reasons || []).map(preciseWording),
+  };
+  const facts = (assessment.facts || []).map((fact) => ({ ...fact,
+    reasons: fact.reasons.map(preciseWording),
+    sources: fact.sources.map((source) => ({ ...source, reasons: source.reasons.map(preciseWording) })),
+  }));
   const caseInfo = bundle?.case || {};
   const search = bundle?.search || {};
   const receiptPath = `/v1/runs/${runId}/receipt`;
@@ -135,7 +151,7 @@ export function renderArchive(input: ArchiveInput) {
     ...(verdict.reasons || []).map((reason: string) => `  - ${reason}`),
     ``,
     ...(changes.length
-      ? [`## 本版变化`, ``, ...changes.map((item) => `- ${item}`), ``]
+      ? [`## 本版变化`, ``, ...changes.map((item) => `- ${preciseWording(item)}`), ``]
       : []),
     `## 一、调查对象`,
     ``,
@@ -172,19 +188,16 @@ export function renderArchive(input: ArchiveInput) {
               : "（系统自动判断）"
           }；关键词重合度 ${Math.round((source.relevance || 0) * 100)}%；来源簇 ${source.clusterId}${
             source.duplicate
-              ? `（与同源来源内容重复：${source.duplicateOf?.basis || "内容重合"}，按 1 条独立证据计）`
+              ? `（与同源来源内容重复：${source.duplicateOf?.basis || "内容重合"}，合并计数）`
               : source.independence === "unconfirmed"
                 ? `（独立性未确认：${source.independenceNote || "可能同源但证据不足"}，不计入独立证据）`
                 : "（未检测到重复）"
           }`,
           `   - 站点：${source.site}；标注发布时间：${source.date || "未提供"}`,
           `   - 时效：${source.dateStatus === "in_range" ? "在适用时间范围内" : source.dateStatus === "out_of_range" ? "在适用时间范围之外" : "无法确认"}（${source.dateNote}）`,
-          `   - 原文：${source.bodyAvailable ? "已取得正文" : "未取得正文，仅有搜索摘要"}；出处判定：${
-            source.originality === "original_candidate"
-              ? "疑似原始出处"
-              : source.originality === "reprint"
-                ? "转载/二次传播"
-                : "无法判定"
+          `   - 材料类型：${!source.bodyAvailable ? "仅搜索摘要（未取得正文，不能据此确认原始出处）" : source.originality === "reprint" || source.citedOrigin
+                ? "二次报道或转载（已取得网页正文，需追溯所引原始依据）"
+                : source.originality === "original_candidate" ? "原始依据候选（已取得网页正文，原始出处尚未证实）" : "网页正文（出处未确认）"
           }`,
           `   - 摘要摘录：${(source.excerpt || "").slice(0, 400)}`,
           ...(source.bodyExcerpt ? [`   - 原文摘录：${source.bodyExcerpt.slice(0, 400)}`] : []),
@@ -197,7 +210,7 @@ export function renderArchive(input: ArchiveInput) {
     ``,
     ...(assessment.openQuestions?.length
       ? assessment.openQuestions.map((item) => `- ${item}`)
-      : ["- 无遗留缺口。"]),
+      : ["- 规则未列出额外缺口；来源独立性、原始出处和内容适用性仍需审阅。"]),
     ``,
     `## 四、人工修正记录`,
     ``,
@@ -214,7 +227,7 @@ export function renderArchive(input: ArchiveInput) {
           if (item.impact.supportsBefore !== item.impact.supportsAfter)
             changed.push(`支持来源 ${item.impact.supportsBefore} → ${item.impact.supportsAfter} 条`);
           if (item.impact.clustersBefore !== item.impact.clustersAfter)
-            changed.push(`独立来源 ${item.impact.clustersBefore} → ${item.impact.clustersAfter} 个`);
+            changed.push(`未检测到重复的来源簇 ${item.impact.clustersBefore} → ${item.impact.clustersAfter} 个`);
           changed.push(
             item.impact.verdictBefore === item.impact.verdictAfter
               ? `结论类型未变（${relationLabel[item.impact.verdictBefore] || item.impact.verdictBefore}）`
@@ -244,8 +257,8 @@ export function renderArchive(input: ArchiveInput) {
     `- 证据关系默认由规则判断；带「人工修正」标记的条目以人工判断为准，系统自动判断同时保留在本档案中。`,
     `- 来源独立性只有两种正面结论：能指认依据的按「同源转载」合并；有线索但无依据的标「独立性未确认」且不计入独立证据。其余条目仅表示「未检测到重复」，不代表已经证明独立。`,
     `- 结论只基于本档案列出的公开来源；未列出的来源不构成本次结论的依据。`,
-    `- 检索命中不等于事实为真：支持性判断要求多个独立来源，且至少一个来源取得原文正文；只有摘要时明确标注。`,
-    `- 同源/转载页面若内容高度雷同会按 1 条独立证据计数；来源明细里没有「同源转载」标注，表示本次未触发合并。若要反驳结论，请直接打开上列网址复核原文。`,
+    `- 检索命中不等于事实为真：规则支持条件是多个未检测到重复的支持来源簇且至少一个取得网页正文；该条件不证明独立性或结论真实，只有摘要时明确标注。`,
+    `- 同源/转载页面有可指认依据时合并计数；没有「同源转载」标注只表示本次未触发合并，不能宣称已经排除全部转载。原始依据候选、二次报道、搜索摘要分别标注，均需打开网址核对。`,
     `- 版本 ${revision} 的档案文件一经生成即固定；后续追问只会产生新版本，不会改写本文件。`,
     `- 本文件在导出步骤生成；运行的最终状态以 ${receiptPath} 为准。`,
     ``,

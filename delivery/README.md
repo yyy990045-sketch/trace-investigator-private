@@ -2,7 +2,7 @@
 
 公网作品地址：**https://trace-showcase-eight.vercel.app**（只读历史回放）
 
-> 2026-10-23 核对：当前静态数据为 A/B/C 各 5/4/6 版，共 30 个档案文件。既有视频与 C 进阶报告仍有旧版数字，不能将整个目录宣称为同一版的最终投稿包。最新投稿文案、规则和待办见 `../docs/2026-10-22-trace-competition-submission.md`。
+> 2026-10-23 本轮：A/B/C各5/4/6版保留，新增真实DeepSeek案例D（1版），共32个原始档案文件。投稿简介、同版视频与实际限制见 `../docs/2026-10-23-trace-final-submission.md`。旧档案不改写，页面对历史系统措辞作准确说明。
 
 ## 目录结构
 
@@ -10,18 +10,20 @@
 delivery/
 ├── trace-showcase/          只读展示站点（已部署到上面那个地址）
 │   ├── index.html
-│   ├── showcase-data.js     三个案例的真实运行数据（已剔除密钥与本机路径）
-│   ├── artifacts/           30 个真实档案文件（各案例所有已交付版本的 md+json）
+│   ├── showcase-data.js     A/B/C/D真实运行数据（已剔除密钥与本机路径）
+│   ├── artifacts/           32个原始档案文件（各已交付版本的 md+json）
 │   └── 部署说明.md
-├── materials/               三份真实查询材料 + 进阶调查报告（PDF + Markdown）
+├── materials/               A/B/C三份真实查询 + D模型复核 + C进阶报告（PDF + Markdown）
 │   ├── 案例A·原始证据调查：个人信息保护法施行日期.pdf / .md
 │   ├── 案例B·多来源交叉核查：2024年新能源汽车产量.pdf / .md
 │   ├── 案例C·证据不足与继续追问：全国氢能重卡加氢网络.pdf / .md
 │   ├── 案例C·进阶调查报告：一条氢能说法为什么查不下去.pdf / .md
 │   └── shots/               生成材料时现场截取的页面截图
 └── demo/
-    ├── trace-demo-full.mp4          历史运行演示（待更新），2 分 46 秒：只读展示 + 本机实时联网调查
-    └── trace-demo-showcase-only.mp4 只读展示段（100 秒，历史记录回放）
+    ├── trace-submission-final.mp4   本轮主视频：现场浏览历史记录，突出C/D
+    ├── trace-deepseek-replay.mp4    本轮D短片：已完成模型调用的记录回放
+    ├── trace-demo-full.mp4          旧视频，仅历史留存，不用于本次投稿
+    └── trace-demo-showcase-only.mp4 旧视频，仅历史留存
 ```
 
 ## 投稿对应关系
@@ -31,12 +33,12 @@ delivery/
 | 作品名称 | 溯证 TRACE |
 | 一句话简介 | 把一句可疑说法交给证据去检验——真实联网检索、抓原文、认转载、判支持与反对，最后给一份可复查、可追问、可纠错、有版本的调查档案。 |
 | 作品地址 | https://trace-showcase-eight.vercel.app |
-| 演示视频 | `demo/trace-demo-full.mp4` 仅作历史运行记录；投稿需更新同版录屏 |
+| 演示视频 | `demo/trace-submission-final.mp4`；D补充短片 `demo/trace-deepseek-replay.mp4` |
 | 案例材料 ×3 | `materials/案例A…pdf`、`案例B…pdf`、`案例C…pdf` |
-| 进阶报告 | `materials/案例C·进阶调查报告…pdf` 尚有旧数字，更新后使用 |
-| 赛道 / 工具 | 侦探 / 元宝搜索（腾讯云 WSA SearchPro） |
+| 进阶报告 | `materials/案例C·进阶调查报告…pdf`；D模型复核说明见同目录 |
+| 赛道 / 工具 | 侦探 / 元宝搜索（腾讯云 WSA SearchPro）+ DeepSeek辅助语义复核 |
 
-## 三个案例直链
+## 真实案例直链
 
 - A 有明确原始证据（《个人信息保护法》施行日期，当前已交付 v5）
   https://trace-showcase-eight.vercel.app/#/archive/run_13dcfa4f-3074-4bdc-a36b-53b2933bb7b8
@@ -44,29 +46,30 @@ delivery/
   https://trace-showcase-eight.vercel.app/#/archive/run_ef9af382-947a-4a9d-acd0-34b496b3d9b3
 - C 补充调查后仍证据不足（全国氢能重卡加氢网络，当前已交付 v6）
   https://trace-showcase-eight.vercel.app/#/archive/run_d34a959a-e748-4208-b9a6-eac33c1de13a
+- D 《民法典》施行日期｜模型辅助复核（12.3秒、5条引用）
+  https://trace-showcase-eight.vercel.app/#/cases/run_895b5bfe-69f8-4878-ab41-af4fc3f3fe82
 
 ## 重新生成 / 重新部署
 
 ```sh
 npm run build:showcase                      # 从本机 Runtime 只读重新导出静态站
 node tooling/trace-showcase-audit.mjs       # 检查公开文件里的凭证、身份信息、内网地址
-node tooling/trace-case-sheets.mjs          # 重新生成三份案例材料
-node tooling/trace-report-c.mjs             # 重新生成 C 进阶报告
-cd delivery/trace-showcase && npx vercel deploy --prod --yes --team kian-7b2166f2
+node tooling/trace-final-materials.mjs       # 从已导出的A/B/C/D记录生成本轮说明材料
+cd delivery/trace-showcase && vercel deploy --prod --yes --scope kian-7b2166f2
 ```
 
 公网发布前的检查顺序永远是：导出 → 审计（`trace-showcase-audit.mjs` 必须 0 阻断项）→ 部署。审计会对个人邮箱、手机号、身份证/银行卡（Luhn 校验）、Bearer/token、私钥块、本机路径、内网与环回地址逐条判定，并把人类可读的身份字段单列出来给人确认。
 
-## 附件体积
+## 旧视频留存
 
 - 三份案例材料 PDF：每个约 0.6–0.7 MB；进阶报告约 0.9 MB — 一般表单都能直接传。
-- 完整演示视频 15 MB（2 分 46 秒）。若投稿表单限制更小，可压一版：
+- 旧完整视频15 MB（2分46秒），仅作原始运行证据，不替代本轮同版回放。不要用旧画面配新功能说明。
 
 ```sh
 ffmpeg -y -i delivery/demo/trace-demo-full.mp4 -c:v libx264 -crf 33 -preset slow -vf "scale=960:600" -movflags +faststart delivery/demo/trace-demo-full-lite.mp4
 ```
 
-  或只提交 100 秒的只读展示段（9.1 MB）。
+本轮视频均标注历史记录回放，不包含新的实时搜索或模型生成。
 
 ## 来源独立性口径（第三轮）
 
@@ -87,5 +90,5 @@ ffmpeg -y -i delivery/demo/trace-demo-full.mp4 -c:v libx264 -crf 33 -preset slow
 
 - 公网页面是**只读历史记录**，不提供实时检索；页面本身写明这一点，输入框按下也不会假装在跑。
 - 本机 Runtime 无鉴权，**没有**把 4313 端口暴露到公网。
-- 未调用任何模型为结论背书；人工修正与系统自动判断同时保留。
+- A/B/C未调用模型；D已真实完成DeepSeek辅助语义复核。事实拆解仍人工，模型异常场景未逐项实调。人工修正与规则自动判断同时保留。
 - 档案按版本冻结：旧版本下载永远是旧结论。

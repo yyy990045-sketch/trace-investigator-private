@@ -20,6 +20,8 @@ import {
 import { BackLink, Tag, VersionCompare, archiveHref, caseHref, formatTime, impactText, relationTone } from "../components";
 import { relationText } from "../api";
 import { ModelReview } from "../ModelReview";
+import { InvestigationRoles } from "../InvestigationRoles";
+import { evidenceWording, sourceMaterial } from "../presentation";
 
 export function Archive() {
   const { runId = "" } = useParams();
@@ -107,6 +109,12 @@ export function Archive() {
   const opposing = allSources.filter((source) => source.relation === "contradicts").slice(0, 4);
   const missing = assessment?.openQuestions || [];
   const unconfirmedTotal = facts.reduce((sum, fact) => sum + (fact.unconfirmedSources || 0), 0);
+  // 支持性来源里只有摘要的条数（不重复计同一条来源）
+  const bodyGap = Math.max(
+    0,
+    facts.reduce((sum, fact) => sum + (fact.supports || 0), 0) -
+      allSources.filter((source) => source.relation === "supports" && source.bodyAvailable).length,
+  );
   // 档案快照按交付时间冻结；影响数据在运行记录里，老版本快照没带就按 pageId+时间对齐补上。
   const correctionLedger = run.evidence
     .filter((item) => item.kind === "trace.correction")
@@ -130,10 +138,11 @@ export function Archive() {
         </p>
       </header>
 
+      <InvestigationRoles run={run} />
       <section className="trace-verdict trace-verdict-hero" data-outcome={verdict.outcome}>
         <div className="trace-verdict-head">
           <h2>{outcomeText[verdict.outcome]}</h2>
-          <Tag tone={tone}>把握程度 {verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}</Tag>
+          <Tag tone={tone}>规则判断 · 把握程度 {verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}</Tag>
         </div>
         {!showCurrent && files.length ? (
           <button type="button" className="trace-btn" onClick={() => {
@@ -144,7 +153,8 @@ export function Archive() {
             <Download size={14} /> 下载{shown ? `第 ${shown.revision} 版` : "调查"}档案
           </button>
         ) : null}
-        <p className="trace-verdict-text">{verdict.statement}</p>
+        <p className="trace-verdict-text">{evidenceWording(verdict.statement)}</p>
+        <p className="trace-hint">来源簇数量不代表已经证明相互独立。已识别同源的材料合并；没有发现重复的材料仍需追溯原始出处。</p>
         <div className="trace-counts">
           <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
             未检测到重复 <b>{verdict.counts.independentSources}</b>
@@ -166,7 +176,7 @@ export function Archive() {
         </div>
         <ul className="trace-notes">
           {verdict.reasons.map((reason, index) => (
-            <li key={index}>{reason}</li>
+            <li key={index}>{evidenceWording(reason)}</li>
           ))}
         </ul>
       </section>
@@ -234,7 +244,7 @@ export function Archive() {
               <summary>这一版为什么变化（相对第 {shown.revision - 1} 版）</summary>
               <ul className="trace-verdict-changes">
                 {shown.changes.map((item, index) => (
-                  <li key={index}>{item}</li>
+                  <li key={index}>{evidenceWording(item)}</li>
                 ))}
               </ul>
             </details>
@@ -244,7 +254,7 @@ export function Archive() {
               <strong>首版之后又有新证据，当前结论尚未成档</strong>
               <ul className="trace-verdict-changes">
                 {(revisionsQuery.data?.changes || []).map((item, index) => (
-                  <li key={index}>{item}</li>
+                  <li key={index}>{evidenceWording(item)}</li>
                 ))}
               </ul>
               <a className="trace-link" href={caseHref(run.id)}>
@@ -286,16 +296,16 @@ export function Archive() {
       <section className="trace-block">
         <div className="trace-section-head">
           <h2>尚未解决的问题</h2>
-          <span>{missing.length ? `${missing.length} 项` : "本次结论没有遗留缺口"}</span>
+          <span>{missing.length ? `${missing.length} 项` : "规则未列出额外缺口"}</span>
         </div>
         {missing.length ? (
           <ul className="trace-missing">
             {missing.map((item, index) => (
-              <li key={index}>{item}</li>
+                <li key={index}>{evidenceWording(item)}</li>
             ))}
           </ul>
         ) : (
-          <p className="trace-lede">支持性证据已满足「≥2 个独立来源且至少一份原文」的要求，可直接复核下列链接。</p>
+          <p className="trace-lede">材料满足当前规则的支持条件，仍需审阅原始出处、转载依赖和内容适用性；规则通过不等于事实已经被证明。</p>
         )}
         {missing.length ? (
           <p className="trace-hint">
@@ -329,6 +339,30 @@ export function Archive() {
         </section>
       ) : null}
 
+      <section className="trace-block trace-block-next">
+        <div className="trace-section-head">
+          <h2>下一步可以做什么</h2>
+          <span>按这次调查留下的缺口给出</span>
+        </div>
+        <ul className="trace-missing">
+          {missing.length ? (
+            <li>
+              补齐上列缺口最直接的做法：把「{missing[0].slice(0, 40)}」写成更具体的检索式，
+              {SHOWCASE ? "在本机运行 Runtime 后重新发起一次调查。" : "回到调查过程页追加一次检索。"}
+            </li>
+          ) : (
+            <li>规则层面没有列出缺口：仍建议打开最上面的两条关键依据，人工核对原文表述与时间范围。</li>
+          )}
+          {bodyGap ? <li>还有 {bodyGap} 条支持性来源只拿到搜索摘要，能打开原文时优先补正文。</li> : null}
+          {unconfirmedTotal ? (
+            <li>有 {unconfirmedTotal} 条来源可能是转载但无依据核对，可按站点或稿件编号逐一人工比对。</li>
+          ) : null}
+          <li>
+            想要可引用的版本：下载当前第 {shown?.revision ?? 1} 版档案；后续追问或修正只会生成新版本，旧文件不改写。
+          </li>
+        </ul>
+      </section>
+
       <section className="trace-block">
         <div className="trace-section-head">
           <h2>来源清单</h2>
@@ -346,7 +380,7 @@ export function Archive() {
                 <span className="trace-cluster-meta">
                   {cluster.primary.site}
                   {cluster.primary.date ? ` · ${cluster.primary.date.slice(0, 10)}` : ""}
-                  {cluster.primary.bodyAvailable ? " · 原文已取" : " · 仅摘要"}
+                  {` · ${sourceMaterial(cluster.primary)}`}
                   {cluster.reprint ? ` · ${cluster.size} 篇同源` : ""}
                 </span>
               </li>
@@ -398,6 +432,7 @@ export function Archive() {
         <p className="trace-hint">
           档案在导出步骤生成并记录 SHA-256。每个版本的档案一经生成即固定：这一版下载的永远是这一版的结论与来源。
           {SHOWCASE ? "当前是只读的历史调查展示，下载到的是当时生成的真实档案文件。" : "最终完成状态以运行凭证为准，凭证会逐个校验文件摘要。"}
+          历史档案中“独立来源”“已排除同源转载”等旧措辞保留原样，不能按字面理解为独立性已证实；当前页面已校正展示措辞，不代表重新确认或新版本交付。
         </p>
         {versions.length > 1 ? (
           <details className="trace-details">
@@ -422,15 +457,15 @@ export function Archive() {
         <summary>判断方法与过程记录（技术细节，供复查）</summary>
         <ul className="trace-notes">
           <li>事实与检索式由人工确认，系统未执行 AI 事实拆解；模型语义复核是否完成以上方独立记录为准。</li>
-          <li>支持性判断要求 ≥2 个独立来源，且至少一份取得原文正文；内容雷同的转载按 1 条计算。</li>
+          <li>规则支持条件为 ≥2 个未检测到重复的支持来源簇且至少一份网页正文；同源材料合并计数，这项条件不证明来源独立。</li>
           <li>数量断言只在同一计量单位下比较，并尊重「超过 / 以上 / 低于」等比较方向。</li>
           <li>{run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")
             ? "模型意见在上方单列；追问和修正后的新证据尚需重新进行模型复核。规则结论与模型意见不能互相替代。"
             : "本次没有已完成的模型复核；结论文本里的规则判断来自本档案列出的来源。"}</li>
           {(bundle?.checks || []).map((check, index) => (
             <li key={index}>
-              {check.name}：{check.status === "not_evaluated" ? "未完成" : check.passed ? "通过" : "未通过"} ·{" "}
-              {check.detail}
+              {evidenceWording(check.name)}：{check.status === "not_evaluated" ? "未完成" : check.passed ? "通过" : "未通过"} ·{" "}
+              {evidenceWording(check.detail)}
             </li>
           ))}
         </ul>
@@ -489,7 +524,7 @@ function KeyEvidence({ source }: { source: SourceAssessment }) {
       <div className="trace-key-meta">
         <span>{source.site}</span>
         <span>{source.date ? source.date.slice(0, 10) : "未标注时间"}</span>
-        <span>{source.bodyAvailable ? "原文正文" : "搜索摘要"}</span>
+        <span>{sourceMaterial(source)}</span>
         {source.duplicate ? <span>同源转载</span> : null}
       </div>
       {source.manualCorrection ? (

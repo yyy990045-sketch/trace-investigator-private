@@ -2672,3 +2672,136 @@
   border-radius: 4px;
   padding: 0 5px;
 }
+
+/* 调查经过：五步的故事线，先讲人话，技术细节留在下面 */
+.story {
+  display: grid;
+  gap: 16px;
+  padding: 26px 28px;
+  border-radius: var(--trace-radius-lg);
+  border: 1px solid var(--trace-line);
+  background: var(--card);
+  box-shadow: var(--trace-shadow);
+}
+.story-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.story-head h2 {
+  font-size: 21px;
+  letter-spacing: -0.3px;
+}
+.story-head span {
+  font-size: 12.5px;
+  color: var(--trace-sub);
+}
+.story-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  counter-reset: story;
+}
+.story-steps li {
+  border: 1px solid var(--trace-line-soft);
+  border-radius: 12px;
+  background: #fdfbf6;
+  overflow: hidden;
+}
+.story-steps li[data-open="true"] {
+  border-color: #d9d2c2;
+  background: #fff;
+}
+.story-step-head {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 14px 18px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.story-step-title {
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  color: var(--trace-accent);
+  font-weight: 650;
+}
+.story-step-answer {
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--trace-ink);
+  overflow-wrap: anywhere;
+}
+.story-step-body {
+  padding: 0 18px 16px;
+  display: grid;
+  gap: 10px;
+}
+.story-step-body ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: #3f4650;
+  overflow-wrap: anywhere;
+}
+.story-foot {
+  font-size: 12px;
+  color: var(--trace-sub);
+}
+@media (max-width: 760px) {
+  .story {
+    padding: 20px 18px;
+  }
+  .story-step-answer {
+    font-size: 15px;
+  }
+}
+
+/* 首页四角色分工条 */
+.home-roles {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.home-roles li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--trace-line-soft);
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--trace-sub);
+}
+.home-roles li:last-child {
+  border-bottom: 0;
+}
+.home-roles b {
+  font-size: 13px;
+  color: var(--trace-ink);
+  font-weight: 650;
+}
+.home-roles li[data-model="false"] b {
+  color: #8a8f96;
+}
+.trace-block-next {
+  border-left: 3px solid var(--trace-accent);
+}
+@media (max-width: 760px) {
+  .home-roles li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "trace-submission-final",
+  "title": "TRACE DeepSeek参赛成品整合",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "product-delivery",
+  "currentPhase": "implementation",
+  "nextAction": "修正文案、加入已完成D案例、更新只读站与录屏材料",
+  "createdAt": "2026-10-23T07:00:00+08:00",
+  "branch": "feature/trace-frontend-v2"
+}

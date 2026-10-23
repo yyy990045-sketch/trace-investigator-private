@@ -2,7 +2,7 @@
  * TRACE 只读展示版导出。
  *
  * 做什么：从本机 Runtime 读取真实的调查记录（只发 GET 请求，不触发任何检索），
- * 把三个案例的数据、评估、版本记录与档案文件导出成一份可以独立部署的静态站点。
+ * 把 A/B/C 和真实 DeepSeek 案例 D 的记录与档案导出为静态站点。
  *
  * 为什么不直接暴露 Runtime：本机 Runtime 没有鉴权，公网暴露等于把运行接口交出去。
  * 这份静态成品只有页面、只有公开来源与结论，没有接口可写。
@@ -23,25 +23,31 @@ const runtime = process.env.TRACE_RUNTIME || "http://127.0.0.1:4313";
 const outDir = join(repo, "delivery/trace-showcase");
 const appDist = join(repo, "apps/trace/dist-showcase");
 
-/** 三个案例：runId 是本机真实运行记录，label/note 只描述这次调查查了什么。 */
+/** 只选择已完成的真实运行，描述不预设新调查结果。 */
 const CASES = [
   {
     key: "A",
     runId: "run_13dcfa4f-3074-4bdc-a36b-53b2933bb7b8",
     label: "有明确原始证据",
-    note: "《个人信息保护法》自 2021 年 11 月 1 日起施行：官方原文可查、转载被合并，中途还做过一次人工修正并出了第 2 版档案。",
+    note: "《个人信息保护法》施行日期：查看网页正文、人工修正和全部已交付版本。",
   },
   {
     key: "B",
     runId: "run_ef9af382-947a-4a9d-acd0-34b496b3d9b3",
     label: "需要跨来源核查",
-    note: "2024 年中国新能源汽车产量是否超过 1200 万辆：多家统计口径不一致，看系统如何逐条对照数字而不误判。",
+    note: "2024 年中国新能源汽车产量是否超过 1200 万辆：比较年份、产量与销量口径；不把多家转引当独立证明。",
   },
   {
     key: "C",
     runId: "run_d34a959a-e748-4208-b9a6-eac33c1de13a",
     label: "补充调查后仍证据不足",
     note: "2025 年全国氢能重卡加氢网络是否已建成：追加真实检索并人工修正，结论仍是证据不足；命中网页不等于独立证据。",
+  },
+  {
+    key: "D",
+    runId: "run_895b5bfe-69f8-4878-ab41-af4fc3f3fe82",
+    label: "《民法典》施行日期｜模型辅助复核",
+    note: "真实元宝搜索后，DeepSeek 基于提供的证据辅助语义复核；保留原始返回、5条引用和本地人工确认记录。历史回放，不重新调用。",
   },
 ];
 
@@ -96,6 +102,10 @@ function trimRun(run) {
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     input: { text: run.input?.text || "", dataConsent: run.input?.dataConsent === true },
+    modelCalls: (run.modelCalls || []).map((call) => ({
+      id: call.id, model: call.model, status: call.status, durationMs: call.durationMs,
+      createdAt: call.createdAt, errorCode: call.errorCode,
+    })),
     assembly: (run.assembly || []).map((step) => ({
       capabilityId: step.capabilityId,
       version: step.version,
@@ -139,6 +149,7 @@ async function main() {
   for (const item of CASES) {
     const run = await api(`/v1/runs/${item.runId}`);
     const record = run.run || run;
+    if (record.status !== "completed") throw new Error(`${item.key} 尚未完成，不可作为已交付案例发布。`);
     const revisions = await api(`/v1/runs/${item.runId}/trace/revisions`);
     for (const artifact of record.artifacts || [])
       artifactIndex[artifact.id] = `artifacts/${item.runId}/${encodeURIComponent(artifact.filename)}`;
@@ -181,7 +192,8 @@ async function main() {
   });
 
   // 3) 组装成品目录
-  if (existsSync(outDir)) await rm(outDir, { recursive: true, force: true });
+  // 只替换生成的前端资产，保留已发布档案和已有 .vercel 项目绑定。
+  if (existsSync(join(outDir, "assets"))) await rm(join(outDir, "assets"), { recursive: true, force: true });
   await cp(appDist, outDir, { recursive: true });
   await writeFile(join(outDir, ".gitignore"), ".vercel\n");
   await mkdir(join(outDir, "artifacts"), { recursive: true });
@@ -193,7 +205,10 @@ async function main() {
     await mkdir(join(outDir, "artifacts", item.runId), { recursive: true });
     for (const artifact of run.artifacts || []) {
       const bytes = await apiBytes(`/v1/runs/${item.runId}/artifacts/${artifact.id}`);
-      await writeFile(join(outDir, "artifacts", item.runId, artifact.filename), bytes);
+      const target = join(outDir, "artifacts", item.runId, artifact.filename);
+      if (existsSync(target)) {
+        if (!(await readFile(target)).equals(bytes)) throw new Error(`历史档案内容不一致，拒绝覆盖：${artifact.filename}`);
+      } else await writeFile(target, bytes);
       console.log(`${item.key} · ${artifact.filename}（${(bytes.length / 1024).toFixed(1)} KB）`);
     }
   }
@@ -221,7 +236,10 @@ async function main() {
       `- 本机：\`cd delivery/trace-showcase && python3 -m http.server 4400\`，浏览器打开 http://127.0.0.1:4400\n` +
       `- 任意静态托管：整目录上传即可（不需要 Node、不需要 Runtime、不需要任何密钥）\n\n` +
       `## 里面有什么\n\n` +
-      `- 三个真实调查案例的完整页面：调查入口、调查过程、调查档案\n` +
+      `- A/B/C 三次真实查询与 D DeepSeek 辅助语义复核：调查入口、调查过程、调查档案\n` +
+      `- D 保留真实模型返回、5条引用、调用耗时和本地验收确认；没有实时模型接口\n` +
+      `- 事实拆解仍由人工完成；搜索、规则、模型辅助意见和人工交付分别标明\n` +
+      `- 页面校正来源独立性措辞，历史档案保留原样，不代表重新确认\n` +
       `- 每个案例的真实来源链接、原文摘录、支持/反对/无法确认的判断理由\n` +
       `- 档案版本切换与逐版本下载（${Object.keys(artifactIndex).length} 个档案文件在 \`artifacts/<runId>/\`）\n` +
       `- 人工修正记录与「为什么变化」说明\n\n` +
