@@ -147,6 +147,16 @@ function analyse(snapshot: Snapshot) {
     pageCount:pages.length, bodyCount, independentSourceCount:independentSources,
     searchedOk:snapshot.rounds.some((r)=>r.count>0 && !r.error),
   });
+  // 开放式对照问题不能被当成一个真假断言；先展示各来源实际给出的数字。
+  const compareQuestion = /为什么|为何|两组|两种说法|差异|不一样|不同|口径/.test(snapshot.claim) &&
+    (snapshot.claim.match(/\d+(?:\.\d+)?/g) || []).filter((x) => Number(x) >= 100).length >= 2;
+  const figures = [...new Map(fact.sources.flatMap((source) =>
+    (source.quantityEvidence || []).map((f) => [f.statisticalSource + "|" + f.value + f.unit, {
+      publisher:f.statisticalSource, value:f.value, unit:f.unit, sentence:redact(f.sentence).slice(0,230),
+      scope:f.scope || "",url:f.url,from:f.from,year:f.year,
+    }] as const),
+  )).values()].slice(0, 8);
+  const openQuestion = /^为什么|^为何|^如何|^怎么|^什么原因/.test(snapshot.claim.trim());
   const label = verdict.outcome === "supported" ? "有依据支持" :
     verdict.outcome === "contradicted" ? "存在反证" :
     verdict.outcome === "disputed" ? "来源存在争议" :
@@ -161,9 +171,21 @@ function analyse(snapshot: Snapshot) {
       status:s.bodyStatus || "fetch_failed", origin:s.citedOrigin?.org || "",
       independence:s.independence, reasons:s.reasons.slice(0, 2),
     }));
+  const comparison = compareQuestion && figures.length >= 2;
+  const questionOnly = !comparison && openQuestion;
+  const finalLabel = comparison ? "已找到不同来源的数据" : questionOnly ? "原因尚未查明" : label;
+  const finalStatement = comparison
+    ? `找到 ${figures.length} 组来自公开来源的数据。各组数字有其标注的发布方与原始链接；它们之间的具体差异原因尚未核实，不能凭数字不同就认定哪一方错误。`
+    : questionOnly
+      ? "这是一个需要解释原因的开放式问题。本轮已经列出检索得到的来源，但规则核验尚不能证明具体因果关系。可继续搜索官方原始解释。"
+      : buildStatement(snapshot.claim, verdict);
   return {
-    label, outcome:verdict.outcome, statement:buildStatement(snapshot.claim, verdict),
-    reasons:verdict.reasons.slice(0, 5), gaps:openQuestions([fact]),
+    kind:comparison ? "comparison" : questionOnly ? "explanation" : "claim",
+    figures, label:finalLabel, outcome:comparison||questionOnly?"insufficient":verdict.outcome,
+    statement:finalStatement,
+    reasons:comparison||questionOnly?[]:verdict.reasons.slice(0, 5),
+    gaps:comparison?["两组数据为什么不同仍缺能说明统计范围、口径或计算方法的原始资料。"]:
+      questionOnly?["仍缺直接解释因果关系的原始来源。"]:openQuestions([fact]),
     counts:{ pages:pages.length, bodies:bodyCount, keyEvidence:sources.filter((s)=>s.body).length,
       related:sources.length, independentSources },
     sources, rounds:snapshot.rounds,
