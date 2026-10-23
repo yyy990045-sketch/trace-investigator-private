@@ -387,8 +387,8 @@ export function Entry() {
           ))}
       </div>
 
-      <details className="trace-home-extra" open={!SHOWCASE}>
-        <summary>展开了解更多调查案例与历史研究</summary>
+      <details className="trace-home-extra">
+        <summary>高级调查设置、历史案例与详细研究</summary>
       {digests.datePair ? (
         <Watershed
           left={{ label: "原句（真实反证）", claim: digests.datePair.left.digest.claim, digest: digests.datePair.left.digest }}
