@@ -214,6 +214,47 @@ export function Case() {
 
       <StepRail run={run} />
 
+      {verdict ? (
+        <section className="case-now" data-outcome={verdict.outcome}>
+          <div className="case-now-head">
+            <span className="case-now-label">当前结论</span>
+            <b>{outcomeText[verdict.outcome]}</b>
+            <span className="case-now-state">
+              {run.status === "completed"
+                ? "调查已完成"
+                : run.status === "waiting_approval"
+                  ? "等待人工确认"
+                  : run.status === "failed"
+                    ? "调查中断"
+                    : "正在检索与核验"}
+            </span>
+          </div>
+          <p className="case-now-text">{verdict.statement}</p>
+          <div className="case-now-counts">
+            <span>
+              独立来源 <b>{assessment?.independentSources ?? "—"}</b>
+            </span>
+            <span>
+              原文正文 <b>{assessment?.bodyAvailable ?? "—"}</b>
+            </span>
+            <span>
+              支持 <b>{facts.reduce((sum, fact) => sum + (fact.supports || 0), 0)}</b> · 反对{" "}
+              <b>{facts.reduce((sum, fact) => sum + (fact.contradicts || 0), 0)}</b> · 无法确认{" "}
+              <b>{facts.reduce((sum, fact) => sum + (fact.unclear || 0), 0)}</b>
+            </span>
+            {assessment?.openQuestions?.length ? <span className="case-now-gap">还缺 {assessment.openQuestions.length} 项证据</span> : null}
+          </div>
+          <div className="case-now-actions">
+            <a className="trace-btn trace-btn-ghost" href={archiveHref(run.id)}>
+              打开调查档案
+            </a>
+            {revisions && revisions.revisions.length ? (
+              <span className="trace-hint">已交付第 {revisions.deliveredRevision} 版，档案按版本冻结</span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
       {revisions && revisions.revisions.length ? (
         <section className="trace-versions" data-dirty={pendingVersion ? "true" : "false"}>
           <div className="trace-versions-head">

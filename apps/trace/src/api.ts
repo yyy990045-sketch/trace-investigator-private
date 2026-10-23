@@ -558,7 +558,7 @@ export const sampleCases: SampleCase[] = [
     question: "《中华人民共和国个人信息保护法》是什么时候通过、什么时候施行的？",
     claim: "《中华人民共和国个人信息保护法》自2021年11月1日起施行",
     note: "官方原文可查，适合看「原始出处 vs 转载」的差别",
-    expect: "能看到官方站点原文被取到、转载被合并成同一条独立证据，结论直接引到具体网址。",
+    expect: "能看到官方站点的原文被取到、结论直接引到具体网址，并演示一次人工修正判断。",
     facts: [
       {
         id: "fact-1",
@@ -613,4 +613,95 @@ export function followupsOf(run: RunRecord): FollowupRecord[] {
   return run.evidence
     .filter((item) => item.kind === "trace.followup")
     .map((item) => item.data as FollowupRecord);
+}
+
+/** 从调查记录里取出所有人工修正（按时间顺序）。 */
+export function correctionsOf(run: RunRecord): CorrectionRecord[] {
+  return run.evidence
+    .filter((item) => item.kind === "trace.correction")
+    .map((item) => item.data as CorrectionRecord);
+}
+
+/** 已交付到第几版：取版本证据里的最大版本号，没有版本证据时按档案文件数推断。 */
+export function revisionsOf(run: RunRecord): number {
+  const stored = run.evidence
+    .filter((item) => item.kind === "trace.revision")
+    .map((item) => (item.data as { revision?: number }).revision || 0);
+  if (stored.length) return Math.max(...stored);
+  const files = archiveArtifacts(run).filter((file) => file.filename.endsWith(".md")).length;
+  return files;
+}
+
+/**
+ * 当前评估：优先用最新一次重算（含追问与修正），其次最新交付版本的快照，
+ * 最后才用核验步骤的输出——否则首页会把首版数字当成现在的数字。
+ */
+export function currentAssessment(run: RunRecord): NonNullable<TraceBundleView["assessment"]> | null {
+  const reassessed = run.evidence.filter((item) => item.kind === "trace.reassessment").pop();
+  if (reassessed) {
+    const assessment = (reassessed.data as { assessment?: NonNullable<TraceBundleView["assessment"]> }).assessment;
+    if (assessment?.verdict) return assessment;
+  }
+  const delivered = run.evidence.filter((item) => item.kind === "trace.revision").pop();
+  if (delivered) {
+    const assessment = (delivered.data as { assessment?: NonNullable<TraceBundleView["assessment"]> }).assessment;
+    if (assessment?.verdict) return assessment;
+  }
+  return (bundleOf(run)?.assessment as NonNullable<TraceBundleView["assessment"]>) || null;
+}
+
+/**
+ * 一个案例的摘要：首页卡片、首页主推面板、跨页跳转都从这里取数，
+ * 保证「首页看到的数字」和「调查记录里的数字」是同一份。
+ */
+export interface CaseDigest {
+  runId: string;
+  question: string;
+  claim: string;
+  outcome: Verdict["outcome"] | null;
+  statement: string;
+  counts: Verdict["counts"] | null;
+  gaps: string[];
+  sources: SourceAssessment[];
+  independentSources: number;
+  bodyBacked: number;
+  versions: number;
+  followupQueries: string[];
+  corrections: CorrectionRecord[];
+  factCounts: { supports: number; contradicts: number; unclear: number; irrelevant: number };
+  latestChange: string[];
+}
+
+export function digestOf(run: RunRecord): CaseDigest {
+  const assessment = (currentAssessment(run) || {}) as NonNullable<TraceBundleView["assessment"]>;
+  const intake = stepOf(run, "trace.case.intake")?.output as
+    | { case?: { question?: string; claim?: string } }
+    | undefined;
+  const facts = (assessment.facts || []) as FactAssessment[];
+  const sources = [...new Map(facts.flatMap((fact) => fact.sources || []).map((source) => [source.pageId, source])).values()];
+  const revisions = run.evidence
+    .filter((item) => item.kind === "trace.revision")
+    .map((item) => item.data as { changes?: string[] });
+  return {
+    runId: run.id,
+    question: intake?.case?.question || run.input?.text || "",
+    claim: intake?.case?.claim || intake?.case?.question || run.input?.text || "",
+    outcome: assessment.verdict?.outcome ?? null,
+    statement: assessment.verdict?.statement ?? "",
+    counts: assessment.verdict?.counts ?? null,
+    gaps: assessment.openQuestions || [],
+    sources,
+    independentSources: assessment.independentSources ?? 0,
+    bodyBacked: assessment.bodyAvailable ?? 0,
+    versions: revisionsOf(run),
+    followupQueries: followupsOf(run).map((item) => item.query),
+    corrections: correctionsOf(run),
+    factCounts: {
+      supports: facts.reduce((sum, fact) => sum + (fact.supports || 0), 0),
+      contradicts: facts.reduce((sum, fact) => sum + (fact.contradicts || 0), 0),
+      unclear: facts.reduce((sum, fact) => sum + (fact.unclear || 0), 0),
+      irrelevant: facts.reduce((sum, fact) => sum + (fact.irrelevant || 0), 0),
+    },
+    latestChange: revisions.length ? revisions[revisions.length - 1].changes || [] : [],
+  };
 }

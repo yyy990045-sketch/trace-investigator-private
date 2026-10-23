@@ -15,12 +15,12 @@ const Router = showcase ? HashRouter : BrowserRouter;
 
 const config: ShellConfig = {
   name: "溯证 TRACE",
-  subtitle: "可复查的线索调查",
+  subtitle: "可复查的证据调查",
   mark: "溯",
   home: "/",
   contextLabel: "溯证 TRACE",
   environment: showcase ? "历史调查记录（只读）" : "本机工作区",
-  theme: { accent: "#24425a", accentSoft: "#eaf0f4", sidebar: "#f3f1ec" },
+  theme: { accent: "#17577f", accentSoft: "#e7f0f6", sidebar: "#f4f2ec" },
   navigation: [{ to: "/", label: "调查", icon: Search, end: true }],
 };
 

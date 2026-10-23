@@ -17,7 +17,7 @@ import {
   type SourceAssessment,
   type SourceCluster,
 } from "../api";
-import { BackLink, Tag, archiveHref, caseHref, formatTime, impactText, relationTone } from "../components";
+import { BackLink, Tag, VersionCompare, archiveHref, caseHref, formatTime, impactText, relationTone } from "../components";
 import { relationText } from "../api";
 
 export function Archive() {
@@ -145,35 +145,40 @@ export function Archive() {
               {shown ? ` · 追加检索 ${shown.followupCount} 次 · 人工修正 ${shown.correctionCount} 条` : ""}
             </span>
           </div>
-          <div className="trace-versionbar-chips" role="tablist" aria-label="调查档案版本">
-            {versions.map((item) => (
-              <button
-                key={item.revision}
-                type="button"
-                role="tab"
-                aria-selected={(shown?.revision ?? 0) === item.revision}
-                data-active={(shown?.revision ?? 0) === item.revision ? "true" : "false"}
-                className="trace-version-chip"
-                onClick={() => setPickedVersion(item.revision)}
-              >
-                第 {item.revision} 版
-                <small>{item.verdict ? outcomeText[item.verdict.outcome] : "记录"}</small>
-              </button>
-            ))}
-            {pending ? (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={pickedVersion === 0}
-                data-active={pickedVersion === 0 ? "true" : "false"}
-                className="trace-version-chip trace-version-chip-current"
-                onClick={() => setPickedVersion(0)}
-              >
-                当前结论
-                <small>未成档</small>
-              </button>
-            ) : null}
-          </div>
+          {versions.length > 1 ? (
+            <VersionCompare
+              revisions={versions}
+              activeRevision={showCurrent ? 0 : shown?.revision ?? 0}
+              onPick={(revision) => setPickedVersion(revision)}
+            />
+          ) : (
+            <div className="trace-versionbar-chips" role="tablist" aria-label="调查档案版本">
+              {versions.map((item) => (
+                <button
+                  key={item.revision}
+                  type="button"
+                  role="tab"
+                  aria-selected={(shown?.revision ?? 0) === item.revision}
+                  data-active={(shown?.revision ?? 0) === item.revision ? "true" : "false"}
+                  className="trace-version-chip"
+                  onClick={() => setPickedVersion(item.revision)}
+                >
+                  第 {item.revision} 版
+                  <small>{item.verdict ? outcomeText[item.verdict.outcome] : "记录"}</small>
+                </button>
+              ))}
+            </div>
+          )}
+          {pending ? (
+            <button
+              type="button"
+              className="trace-version-chip trace-version-chip-current"
+              data-active={pickedVersion === 0 ? "true" : "false"}
+              onClick={() => setPickedVersion(0)}
+            >
+              当前结论（未成档）
+            </button>
+          ) : null}
           {pickedVersion === 0 ? (
             <p className="trace-hint">
               这是第 {latest?.revision} 版交付之后、按新证据重算的结论，还没有生成档案。回到调查过程页点「重新确认」即可出新增版本。

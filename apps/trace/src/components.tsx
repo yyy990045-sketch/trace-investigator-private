@@ -151,11 +151,14 @@ export function SourceCard({
         {corrected ? <span className="trace-evidence-fixed">人工修正</span> : null}
       </div>
       {corrected ? (
-        <p className="trace-evidence-reprint">
-          {source.autoRelation
-            ? `系统自动判断为「${relationText[source.autoRelation]}」，已由 ${corrected.actor} 修正为「${relationText[source.relation]}」：${corrected.note}`
-            : `已由 ${corrected.actor} 人工确认为「${relationText[source.relation]}」：${corrected.note}`}
-        </p>
+        <CorrectionDiff
+          before={source.autoRelation || corrected.relation}
+          after={source.relation}
+          note={corrected.note}
+          actor={corrected.actor}
+          at={corrected.at}
+          impact={corrected.impact}
+        />
       ) : null}
       {source.duplicate && cluster ? (
         <p className="trace-evidence-reprint">
@@ -201,9 +204,6 @@ export function SourceCard({
           </ul>
         </details>
       </div>
-      {corrected?.impact ? (
-        <p className="trace-impact">对结论的影响：{impactText(corrected.impact)}</p>
-      ) : null}
       {open ? (
         <div className="trace-correct">
           <p className="trace-correct-head">
@@ -275,6 +275,7 @@ export function FactBlock({
         <h3>{fact.fact}</h3>
         <Tag tone={relationTone(fact.relation as Relation)}>{relationText[fact.relation]}</Tag>
       </header>
+      <EvidenceMap fact={fact} />
       <div className="trace-fact-stats">
         <span>
           支持 <b>{fact.supports}</b>
@@ -374,5 +375,161 @@ export function BackLink({ label = "新的调查" }: { label?: string }) {
     <Link className="trace-btn trace-btn-ghost" to="/">
       ← {label}
     </Link>
+  );
+}
+
+/**
+ * 证据关系视图：事实 → 三类判断 → 独立来源簇。
+ * 只用真实计数与簇数，不画装饰性节点：同源转载在这里也能看出来。
+ */
+export function EvidenceMap({ fact }: { fact: FactAssessment }) {
+  const lanes: { key: Relation; label: string; count: number; clusters: number }[] = [
+    { key: "supports", label: "支持", count: fact.supports || 0, clusters: fact.independentClusters || 0 },
+    { key: "contradicts", label: "反对", count: fact.contradicts || 0, clusters: 0 },
+    { key: "unclear", label: "无法确认", count: fact.unclear || 0, clusters: 0 },
+    { key: "irrelevant", label: "无关", count: fact.irrelevant || 0, clusters: 0 },
+  ];
+  const total = lanes.reduce((sum, lane) => sum + lane.count, 0);
+  const reprints = fact.sources.filter((source) => source.duplicate).length;
+  const bodies = fact.sources.filter((source) => source.bodyAvailable).length;
+  return (
+    <div className="evidence-map" aria-label="证据关系">
+      <div className="evidence-map-fact" data-relation={fact.relation}>
+        <span className="evidence-map-node">待核查事实</span>
+        <b>{relationText[fact.relation]}</b>
+      </div>
+      <div className="evidence-map-lanes">
+        {lanes.map((lane) => (
+          <div className="evidence-map-lane" key={lane.key} data-lane={lane.key} data-empty={lane.count ? "false" : "true"}>
+            <span className="evidence-map-lane-label">{lane.label}</span>
+            <span className="evidence-map-lane-count">{lane.count}</span>
+            {lane.key === "supports" ? <span className="evidence-map-lane-note">独立来源 {lane.clusters}</span> : null}
+          </div>
+        ))}
+      </div>
+      <div className="evidence-map-foot">
+        <span>命中 {total} 条</span>
+        {reprints ? <span>其中 {reprints} 条为同源转载，按 1 条独立证据计算</span> : <span>未发现同源转载</span>}
+        <span>取到原文正文 {bodies} 份</span>
+      </div>
+    </div>
+  );
+}
+
+/** 版本对比：每版的结论、来源规模、修正数与变化摘要，全部取自版本记录。 */
+export function VersionCompare({
+  revisions,
+  activeRevision,
+  onPick,
+}: {
+  revisions: {
+    revision: number;
+    at: string;
+    actor: string;
+    verdict: { outcome: keyof typeof outcomeText; counts?: { independentSources: number; bodyAvailable: number } } | null;
+    followupCount: number;
+    correctionCount: number;
+    changes: string[];
+    assessment: { independentSources?: number; bodyAvailable?: number; facts?: FactAssessment[] } | null;
+  }[];
+  activeRevision: number;
+  onPick: (revision: number) => void;
+}) {
+  if (revisions.length < 2) return null;
+  return (
+    <div className="version-compare" role="table" aria-label="档案版本对比">
+      <div className="version-compare-row version-compare-head" role="row">
+        <span role="columnheader">版本</span>
+        <span role="columnheader">结论</span>
+        <span role="columnheader">独立来源</span>
+        <span role="columnheader">原文</span>
+        <span role="columnheader">追加检索</span>
+        <span role="columnheader">人工修正</span>
+        <span role="columnheader">这一版变化</span>
+      </div>
+      {revisions.map((item) => {
+        const facts = item.assessment?.facts || [];
+        const supports = facts.reduce((sum, fact) => sum + (fact.supports || 0), 0);
+        const unclear = facts.reduce((sum, fact) => sum + (fact.unclear || 0), 0);
+        return (
+          <button
+            type="button"
+            className="version-compare-row"
+            role="row"
+            key={item.revision}
+            data-active={activeRevision === item.revision ? "true" : "false"}
+            onClick={() => onPick(item.revision)}
+          >
+            <span role="cell" className="version-compare-version">
+              v{item.revision}
+              <small>{formatTime(item.at)}</small>
+            </span>
+            <span role="cell">{item.verdict ? outcomeText[item.verdict.outcome] : "记录"}</span>
+            <span role="cell">
+              {item.assessment?.independentSources ?? "—"}
+              <small>支持 {supports} / 无法确认 {unclear}</small>
+            </span>
+            <span role="cell">{item.assessment?.bodyAvailable ?? "—"}</span>
+            <span role="cell">{item.followupCount || 0}</span>
+            <span role="cell">{item.correctionCount || 0}</span>
+            <span role="cell" className="version-compare-change">
+              {item.changes?.length ? item.changes[0] : item.revision === 1 ? "首次交付" : "无变化"}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 人工修正的前后对比：系统判什么、人改成什么、影响是什么。 */
+export function CorrectionDiff({
+  before,
+  after,
+  note,
+  actor,
+  at,
+  impact,
+}: {
+  before: string;
+  after: string;
+  note: string;
+  actor: string;
+  at: string;
+  impact?: {
+    sourceBefore: string;
+    sourceAfter: string;
+    factBefore: string;
+    factAfter: string;
+    supportsBefore: number;
+    supportsAfter: number;
+    clustersBefore: number;
+    clustersAfter: number;
+    verdictBefore: string;
+    verdictAfter: string;
+  };
+}) {
+  return (
+    <div className="correction-diff">
+      <div className="correction-diff-pair">
+        <span className="correction-diff-before">
+          <small>系统自动判断</small>
+          {relationText[before as Relation] || before}
+        </span>
+        <span className="correction-diff-arrow" aria-hidden="true">
+          →
+        </span>
+        <span className="correction-diff-after">
+          <small>人工修正</small>
+          {relationText[after as Relation] || after}
+        </span>
+      </div>
+      <p className="correction-diff-note">「{note}」</p>
+      <div className="correction-diff-meta">
+        <span>{actor}</span>
+        <span>{formatTime(at)}</span>
+        {impact ? <span className="trace-impact">对结论的影响：{impactText(impact)}</span> : null}
+      </div>
+    </div>
   );
 }
