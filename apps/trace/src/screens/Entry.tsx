@@ -274,7 +274,7 @@ export function Entry() {
   async function startExample(example: (typeof clueExamples)[number]) {
     // 只读展示：直接进入这次真实调查的回放，按钮不会发新请求。
     if (SHOWCASE) {
-      if (example.showcaseRunId) nav(caseHref(example.showcaseRunId));
+      if (example.showcaseRunId) nav(`/cases/${example.showcaseRunId}`);
       return;
     }
     if (example.mode === "clue") {
