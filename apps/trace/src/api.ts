@@ -141,17 +141,22 @@ export const CLUE_PROJECT_NAME = "线索侦探 · 线索追查流程";
 export async function ensureClueProject(): Promise<ProjectRecord> {
   if (SHOWCASE) throw readOnly();
   const projects = await client.projects();
-  const existing = projects.find((item) => item.name === CLUE_PROJECT_NAME);
-  if (existing) {
-    const same =
-      existing.steps.length === CLUE_ASSEMBLY.length &&
-      existing.steps.every((step, index) => step.capabilityId === CLUE_ASSEMBLY[index].capabilityId);
-    if (!same)
-      throw new Error("线索追查流程的能力序列已更新，请在 Studio 中删除旧项目后重试。");
-    return existing;
-  }
+  // 装配升级不应迫使用户离开 TRACE 到 Studio 手动删旧项目。
+  // 保留历史项目和运行记录；当前流程自动使用兼容项目或创建新版本。
+  const lineage = (name: string) =>
+    name === CLUE_PROJECT_NAME || name.startsWith(`${CLUE_PROJECT_NAME} · 更新-`);
+  const compatible = projects.find((item) =>
+    lineage(item.name) &&
+    item.steps.length === CLUE_ASSEMBLY.length &&
+    item.steps.every((step, index) =>
+      step.capabilityId === CLUE_ASSEMBLY[index].capabilityId &&
+      step.version === CLUE_ASSEMBLY[index].version
+    ),
+  );
+  if (compatible) return compatible;
+  const hasOldAssembly = projects.some((item) => lineage(item.name));
   return client.createProject({
-    name: CLUE_PROJECT_NAME,
+    name: hasOldAssembly ? `${CLUE_PROJECT_NAME} · 更新-${Date.now()}` : CLUE_PROJECT_NAME,
     layout: "business",
     permissions: [...PERMISSIONS, "model:invoke"],
     steps: CLUE_ASSEMBLY,
@@ -159,7 +164,7 @@ export async function ensureClueProject(): Promise<ProjectRecord> {
 }
 
 /** 一句话线索 → 真实调查（规划 + 元宝搜索 + 候选比对都在 Runtime 里完成）。 */
-export function startClueInvestigation(project: ProjectRecord, question: string) {
+export function startClueInvestigation(project: ProjectRecord, question: string, modelConsent = false) {
   return client.execute(
     project.id,
     {
@@ -167,7 +172,7 @@ export function startClueInvestigation(project: ProjectRecord, question: string)
       text: question,
       payload: { question },
       dataConsent: true,
-      modelConsent: true,
+      modelConsent,
     },
     project.revision,
   );
@@ -184,22 +189,23 @@ export async function ensureProject(withModel = false): Promise<ProjectRecord> {
     { capabilityId: "trace.model.archive", version: "1.0.0", config: {} },
   ] : ASSEMBLY;
   const projects = await client.projects();
-  const existing = projects.find((p) => p.name === name);
+  // 只在能力序列完全一致时复用项目；升级时保留旧运行并另建新版本。
+  // 避免用户必须跳进 Studio 删除历史项目才能从 TRACE 首页启动调查。
+  const family = (projectName: string) =>
+    projectName === name || projectName.startsWith(`${name} · 更新-`);
+  const existing = projects.find((p) =>
+    family(p.name) &&
+    p.steps.length === assembly.length &&
+    p.steps.every((s, i) => s.capabilityId === assembly[i].capabilityId && s.version === assembly[i].version),
+  );
   if (existing) {
-    // 能力序列变化时不允许静默替换，交给界面提示重新装配。
-    const same =
-      existing.steps.length === assembly.length &&
-      existing.steps.every((s, i) => s.capabilityId === assembly[i].capabilityId && s.version === assembly[i].version);
-    if (!same)
-      throw new Error(
-        "现有调查流程的项目装配与当前版本不一致，请在 Studio 中新建项目后重试，或删除旧项目。",
-      );
     if (!existing.validation.ready)
       throw new Error("当前调查流程有未满足的权限或依赖，请刷新能力状态并核对项目装配。");
     return existing;
   }
+  const needsNewVersion = projects.some((p) => family(p.name));
   return client.createProject({
-    name,
+    name: needsNewVersion ? `${name} · 更新-${Date.now()}` : name,
     layout: "business",
     permissions: withModel ? [...PERMISSIONS, "model:invoke"] : PERMISSIONS,
     steps: assembly,

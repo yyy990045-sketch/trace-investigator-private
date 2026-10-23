@@ -225,15 +225,22 @@ export class Registry {
         homedir(),
         "Projects/personal-ai-portfolio/registry/assets-index.json",
       );
-    const bytes = await readFile(path);
-    const source = JSON.parse(bytes.toString());
+    // 外部个人资产库是可选的历史来源目录，TRACE 独立部署不能依赖它。
+    // 缺失时明确展示未连接，不创建虚假源数据或假称已有血缘认证。
+    let bytes: Buffer | null = null;
+    try {
+      bytes = await readFile(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const source = bytes ? JSON.parse(bytes.toString()) : { meta: { version: "not_connected" }, capabilities: [] };
     const capabilities = [...this.definitions.values()].map((d) =>
       this.info(d),
     );
     return {
       registry: {
         version: source.meta.version,
-        sha256: hash(bytes.toString()),
+        sha256: bytes ? hash(bytes.toString()) : "",
         path,
       },
       capabilities,

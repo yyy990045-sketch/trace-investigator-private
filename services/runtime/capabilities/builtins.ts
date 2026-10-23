@@ -51,12 +51,17 @@ const anchors: Record<
 };
 async function mapping(assetId: string, adapter: string): Promise<AssetLink[]> {
   const a = anchors[assetId];
-  const registryBytes = await readFile(
-    join(
-      homedir(),
-      "Projects/personal-ai-portfolio/registry/assets-index.json",
-    ),
-  );
+  // 历史个人资产库不属于本仓库，也不是 TRACE Runtime 的启动依赖。
+  // 缺失时不伪造资产血缘；相关能力仍可独立运行。
+  const registryPath = process.env.PORTFOLIO_REGISTRY_PATH ||
+    join(homedir(), "Projects/personal-ai-portfolio/registry/assets-index.json");
+  let registryBytes: Buffer;
+  try {
+    registryBytes = await readFile(registryPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
   const registryVersion = JSON.parse(registryBytes.toString()).meta.version;
   const files = await Promise.all(
     a.paths.map(async (p) => {
