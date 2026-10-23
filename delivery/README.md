@@ -4,6 +4,22 @@
 
 > 2026-10-23 本轮：A/B/C各5/4/6版保留，新增真实DeepSeek案例D（1版），共32个原始档案文件。投稿简介、同版视频与实际限制见 `../docs/2026-10-23-trace-final-submission.md`。旧档案不改写，页面对历史系统措辞作准确说明。
 
+## 2026-10-24 最终交付（本轮定稿，先看这里）
+
+- 最终交付说明：`materials/TRACE-最终交付说明.md`（产品介绍 / 真实能力 / 三道锁定案例 / 能力边界 / 提交链接）
+- 公网地址（只读历史回放，匿名可访问）：https://trace-showcase-eight.vercel.app
+- 验收截图（公网实拍）：`trace-review-screenshots/`（桌面 1440×900、移动 390×844；首页、三案例结论区与关键证据区、三个档案页）
+- 三道锁定案例（V14 真实运行，非预写结论）：
+
+| 案例 | 运行 ID | 页面结论 | 案例页 | 档案 |
+| --- | --- | --- | --- | --- |
+| ① 个人信息保护法施行日期 | `run_7ff5367b` | 存在反证（2021-08-20 为通过/公布，施行是 2021-11-01） | [打开](https://trace-showcase-eight.vercel.app/#/cases/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6) | [档案](https://trace-showcase-eight.vercel.app/artifacts/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6/调查档案.md) |
+| ② 新能源汽车产量两组数字 | `run_5ac241c1` | 证据不足；1316.8（统计局）/ 1288.8（中汽协）两组并列，差异原因未核实 | [打开](https://trace-showcase-eight.vercel.app/#/cases/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6) | [档案](https://trace-showcase-eight.vercel.app/artifacts/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6/调查档案.md) |
+| ③ 全国氢能重卡加氢网络 | `run_8f812ae8` | 证据不足（3 份正文均无"全国建成"表述） | [打开](https://trace-showcase-eight.vercel.app/#/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95) | [档案](https://trace-showcase-eight.vercel.app/artifacts/run_8f812ae8-42f3-48d1-a353-84942f770e95/调查档案.md) |
+
+- 只读边界：公网不产生新的检索，真实元宝 SearchPro 检索只在本机 Runtime 执行；页面标注「历史调查记录（只读）」。
+- 下面 A/B/C/D 与旧视频属于 2026-10-23 的历史交付，保留不改写，仅作过程留档。
+
 ## 目录结构
 
 ```
@@ -19,11 +35,10 @@ delivery/
 │   ├── 案例C·证据不足与继续追问：全国氢能重卡加氢网络.pdf / .md
 │   ├── 案例C·进阶调查报告：一条氢能说法为什么查不下去.pdf / .md
 │   └── shots/               生成材料时现场截取的页面截图
-└── demo/
-    ├── trace-submission-final.mp4   本轮主视频：现场浏览历史记录，突出C/D
-    ├── trace-deepseek-replay.mp4    本轮D短片：已完成模型调用的记录回放
-    ├── trace-demo-full.mp4          旧视频，仅历史留存，不用于本次投稿
-    └── trace-demo-showcase-only.mp4 旧视频，仅历史留存
+├── demo/
+│   ├── trace-demo-full.mp4          166 秒完整演示（2026-10-23 录制）
+│   └── trace-demo-showcase-only.mp4 100 秒只读展示段（2026-10-23 录制）
+└── trace-review-screenshots/        2026-10-24 公网实拍验收截图（首页/三案例/档案，桌面与移动）
 ```
 
 ## 投稿对应关系
@@ -33,7 +48,7 @@ delivery/
 | 作品名称 | 溯证 TRACE |
 | 一句话简介 | 把一句可疑说法交给证据去检验——真实联网检索、抓原文、认转载、判支持与反对，最后给一份可复查、可追问、可纠错、有版本的调查档案。 |
 | 作品地址 | https://trace-showcase-eight.vercel.app |
-| 演示视频 | `demo/trace-submission-final.mp4`；D补充短片 `demo/trace-deepseek-replay.mp4` |
+| 演示视频 | `demo/trace-demo-full.mp4`（166 秒）；只读展示段 `demo/trace-demo-showcase-only.mp4`（100 秒） |
 | 案例材料 ×3 | `materials/案例A…pdf`、`案例B…pdf`、`案例C…pdf` |
 | 进阶报告 | `materials/案例C·进阶调查报告…pdf`；D模型复核说明见同目录 |
 | 赛道 / 工具 | 侦探 / 元宝搜索（腾讯云 WSA SearchPro）+ DeepSeek辅助语义复核 |

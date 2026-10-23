@@ -8,7 +8,11 @@ import { mkdir } from "node:fs/promises";
 const base = process.env.TRACE_SHOWCASE_URL || "http://127.0.0.1:4400";
 const output = "delivery/trace-review-screenshots";
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+// 允许用本机已缓存的 Chromium（不同 Playwright 版本自带的浏览器版本号不同）。
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.TRACE_CHROMIUM ? { executablePath: process.env.TRACE_CHROMIUM } : {}),
+});
 const errors = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
