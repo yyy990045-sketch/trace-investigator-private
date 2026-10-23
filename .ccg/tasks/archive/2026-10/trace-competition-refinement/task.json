@@ -1,0 +1,11 @@
+{
+  "id": "trace-competition-refinement",
+  "title": "TRACE 最新进度核查与参赛收敛",
+  "complexity": "M",
+  "risk": "medium",
+  "status": "completed",
+  "currentPhase": "completed",
+  "nextAction": "按已修订参赛说明补齐真实冲突案例、用户试用和同版材料，操作者处理公开分享与投稿",
+  "createdAt": "2026-10-23T04:55:38.299060+00:00",
+  "branch": "feature/trace-frontend-v2"
+}
