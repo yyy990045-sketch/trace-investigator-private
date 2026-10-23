@@ -556,3 +556,164 @@ describe("来源独立性判定", () => {
     expect(assessment.independentClusters).toBeLessThan(assessment.supports);
   });
 });
+
+/**
+ * 三道锁定题的真实断言（V14）。
+ * 判定依据来自本项目真实检索到的公开原文：
+ *  - 个人信息保护法：2021-08-20 通过、2021-11-01 施行；
+ *  - 新能源汽车产量：统计局口径 1316.8 万辆、中汽协口径 1288.8 万辆；
+ *  - 氢能重卡：只查到局部干线投运，没有「全国建成」的证据。
+ * 这里断言的是判断规则，不是某一篇文章的措辞。
+ */
+describe("三道锁定题：日期、数量、范围", () => {
+  const lawFact = {
+    id: "fact-1",
+    text: "《中华人民共和国个人信息保护法》自2021年8月20日起施行",
+    queries: ["个人信息保护法 施行日期"],
+    timeScope: "2021年",
+  };
+
+  it("把「通过日」当成「施行日」的说法必须判为证伪", async () => {
+    const { assessFact, aggregateCase, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [
+      {
+        id: "a",
+        url: "https://www.gov.cn/zhengce/2021-08/20/content_5632404.htm",
+        site: "中国政府网",
+        title: "中华人民共和国主席令（第九十一号）",
+        date: "2021-08-20",
+        // 官方原文：8月20日通过并公布，11月1日起施行。
+        passage:
+          "《中华人民共和国个人信息保护法》已由中华人民共和国第十三届全国人民代表大会常务委员会第三十次会议于2021年8月20日通过,现予公布,自2021年11月1日起施行。",
+        score: 0.9,
+      },
+    ];
+    const assessment = assessFact({
+      fact: lawFact as any,
+      pages,
+      bodies: new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }])),
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    expect(assessment.relation).toBe("contradicts");
+    const verdict = aggregateCase({
+      facts: [assessment],
+      searchSummary: { total: 1, failed: 0, empty: 0 },
+      pageCount: pages.length,
+      bodyCount: 0,
+      independentSourceCount: 1,
+      searchedOk: true,
+    });
+    expect(verdict.outcome).toBe("contradicted");
+  });
+
+  it("1288.8 万辆不满足「超过 1300 万辆」，1316.8 万辆满足", async () => {
+    const { assessFact, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const claim = { id: "fact-1", text: "2024年中国新能源汽车产量超过1300万辆", queries: ["产量"], subjectScope: "中国" };
+    const below = {
+      id: "a",
+      url: "https://news.cctv.com/2025/01/13/x.html",
+      site: "央视网",
+      title: "2024年新能源汽车产销量",
+      date: "2025-01-13",
+      passage: "2024年,我国新能源汽车产销量分别完成1288.8万辆和1286.6万辆,同比分别增长34.4%和35.5%。",
+      score: 0.8,
+    };
+    const above = {
+      id: "b",
+      url: "https://www.stats.gov.cn/sj/zxfb/202502/t20250228.html",
+      site: "国家统计局",
+      title: "2024年国民经济和社会发展统计公报",
+      date: "2025-02-28",
+      passage: "2024年,我国新能源汽车产量达1316.8万辆,比上年增长38.7%。",
+      score: 0.9,
+    };
+    const evaluate = (page: typeof below) =>
+      assessFact({
+        fact: claim as any,
+        pages: [page],
+        bodies: new Map([[page.id, { ok: false, text: "", reprintMarkers: [] as string[] }]]),
+        clusterOf: clusterSources([page]),
+        duplicatePages: new Set<string>(),
+      }).sources[0].relation;
+    expect(evaluate(below)).toBe("contradicts");
+    expect(evaluate(above)).toBe("supports");
+  });
+
+  it("两组产量数字都能追溯到出处，但不能据此断定差异成因", async () => {
+    const { assessFact, aggregateCase, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [
+      {
+        id: "a",
+        url: "https://www.stats.gov.cn/sj/zxfb/202502/t20250228.html",
+        site: "国家统计局",
+        title: "2024年国民经济和社会发展统计公报",
+        date: "2025-02-28",
+        passage: "2024年,我国新能源汽车产量达1316.8万辆,比上年增长38.7%。",
+        score: 0.9,
+      },
+      {
+        id: "b",
+        url: "https://news.cctv.com/2025/01/13/x.html",
+        site: "央视网",
+        title: "2024年新能源汽车产销量",
+        date: "2025-01-13",
+        passage: "2024年,我国新能源汽车产销量分别完成1288.8万辆和1286.6万辆,同比分别增长34.4%和35.5%。",
+        score: 0.8,
+      },
+    ];
+    const assessment = assessFact({
+      fact: { id: "fact-1", text: "2024年中国新能源汽车产量为1316.8万辆", queries: ["产量"], subjectScope: "中国" } as any,
+      pages,
+      bodies: new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }])),
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    const verdict = aggregateCase({
+      facts: [assessment],
+      searchSummary: { total: 2, failed: 0, empty: 0 },
+      pageCount: pages.length,
+      bodyCount: 0,
+      independentSourceCount: 2,
+      searchedOk: true,
+    });
+    // 结论只能是「还在争 / 证据不足」，不能据此认定谁算错；两组数字都要留在来源里。
+    expect(["disputed", "insufficient"]).toContain(verdict.outcome);
+    expect(assessment.sources.map((s) => s.url)).toEqual(
+      expect.arrayContaining([pages[0].url, pages[1].url]),
+    );
+    expect(verdict.statement + verdict.reasons.join(" ")).not.toContain("统计范围一定不同");
+  });
+
+  it("局部干线投运不能证明全国网络建成，也不能据此判定「说法是假的」", async () => {
+    const { assessFact, aggregateCase, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [
+      {
+        id: "a",
+        url: "https://www.jjckb.cn/2025-04/15/x.html",
+        site: "经济参考网",
+        title: "我国首条跨区域氢能重卡干线投运",
+        date: "2025-04-15",
+        passage: "2025年4月14日,我国首条跨区域氢能重卡干线正式投运,全长约1150公里,沿线加氢站尚未覆盖全国。",
+        score: 0.8,
+      },
+    ];
+    const assessment = assessFact({
+      fact: { id: "fact-1", text: "2025年全国已建成覆盖全国的氢能长途重卡加氢网络", queries: ["氢能重卡"], subjectScope: "中国", timeScope: "2025年" } as any,
+      pages,
+      bodies: new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }])),
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    const verdict = aggregateCase({
+      facts: [assessment],
+      searchSummary: { total: 1, failed: 0, empty: 0 },
+      pageCount: pages.length,
+      bodyCount: 0,
+      independentSourceCount: 1,
+      searchedOk: true,
+    });
+    expect(verdict.outcome).toBe("insufficient");
+    expect(verdict.outcome).not.toBe("supported");
+  });
+});

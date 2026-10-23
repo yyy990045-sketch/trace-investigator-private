@@ -1239,7 +1239,16 @@ export function assessFact(options: AssessOptions): FactAssessment {
     (s) => s.relation === "supports" && s.scopeCompatible !== false && s.dateStatus !== "out_of_range" && independent(s),
   );
   const supportClusters = new Set(countedSupports.map((s) => evidenceKey(s)));
-  const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts" && independent(s)).map((s) => s.clusterId));
+  // 范围不一致的来源不能当整句的反证：只覆盖局部（一条干线、一个城市）的表述，
+  // 既不能证明「全国已成」，也不能证明「全国未成」。
+  const scopeExcludedOppose = sources.filter(
+    (s) => s.relation === "contradicts" && s.scopeCompatible === false,
+  );
+  const opposeClusters = new Set(
+    sources
+      .filter((s) => s.relation === "contradicts" && independent(s) && s.scopeCompatible !== false)
+      .map((s) => s.clusterId),
+  );
   // "取得关键原文"要求：正文里真的找到了与该说法相关的句子，而不只是请求成功。
   const keySentenceSources = sources.filter((s) => s.bodyStatus === "evidence_sentence");
   const bodyBacked = new Set(
@@ -1430,7 +1439,13 @@ export function aggregateCase(input: {
   }
   if (none.length && !supported.length) {
     // 区分两种「没有支持」：真的没有相关来源，还是相关内容因时间要求被排除。
-    const staleCount = facts.reduce((n, f) => n + f.outOfRangeSupports, 0);
+    // 只把「范围一致但过期」的支持来源算作时效问题：局部证据本来就不能支撑整句，
+    // 不能因为它过期就说整条说法「信息过期」。
+    const staleCount = facts.reduce(
+      (n, f) =>
+        n + f.sources.filter((source) => source.relation === "supports" && source.scopeCompatible !== false && source.dateStatus === "out_of_range").length,
+      0,
+    );
     if (staleCount > 0) {
       reasons.push(
         `找到 ${staleCount} 条内容相关的来源，但都不满足事实的时间要求（期间不符或发布时间过旧），不能支撑当前结论。`,
@@ -1443,7 +1458,21 @@ export function aggregateCase(input: {
         counts,
       };
     }
-    reasons.push("没有任何来源与待核查事实形成可比对表述。");
+    // 有相关表述，只是过不了范围/独立性核对时，不能写成「没有任何来源」。
+    const allSources = facts.flatMap((fact) => fact.sources);
+    const related = allSources.filter((source) => source.relation === "supports" || source.relation === "contradicts");
+    if (related.length) {
+      const sup = related.filter((source) => source.relation === "supports").length;
+      const opp = related.filter((source) => source.relation === "contradicts").length;
+      const localOnly = related.filter((source) => source.scopeCompatible === false).length;
+      reasons.push(
+        `找到相关表述（支持 ${sup} 条、相反 ${opp} 条），但都没有同时满足范围一致与独立性要求，因此不能据此下结论${
+          localOnly ? `；其中 ${localOnly} 条只覆盖局部范围` : ""
+        }。`,
+      );
+    } else {
+      reasons.push("没有任何来源与待核查事实形成可比对表述。");
+    }
     return {
       outcome: "insufficient",
       headline: "证据不足，暂不下结论。",
@@ -1698,7 +1727,16 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
     (s) => s.relation === "supports" && s.scopeCompatible !== false && s.dateStatus !== "out_of_range" && independent(s),
   );
   const supportClusters = new Set(countedSupports.map((s) => evidenceKey(s)));
-  const opposeClusters = new Set(sources.filter((s) => s.relation === "contradicts" && independent(s)).map((s) => s.clusterId));
+  // 范围不一致的来源不能当整句的反证：只覆盖局部（一条干线、一个城市）的表述，
+  // 既不能证明「全国已成」，也不能证明「全国未成」。
+  const scopeExcludedOppose = sources.filter(
+    (s) => s.relation === "contradicts" && s.scopeCompatible === false,
+  );
+  const opposeClusters = new Set(
+    sources
+      .filter((s) => s.relation === "contradicts" && independent(s) && s.scopeCompatible !== false)
+      .map((s) => s.clusterId),
+  );
   // "取得关键原文"要求：正文里真的找到了与该说法相关的句子，而不只是请求成功。
   const keySentenceSources = sources.filter((s) => s.bodyStatus === "evidence_sentence");
   const bodyBacked = new Set(
