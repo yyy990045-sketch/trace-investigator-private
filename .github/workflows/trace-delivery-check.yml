@@ -39,7 +39,7 @@ jobs:
         run: node tooling/trace-showcase-refresh.mjs
       - name: Install Chromium for UI smoke test
         run: npx playwright install --with-deps chromium
-      - name: Browser smoke: desktop, mobile, three locked cases
+      - name: Browser smoke on desktop and mobile with three locked cases
         run: |
           python3 -m http.server 4400 --directory delivery/trace-showcase >/tmp/trace-static-server.log 2>&1 &
           sleep 2
