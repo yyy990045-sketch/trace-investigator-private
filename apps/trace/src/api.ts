@@ -733,6 +733,9 @@ export interface CandidateMatchView {
   title: string;
   from: "body" | "excerpt";
   scope?: "sentence" | "paragraph" | "page";
+  relation?: "direct" | "indirect" | "unverified";
+  subject?: string;
+  decisive?: boolean;
 }
 
 export interface CandidateView {
@@ -782,6 +785,7 @@ export interface ClueAssessmentView {
     nextQueries: { query: string; reason: string }[];
     askUser: string | null;
     auxiliaryClues?: string[];
+    decisiveClues?: string[];
     /** 与答案无关但仍未查清的关系疑点 */
     openRelations?: string[];
   };

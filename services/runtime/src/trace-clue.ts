@@ -98,7 +98,7 @@ export function clueAssessment(store: Store, runId: string): ClueAssessment {
   const { bundle, pages, bodies, clues, rounds, answers } = clueState(store, runId);
   const raw = extractCandidates(pages, bodies, [...new Set(clues.flatMap((clue) => clue.terms || []))]);
   const targetKind = detectTargetKind(String(bundle.case?.question || bundle.case?.goal || ""));
-  const { candidates, relations, graph, pending, decision } = evaluateCandidates(raw, clues, pages, bodies, targetKind);
+  const { candidates, relations, graph, pending, decision } = evaluateCandidates(raw, clues, pages, bodies, targetKind, String(bundle.case?.question || ""));
   // 只有「会影响答案」的关系疑点才把结论退回不确定：
   // 也就是待查关系涉及的候选，线索命中数与头名只差 1 条以内。
   const best = candidates[0];

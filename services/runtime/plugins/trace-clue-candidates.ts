@@ -46,7 +46,7 @@ export default {
     const raw = extractCandidates(pages, bodies, [...new Set(allClues.flatMap((clue) => clue.terms || []))]);
     // 用户找的是剧、书还是人？决定哪些候选只是关系项（原著/角色/续作），不参与排名。
     const targetKind = detectTargetKind(String(input.case?.question || input.case?.goal || ""));
-    const { candidates, relations, graph, pending, decision } = evaluateCandidates(raw, allClues, pages, bodies, targetKind);
+    const { candidates, relations, graph, pending, decision } = evaluateCandidates(raw, allClues, pages, bodies, targetKind, String(String(input.case?.question || "") || ""));
 
     ctx.evidence("trace.candidates", {
       goal: input.case?.goal || input.case?.question || "",

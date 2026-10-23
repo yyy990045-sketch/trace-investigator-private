@@ -379,6 +379,42 @@ export function ClueCase({
           </div>
         ) : null}
 
+        {decision?.decisiveClues?.length ? (
+          <div className="clue-decisive">
+            <h3>用来定案的决定性线索</h3>
+            <ul>
+              {decision.decisiveClues.map((clue) => {
+                const hit = candidates[0]?.matches.find((match) => match.clue === clue && match.found);
+                return (
+                  <li key={clue} data-hit={hit ? "true" : "false"}>
+                    <b>{clue}</b>
+                    {hit ? <span>「{hit.sentence}」</span> : <span>还没有直接证据</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {candidates.length > 1 ? (
+          <div className="clue-explain">
+            <h3>其他候选缺少的关键证据</h3>
+            <ul>
+              {candidates.slice(1, 4).map((candidate) => {
+                const missing = candidate.matches.filter((match) => match.decisive && !match.found);
+                return (
+                  <li key={candidate.name}>
+                    <b>{candidate.name}</b>
+                    {missing.length
+                      ? `：${missing.map((match) => `「${match.clue}」`).join("、")} 没有直接证据`
+                      : "：决定性线索都能对上，仍无法排除"}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
         {decision?.state === "found" && decision.auxiliaryClues?.length ? (
           <p className="clue-hint">
             说明：{decision.auxiliaryClues.join("、")} 属于题材/地区类线索，网页里没有和片名出现在同一句，按整页内容判断，未单独取证。
@@ -565,12 +601,18 @@ function CandidateCard({
   highlight: boolean;
   clues: ClueItemView[];
 }) {
+  const decisiveMatches = candidate.matches.filter((match) => match.decisive);
+  // 决定性线索排前面：先看能不能定案，再看补充信息。
+  const orderedMatches = [...candidate.matches].sort(
+    (a, b) => Number(b.decisive) - Number(a.decisive) || Number(b.found) - Number(a.found),
+  );
   return (
     <article className="clue-candidate" data-highlight={highlight ? "true" : "false"}>
       <header>
         <h3>{candidate.name}</h3>
         <span>
-          {candidate.matchedClues}/{clues.length} 条线索 · {candidate.sites} 个来源提到
+          决定性 {decisiveMatches.filter((match) => match.found).length}/{decisiveMatches.length} · 全部线索{" "}
+          {candidate.matchedClues}/{clues.length} · {candidate.sites} 个来源提到
         </span>
         {candidate.entity && candidate.entity.role !== "competitor" ? (
           <em className="clue-entity-tag">
@@ -580,11 +622,14 @@ function CandidateCard({
         ) : null}
       </header>
       <ul className="clue-matches">
-        {candidate.matches.map((match) => (
+        {orderedMatches.map((match) => (
           <li key={match.clueId} data-found={match.found ? "true" : "false"}>
             <span className="clue-match-icon">{match.found ? <Check size={12} /> : <X size={12} />}</span>
             <div>
               <b>{match.clue}</b>
+            <em className="clue-match-tag" data-kind={match.decisive ? "decisive" : "ordinary"}>
+              {match.decisive ? "决定性线索" : "普通线索"}
+            </em>
               {match.found ? (
                 <>
                   <p className="clue-evidence">「{match.sentence}」</p>
@@ -595,6 +640,13 @@ function CandidateCard({
                     {match.from === "body" ? "网页正文" : "搜索摘要"}
                     {match.scope === "page" ? " · 同一网页内出现，未同句" : match.scope === "paragraph" ? " · 同段出现" : ""}
                   </span>
+                </>
+              ) : match.relation === "indirect" ? (
+                <>
+                  <p className="clue-evidence">「{match.sentence}」</p>
+                  <p className="clue-missing">
+                    这句在讲别的对象，不能算 {candidate.name} 的证据（未计入）
+                  </p>
                 </>
               ) : (
                 <p className="clue-missing">还没有找到对应证据</p>

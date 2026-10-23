@@ -82,9 +82,21 @@ const CASES = [
   },
   {
     key: "N",
-    runId: "run_d403d238-2c64-42f3-9c86-3c9a1b57f67c",
+    runId: "run_1413b04d-4b42-4806-9060-da6b40d1a432",
     label: "线索侦探｜陌生电影（八分钟循环）",
-    note: "「主角坐在火车里，每次只能经历八分钟，反复调查一次爆炸」：真实检索后命中《源代码》，盗梦空间/大话西游等同题材片只作为竞争候选列出。",
+    note: "「主角坐在火车里，每次只能经历八分钟，反复调查一次爆炸」：4 条决定性线索全部绑定到《源代码》本身；同类题材片只命中 1-2 条，不再出现 5/6 的虚假高分。",
+  },
+  {
+    key: "O",
+    runId: "run_1a0dfde4-23bf-4b2b-a914-851e9d3f8de7",
+    label: "线索侦探｜角色名定位（爬山梗）",
+    note: "「男主叫张东升，带岳父岳母爬山后只剩他回来」：角色名作为决定性线索命中《隐秘的角落》，其他同名条目没有这条证据。",
+  },
+  {
+    key: "P",
+    runId: "run_b2f22225-c965-4b7a-a11c-57b6071da6dd",
+    label: "线索调查｜信息不足（只记得是警察）",
+    note: "「一部老电影，主角是警察，结局很惨」：只有 1 条决定性线索且整体覆盖不足，系统明确停在证据不足，没有硬选一个答案。",
   },
   {
     key: "E",
@@ -237,7 +249,12 @@ async function main() {
     artifactIndex,
   };
 
-  const serialized = JSON.stringify(data, null, 0);
+  // 网页正文里出现的第三方手机号/身份证等，公开展示一律脱敏（不改变证据含义，只遮掉个人号码）。
+  const redact = (value) =>
+    value
+      .replace(/(?<![0-9a-fA-F])1[3-9]\d{9}(?![0-9a-fA-F])/g, "[手机号已隐去]")
+      .replace(/(?<!\d)\d{17}[\dXx](?!\d)/g, "[证件号已隐去]");
+  const serialized = redact(JSON.stringify(data, null, 0));
   if (/sk-[A-Za-z0-9]{12,}/.test(serialized))
     throw new Error("导出数据里出现疑似 API Key，已中止。");
   if (serialized.includes("/Users/")) throw new Error("导出数据里仍有本机绝对路径，已中止。");

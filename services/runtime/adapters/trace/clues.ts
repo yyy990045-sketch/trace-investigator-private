@@ -57,8 +57,14 @@ export interface CandidateMatch {
   title: string;
   /** 证据句来自网页正文还是搜索摘要（摘要不能冒充全文） */
   from: "body" | "excerpt";
-  /** 证据强度：同句 > 同段 > 同一网页（地区/题材这类线索常不与片名同句） */
+  /** 证据落在什么粒度：同句 > 同段 > 同一网页（后两者只能算间接关联） */
   scope: "sentence" | "paragraph" | "page";
+  /** 这条证据属于哪一类：直接支持 / 间接关联 / 未核实 */
+  relation: "direct" | "indirect" | "unverified";
+  /** 证据实际描述的主体（通常等于候选名；列举句里会是别人） */
+  subject: string;
+  /** 这是不是决定性线索 */
+  decisive: boolean;
 }
 
 /** 用户到底在找什么：作品（剧/电影）、书、人，或还没说清。 */
@@ -114,6 +120,8 @@ export interface Candidate {
 }
 
 export interface ClueDecision {
+  /** 决定性线索（用来定案的那些） */
+  decisiveClues?: string[];
   state: "found" | "ambiguous" | "insufficient";
   headline: string;
   /** 继续检索时，为什么继续、查什么 */
@@ -145,11 +153,15 @@ const TRADITIONAL: Record<string, string> = {
   醫: "医", 學: "学", 劇: "剧", 國: "国", 電: "电", 視: "视", 偵: "侦", 探: "探",
   證: "证", 據: "据", 網: "网", 絡: "络", 殺: "杀", 懸: "悬", 線: "线",
   廳: "厅", 級: "级", 員: "员", 節: "节",
+  碼: "码", 際: "际", 間: "间", 製: "制", 發: "发", 開: "开", 關: "关", 戲: "戏",
+  眾: "众", 聲: "声", 語: "语", 財: "财", 運: "运", 輸: "输", 練: "练", 習: "习",
+  題: "题", 樣: "样", 麼: "么", 為: "为", 與: "与", 這: "这", 對: "对", 點: "点",
+  產: "产", 銷: "销", 車: "车", 長: "长", 門: "门", 東: "东", 們: "们", 個: "个",
 };
 const normalized = (value: string) =>
   value
     .replace(/[\s"'“”‘’·・\-—_()（）]/g, "")
-    .replace(/[醫學劇國電視偵證據網絡殺懸線廳級員節]/g, (char) => TRADITIONAL[char] || char);
+    .replace(/[醫學劇國電視偵證據網絡殺懸線廳級員節碼際間製發開關戲眾聲語財運輸練習題樣麼為與這對點產銷車長門東們個]/g, (char) => TRADITIONAL[char] || char);
 
 /**
  * 从检索结果中提取候选。
@@ -377,81 +389,152 @@ function snippetAround(text: string, name: string, size = 160) {
   return `${start > 0 ? "…" : ""}${plain.slice(start, start + size).trim()}${start + size < plain.length ? "…" : ""}`;
 }
 
+/** 题材/身份/地区这类词区分不了候选，不能算决定性线索。 */
+const GENERIC_CLUE_TERMS = new Set([
+  "男主角", "女主角", "男主", "女主", "主角", "演员", "电影", "影片", "电视剧", "剧集", "剧",
+  "科幻", "悬疑", "惊悚", "破案", "刑侦", "警匪", "警匪片", "国产", "香港", "中国", "美国", "英国",
+  "现代", "古装", "场景", "剧情", "情节", "故事",
+  "破案剧", "刑侦剧", "悬疑剧", "警匪剧", "类型片", "男主", "女主", "双男主", "双女主",
+  "结局", "结局场景", "两个主角", "主角设定", "男一号", "女一号", "演员表", "卡司",
+]);
+
+/** 具体情节词：这些词一出现，线索就把候选区分开了。 */
+const PLOT_TERMS =
+  /(爆炸|炸弹|拆弹|循环|穿越|重生|卧底|天台|对决|复仇|谋杀|凶杀|失踪|绑架|越狱|监狱|法庭|审判|医院|校园|丧尸|外星|机器人|人工智能|时间倒流|失忆|双胞胎|火灾|地震|海难|空难|列车|火车|飞机|潜艇|沙漠|荒岛|雪山|赛车|拳击|足球|比赛|赌场|黑帮|法医|侦探|律师|医生|刑警|警察|教师|学生|歌手|舞蹈|档案|密码|密室)/;
+
+/**
+ * 决定性线索：带数字时长，或带具体情节词，才算能把候选区分开。
+ * 题材（科幻/悬疑）、地区（国产/香港）、泛身份（男主角）都不算。
+ */
+export function isDecisiveClue(clue: ClueItem, question = ""): boolean {
+  const text = `${clue.text} ${(clue.terms || []).join(" ")}`;
+  // 用户在问题里点名的人名/角色名（「男主叫张东升」）本身就是决定性线索。
+  if (question && (clue.terms || []).some((term) => term.length >= 2 && new RegExp(`(叫|名叫|叫做|名字叫)\\s*${term}`).test(question)))
+    return true;
+  if (/\d|([一二三四五六七八九十百千两]+)\s*(分钟|小时|次|天|年|层|万个|万辆|万|亿)/.test(text)) return true;
+  if (PLOT_TERMS.test(text)) return true;
+  return (
+    clue.kind === "subject" &&
+    (clue.terms || []).some((term) => term.length >= 2 && !GENERIC_CLUE_TERMS.has(term))
+  );
+}
+
+/**
+ * 这句话到底在讲谁？
+ *  - subject：候选名就是句子的主语（书名号里的第一个片名，或句首）
+ *  - listed：候选只是被列举出来的片名之一（《A》《B》《C》等）
+ *  - comparison：句子主语是别的候选，本候选只是被拿来对比
+ *  - unclear：判断不了
+ */
+export function attributeSentence(sentence: string, name: string, others: string[] = []): {
+  attribution: "subject" | "listed" | "comparison" | "unclear";
+  subject: string;
+} {
+  const quoted = [...sentence.matchAll(/《([^》]{2,24})》/g)].map((match) => match[1].trim());
+  const key = normalized(name);
+  const firstQuoted = quoted[0];
+  const inSentence = normalized(sentence).includes(key);
+  if (!inSentence) return { attribution: "unclear", subject: firstQuoted || "" };
+
+  const listLike =
+    quoted.length >= 2 &&
+    /》\s*[、和及与]\s*《/.test(sentence) &&
+    /(等|影子|借鉴|类似|相比|系列|盘点|十大|推荐|片单)/.test(sentence);
+  const isFirst = firstQuoted ? normalized(firstQuoted) === key : sentence.trimStart().startsWith(name);
+  if (listLike) {
+    // 列举句里只有「第一个被提到的片名 + 随后讲述剧情」才算它的证据。
+    const narrative = /(讲述|讲述的是|剧情|故事梗概|主角是|男主是)/.test(sentence);
+    if (!(isFirst && narrative)) return { attribution: "listed", subject: firstQuoted || "" };
+  }
+  if (firstQuoted && normalized(firstQuoted) !== key) {
+    const mentionsOther = others.some((other) => normalized(other) === normalized(firstQuoted));
+    if (mentionsOther) return { attribution: "comparison", subject: firstQuoted };
+  }
+  return isFirst ? { attribution: "subject", subject: name } : { attribution: "unclear", subject: firstQuoted || "" };
+}
+
+/** 候选名与线索词要在同一小段里，避免「整段提到多处」被当成一条证据。 */
+function nearClue(sentence: string, name: string, terms: string[]): boolean {
+  const flat = normalized(sentence);
+  const at = flat.indexOf(normalized(name));
+  if (at < 0) return false;
+  return terms.some((term) => {
+    const value = normalized(term);
+    if (!value) return false;
+    return [...flat.matchAll(new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))].some(
+      (match) => Math.abs((match.index || 0) - at) <= 60,
+    );
+  });
+}
+
 /** 把一个候选与线索逐条比对：同句优先，退一步到同段落共现，都保留原句。 */
 export function matchCandidate(
   candidate: Candidate,
   clues: ClueItem[],
   pages: PageLike[],
   bodies: Map<string, BodyLike>,
+  otherNames: string[] = [],
+  question = "",
 ): Candidate {
   const matches: CandidateMatch[] = [];
+  const others = otherNames.filter((name) => normalized(name) !== normalized(candidate.name));
   for (const clue of clues) {
+    const decisive = isDecisiveClue(clue, question);
     let hit: CandidateMatch | null = null;
+    /** 只提到候选名、但证据不属于它的句子，留作「间接关联」备查。 */
+    let indirect: CandidateMatch | null = null;
     const hasTerm = (value: string) => clue.terms.some((term) => normalized(value).includes(normalized(term)));
+
     for (const page of pages) {
       if (!page.url) continue;
       const body = bodies.get(page.id);
-      // 正文优先，其次搜索摘要：命中位置要标清楚，摘要不能冒充全文。
       const blocks: { from: "body" | "excerpt"; text: string }[] = [
         ...(body?.ok ? [{ from: "body" as const, text: body.text.slice(0, 20_000) }] : []),
         { from: "excerpt" as const, text: [page.title, page.passage].join("\n") },
       ];
       for (const block of blocks) {
         for (const sentence of block.text.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).filter(Boolean)) {
-          const pure = normalized(sentence);
-          if (!pure.includes(normalized(candidate.name)) || !hasTerm(sentence)) continue;
-          hit = { clueId: clue.id, clue: clue.text, found: true, sentence: snippetAround(sentence, candidate.name), url: page.url, site: page.site, title: page.title, from: block.from, scope: "sentence" };
-          break;
-        }
-        if (hit) break;
-        for (const paragraph of block.text.split(/\n+/).map((item) => item.trim()).filter(Boolean)) {
-          const pure = normalized(paragraph);
-          if (pure.length > 600) continue;
-          if (!pure.includes(normalized(candidate.name)) || !hasTerm(paragraph)) continue;
-          hit = { clueId: clue.id, clue: clue.text, found: true, sentence: snippetAround(paragraph, candidate.name), url: page.url, site: page.site, title: page.title, from: block.from, scope: "paragraph" };
-          break;
+          if (!normalized(sentence).includes(normalized(candidate.name)) || !hasTerm(sentence)) continue;
+          // 关键：先判断这句话到底在讲谁，再决定算不算证据。
+          const { attribution, subject } = attributeSentence(sentence, candidate.name, others);
+          const base = {
+            clueId: clue.id,
+            clue: clue.text,
+            sentence: snippetAround(sentence, candidate.name),
+            url: page.url,
+            site: page.site,
+            title: page.title,
+            from: block.from,
+            decisive,
+          };
+          if (attribution === "subject" && nearClue(sentence, candidate.name, clue.terms)) {
+            hit = { ...base, found: true, scope: "sentence", relation: "direct", subject: candidate.name };
+            break;
+          }
+          if (!indirect && (attribution === "subject" || attribution === "unclear")) {
+            indirect = { ...base, found: false, scope: "sentence", relation: "indirect", subject: subject || candidate.name };
+          }
         }
         if (hit) break;
       }
       if (hit) break;
     }
-    // 地区/题材这类线索通常不会和片名出现在同一句里：退到「同一网页内出现」，
-    // 但把强度明确标成 page，界面上会写清「同一网页内出现，未同句」。
-    if (!hit && (clue.kind === "region" || clue.kind === "genre")) {
-      for (const page of pages) {
-        if (!page.url) continue;
-        const mentioned = page.title.includes(candidate.name) || page.passage.includes(candidate.name);
-        if (!mentioned) continue;
-        const body = bodies.get(page.id);
-        const haystack = [page.title, page.passage, body?.ok ? body.text.slice(0, 4000) : ""].join("\n");
-        if (!hasTerm(haystack)) continue;
-        const sentence = haystack.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).find((item) => hasTerm(item)) || "";
-        hit = {
+    matches.push(
+      hit ||
+        indirect || {
           clueId: clue.id,
           clue: clue.text,
-          found: true,
-          sentence: sentence.slice(0, 160),
-          url: page.url,
-          site: page.site,
-          title: page.title,
-          from: body?.ok ? "body" : "excerpt",
-          scope: "page",
-        };
-        break;
-      }
-    }
-    matches.push(
-      hit || {
-        clueId: clue.id,
-        clue: clue.text,
-        found: false,
-        sentence: "",
-        url: candidate.pages[0]?.url || "",
-        site: "",
-        title: "",
-        from: "excerpt" as const,
-        scope: "sentence" as const,
-      },
+          found: false,
+          sentence: "",
+          url: candidate.pages[0]?.url || "",
+          site: "",
+          title: "",
+          from: "excerpt" as const,
+          scope: "sentence" as const,
+          relation: "unverified" as const,
+          subject: "",
+          decisive,
+        },
     );
   }
   const matchedClues = matches.filter((item) => item.found).length;
@@ -468,6 +551,7 @@ export function evaluateCandidates(
   pages: PageLike[],
   bodies: Map<string, BodyLike>,
   targetKind: EntityKind = "unknown",
+  question = "",
 ): {
   candidates: Candidate[];
   relations: Candidate[];
@@ -513,12 +597,14 @@ export function evaluateCandidates(
             url: byRelation.relation?.evidence[0]?.url || heuristic.url,
             site: byRelation.relation?.evidence[0]?.site || heuristic.site,
           };
-    return matchCandidate({ ...candidate, entity }, clues, pages, bodies);
+    return matchCandidate({ ...candidate, entity }, clues, pages, bodies, raw.map((item) => item.name), question);
   });
   const relations = classified.filter((item) => isRelation(item, targetKind));
   const candidates = classified
     .filter((item) => !isRelation(item, targetKind))
-    .sort((a, b) => b.matchedClues - a.matchedClues || b.score - a.score);
+    .sort((a, b) => b.matchedClues - a.matchedClues || b.score - a.score)
+    // 一条线索都没对上的名字（正文里的栏目名、标语）不占候选位，避免把噪声摆到用户面前。
+    .filter((item, index) => item.matchedClues > 0 || index === 0);
   const pending = planDisambiguation(
     candidates.map((item) => ({ name: item.name, matchedClues: item.matchedClues, missingClues: item.missingClues })),
     graph,
@@ -541,12 +627,27 @@ export function evaluateCandidates(
   const best = candidates[0];
   const runnerUp = candidates[1];
   const total = clues.length;
-  const tie = Boolean(runnerUp && runnerUp.matchedClues === best.matchedClues && best.score - runnerUp.score < 2);
+  // 决定性线索才决定答案：题材/身份/地区这类词命中多少都不足以定案。
+  const decisiveOf = (candidate: Candidate | undefined) =>
+    (candidate?.matches || []).filter((match) => match.decisive);
+  const decisiveMissing = decisiveOf(best).filter((match) => !match.found).map((match) => match.clue);
+  const decisiveHit = decisiveOf(best).filter((match) => match.found).length;
+  const runnerDecisiveMissing = runnerUp
+    ? decisiveOf(runnerUp).filter((match) => !match.found).length
+    : Number.POSITIVE_INFINITY;
+  const tie = Boolean(
+    runnerUp &&
+      runnerUp.matchedClues === best.matchedClues &&
+      best.score - runnerUp.score < 2 &&
+      runnerDecisiveMissing === 0,
+  );
   // 题材/地区这类线索常常只出现在网页别处：它们没同句命中时不算决定性缺口，但必须写进结论。
   const auxiliary = clues.filter((clue) => clue.kind === "genre" || clue.kind === "region").map((clue) => clue.text);
   const auxiliaryMissing = best.missingClues.filter((text) => auxiliary.includes(text));
-  const decisiveMissing = best.missingClues.filter((text) => !auxiliary.includes(text));
-  if (!decisiveMissing.length && !tie)
+  // 只有「决定性线索全部有直接证据」才算找到答案；普通线索缺一两条不影响。
+  const coverage = total ? best.matchedClues / total : 0;
+  const enough = decisiveHit >= 2 || coverage >= 0.6;
+  if (!decisiveMissing.length && decisiveHit > 0 && enough && !tie)
     return {
       candidates,
       relations,
@@ -554,7 +655,10 @@ export function evaluateCandidates(
       pending,
       decision: {
         state: "found",
-        headline: `线索全部对上：${best.name}`,
+        decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
+        headline: decisiveOf(best).length
+          ? `决定性线索全部对上：${best.name}`
+          : `线索全部对上：${best.name}`,
         nextQueries: [],
         askUser: null,
         ...(auxiliaryMissing.length ? { auxiliaryClues: auxiliaryMissing } : {}),
@@ -579,6 +683,7 @@ export function evaluateCandidates(
       pending,
       decision: {
         state: "ambiguous",
+        decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
         headline: `找到 ${candidates.length} 个可能候选，还差一条能区分的线索`,
         nextQueries,
         askUser: askClue
@@ -598,6 +703,7 @@ export function evaluateCandidates(
     pending,
     decision: {
       state: nextQueries.length ? "insufficient" : "found",
+      decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
       headline: nextQueries.length
         ? `比较接近的是「${best.name}」，但还缺证据`
         : `线索全部对上：${best.name}`,
