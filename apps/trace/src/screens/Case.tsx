@@ -293,9 +293,6 @@ export function Case() {
         />
       ) : null}
       {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
-      <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
-      <InvestigationRoles run={run} />
-      <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
 
       {run.status === "rejected" || run.status === "canceled" ? (
         <section className="trace-blocker" role="status">
@@ -324,6 +321,21 @@ export function Case() {
             </span>
           </div>
           <p className="case-now-text">{evidenceWording(verdict.statement)}</p>
+          {quantityBySource.length > 1 ? (
+            <div className="trace-quantity-diff" aria-label="已核实的不同来源数字">
+              <h3>已找到的两组数字</h3>
+              <ul>
+                {quantityBySource.slice(0, 2).map((item) => (
+                  <li key={`${item.source}-${item.value}`}>
+                    <b>{item.source}：{item.value}{item.unit}{item.approximate ? "（约）" : ""}</b>
+                    <span>{item.sentence.slice(0, 90)}</span>
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">打开原始页面</a>
+                  </li>
+                ))}
+              </ul>
+              <p className="trace-hint">两组数字都有可查出处。具体差异原因尚未核实，不能断定任何一方计算错误。</p>
+            </div>
+          ) : null}
           {weakOpposition ? (
             <div className="case-now-note">
               {bodiesFetched.length ? (
@@ -393,6 +405,10 @@ export function Case() {
           </div>
         </section>
       ) : null}
+
+      <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
+      <InvestigationRoles run={run} />
+      <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
 
       {revisions && revisions.revisions.length ? (
         <section className="trace-versions" data-dirty={pendingVersion ? "true" : "false"}>
