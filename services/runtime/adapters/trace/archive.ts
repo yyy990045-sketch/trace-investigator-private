@@ -25,6 +25,9 @@ export interface ArchiveSource {
   reprintMarkers: string[];
   clusterId: string;
   duplicate: boolean;
+  independence?: string;
+  duplicateOf?: { primary: string; basis: string } | null;
+  independenceNote?: string;
   dateStatus: string;
   dateNote: string;
   reasons: string[];
@@ -43,6 +46,8 @@ export interface ArchiveFact {
   contradicts: number;
   unclear?: number;
   irrelevant?: number;
+  unconfirmedSources?: number;
+  unconfirmedClusters?: number;
   outOfRangeSupports: number;
   reasons: string[];
   sources: ArchiveSource[];
@@ -139,7 +144,9 @@ export function renderArchive(input: ArchiveInput) {
       `### ${index + 1}. ${fact.fact}`,
       ``,
       `- 判断：${relationLabel[fact.relation] || fact.relation}`,
-      `- 独立来源簇：${fact.independentClusters} 个（其中取得原文正文 ${fact.bodyBackedClusters} 个）`,
+      `- 独立来源簇：${fact.independentClusters} 个（其中取得原文正文 ${fact.bodyBackedClusters} 个）${
+      fact.unconfirmedSources ? `；另有 ${fact.unconfirmedSources} 条可能同源但无法确认，未计入` : ""
+    }`,
       `- 命中来源条数：支持 ${fact.supports} 条、反对 ${fact.contradicts} 条、无法确认 ${fact.unclear ?? 0} 条、无关 ${fact.irrelevant ?? 0} 条`,
       `- 判断理由：`,
       ...(fact.reasons || []).map((reason: string) => `  - ${reason}`),
@@ -154,7 +161,11 @@ export function renderArchive(input: ArchiveInput) {
               ? `（人工修正；系统自动判断原为「${relationLabel[source.autoRelation || ""] || source.autoRelation}」，修正人 ${source.manualCorrection.actor}：${source.manualCorrection.note}）`
               : "（系统自动判断）"
           }；关键词重合度 ${Math.round((source.relevance || 0) * 100)}%；来源簇 ${source.clusterId}${
-            source.duplicate ? "（与同簇来源内容雷同，不计入独立证据）" : ""
+            source.duplicate
+              ? `（与同源来源内容重复：${source.duplicateOf?.basis || "内容重合"}，按 1 条独立证据计）`
+              : source.independence === "unconfirmed"
+                ? `（独立性未确认：${source.independenceNote || "可能同源但证据不足"}，不计入独立证据）`
+                : "（独立性已确认）"
           }`,
           `   - 站点：${source.site}；标注发布时间：${source.date || "未提供"}`,
           `   - 时效：${source.dateStatus === "in_range" ? "在适用时间范围内" : source.dateStatus === "out_of_range" ? "在适用时间范围之外" : "无法确认"}（${source.dateNote}）`,

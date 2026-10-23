@@ -13,7 +13,7 @@ import {
   aggregateCase,
   assessFact,
   buildStatement,
-  clusterSources,
+  groupSources,
   openQuestions,
   outcomeLabel,
   summarizeClusters,
@@ -52,21 +52,20 @@ export default {
     >;
     const facts = (input.case?.facts || []) as any[];
 
-    const clusterOf = clusterSources(pages);
-    // 同一簇内只保留「有原文且得分最高」的一条为主来源，其余标记为重复，避免重复计数
-    const groups = new Map<string, AnalysablePage[]>();
-    for (const page of pages) {
-      const key = clusterOf.get(page.id) || "cluster-0";
-      groups.set(key, [...(groups.get(key) || []), page]);
-    }
-    const duplicatePages = new Set<string>();
-    for (const [, group] of groups) {
-      const ranked = [...group].sort(
-        (a, b) =>
-          Number(bodyTexts[b.id]?.ok === true) - Number(bodyTexts[a.id]?.ok === true) || (b.score || 0) - (a.score || 0),
-      );
-      for (const page of ranked.slice(1)) duplicatePages.add(page.id);
-    }
+    // 同源判定只依据可指认的证据（同网址/同文章编号/同标题同日/正文高度重合），
+    // 相似但证据不足的页面留作「独立性未确认」，不并簇也不计入独立证据。
+    const grouping = groupSources(pages, new Map(
+      pages.map((page) => [
+        page.id,
+        {
+          ok: bodyTexts[page.id]?.ok === true,
+          text: bodyTexts[page.id]?.text || "",
+          reprintMarkers: bodyTexts[page.id]?.reprintMarkers || [],
+        },
+      ]),
+    ));
+    const clusterOf = grouping.clusterOf;
+    const duplicatePages = new Set(grouping.duplicateOf.keys());
 
     const bodies = new Map(
       pages.map((page) => [
@@ -79,10 +78,13 @@ export default {
       ]),
     );
     const assessments = facts.map((fact) =>
-      assessFact({ fact, pages, bodies, clusterOf, duplicatePages }),
+      assessFact({ fact, pages, bodies, clusterOf, duplicatePages, grouping }),
     );
+    // 独立来源只算"独立性已确认"的簇：重复的并入同源簇，未确认的单独计数。
     const independentSources = new Set(
-      pages.filter((page) => !duplicatePages.has(page.id)).map((page) => clusterOf.get(page.id)),
+      pages
+        .filter((page) => !duplicatePages.has(page.id) && !grouping.unconfirmed.has(page.id))
+        .map((page) => clusterOf.get(page.id)),
     ).size;
     const bodyAvailable = bodies.size
       ? [...bodies.values()].filter((body) => body.ok).length
@@ -113,8 +115,12 @@ export default {
         relation: f.relation,
         independentClusters: f.independentClusters,
         bodyBackedClusters: f.bodyBackedClusters,
+        unconfirmedSources: f.unconfirmedSources || 0,
+        unconfirmedClusters: f.unconfirmedClusters || 0,
       })),
       duplicatePages: [...duplicatePages],
+      unconfirmedPages: [...grouping.unconfirmed],
+      clusterBasis: Object.fromEntries(grouping.clusterBasis),
       independentSources,
       bodyAvailable,
     });

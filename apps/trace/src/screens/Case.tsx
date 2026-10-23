@@ -242,6 +242,11 @@ export function Case() {
               <b>{facts.reduce((sum, fact) => sum + (fact.contradicts || 0), 0)}</b> · 无法确认{" "}
               <b>{facts.reduce((sum, fact) => sum + (fact.unclear || 0), 0)}</b>
             </span>
+            {facts.reduce((sum, fact) => sum + (fact.unconfirmedSources || 0), 0) ? (
+              <span title="可能是转载但缺少可核对依据，未计入独立来源">
+                独立性未确认 <b>{facts.reduce((sum, fact) => sum + (fact.unconfirmedSources || 0), 0)}</b>
+              </span>
+            ) : null}
             {assessment?.openQuestions?.length ? <span className="case-now-gap">还缺 {assessment.openQuestions.length} 项证据</span> : null}
           </div>
           <div className="case-now-actions">

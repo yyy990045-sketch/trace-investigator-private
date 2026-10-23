@@ -106,6 +106,7 @@ export function Archive() {
     .slice(0, 4);
   const opposing = allSources.filter((source) => source.relation === "contradicts").slice(0, 4);
   const missing = assessment?.openQuestions || [];
+  const unconfirmedTotal = facts.reduce((sum, fact) => sum + (fact.unconfirmedSources || 0), 0);
   // 档案快照按交付时间冻结；影响数据在运行记录里，老版本快照没带就按 pageId+时间对齐补上。
   const correctionLedger = run.evidence
     .filter((item) => item.kind === "trace.correction")
@@ -229,6 +230,11 @@ export function Archive() {
           <span>
             检索 <b>{verdict.counts.queries}</b> 次
           </span>
+          {unconfirmedTotal ? (
+            <span title="可能是转载但缺少可核对依据，未计入独立来源">
+              独立性未确认 <b>{unconfirmedTotal}</b>
+            </span>
+          ) : null}
         </div>
         <ul className="trace-notes">
           {verdict.reasons.map((reason, index) => (

@@ -34,11 +34,25 @@ const CATEGORY = {
   B: "需要跨来源核查",
   C: "补充调查后仍然证据不足",
 };
-const ONE_LINER = {
-  A: "中国人大网等官方站点与全文发布页都写明「自 2021 年 11 月 1 日起施行」，16 个来源各成一簇（本次未触发同源合并），结论落在可点击的官方网址上。",
-  B: "政府网、统计局、央广网、中国经济网给出同年同口径的产量数字，多个互不转载的来源共同支持「超过 1200 万辆」；同期出现的「汽车总产销 3100 万辆」属于另一个指标，没有被拿来当新能源产量的证据。",
-  C: "能查到的都是「某条干线/某个走廊投运」的局部报道，没有任何来源直接说「已建成覆盖全国的网络」；追加一次真实检索、两次人工修正之后，结论依然是证据不足，并写明还缺什么。",
-};
+/** 一句话说明：数字全部从这次调查的真实记录里算出来，不写死。 */
+function oneLiner(item) {
+  const sources = (item.assessment?.facts || []).flatMap((fact) => fact.sources || []);
+  const fact = (item.assessment?.facts || [])[0] || {};
+  const merged = sources.filter((source) => source.independence === "duplicate").length;
+  const unconfirmed = sources.filter((source) => source.independence === "unconfirmed").length;
+  const pages = sources.length;
+  const independent = item.assessment?.independentSources ?? 0;
+  const bodies = item.assessment?.bodyAvailable ?? 0;
+  const supportClusters = fact.independentClusters ?? 0;
+  const shape = `${pages} 条网页${merged ? `有 ${merged} 条被判为同一篇内容而合并` : ""}${
+    unconfirmed ? `${merged ? "、" : "有 "}${unconfirmed} 条独立性未确认不计入` : ""
+  }，最终 ${independent} 个独立来源、${bodies} 份原文正文`;
+  if (item.key === "A")
+    return `中国人大网等官方站点与全文发布页都写明「自 2021 年 11 月 1 日起施行」；${shape}；其中 ${supportClusters} 个独立来源簇支持该事实，结论落在可点击的官方网址上。`;
+  if (item.key === "B")
+    return `政府网、统计局、央广网、中国经济网给出同年同口径的产量数字；${shape}；${supportClusters} 个独立来源簇支持「超过 1200 万辆」，同期出现的「汽车总产销 3100 万辆」属于另一个指标，没有被拿来当新能源产量的证据。`;
+  return `能查到的都是「某条干线/某个走廊投运」的局部报道，没有任何来源直接说「已建成覆盖全国的网络」；${shape}；其中只有 ${supportClusters} 个独立来源簇支持该说法，追加真实检索与人工修正之后结论依然是证据不足，并写明还缺什么。`;
+}
 
 const exe =
   process.env.TRACE_CHROMIUM ||
@@ -199,7 +213,7 @@ for (const item of data.cases) {
   </div>
 
   <h2>三、一句话调查说明</h2>
-  <p>${escapeHtml(ONE_LINER[item.key])}</p>
+  <p>${escapeHtml(oneLiner(item))}</p>
 
   <h2>四、逐条事实与证据计数</h2>
   <table><thead><tr><th>待核查事实</th><th>判断</th><th>支持</th><th>反对</th><th>无法确认</th><th>独立来源</th><th>含原文</th></tr></thead>
@@ -267,7 +281,7 @@ function markdown(entry) {
     "",
     "## 三、一句话调查说明",
     "",
-    ONE_LINER[item.key],
+    oneLiner(item),
     "",
     "## 四、逐条事实与证据计数",
     "",

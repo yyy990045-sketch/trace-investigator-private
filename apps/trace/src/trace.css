@@ -2647,3 +2647,20 @@
     margin-left: 0;
   }
 }
+
+/* 独立性标记：同源转载 / 独立性未确认 与人工修正区分开 */
+.trace-evidence-duplicate {
+  color: #6b5a2a;
+  background: #f7f1df;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.trace-evidence-unconfirmed {
+  color: #5c6470;
+  background: #eef0f3;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.evidence-map-unconfirmed {
+  color: #5c6470;
+}

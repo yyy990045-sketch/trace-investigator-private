@@ -217,6 +217,10 @@ export interface SourceAssessment {
   duplicate: boolean;
   dateStatus: "in_range" | "out_of_range" | "unknown";
   dateNote: string;
+  /** 独立性：independent 计入独立证据；duplicate 已并入同源簇；unconfirmed 可能同源但证据不足 */
+  independence?: "independent" | "duplicate" | "unconfirmed";
+  duplicateOf?: { primary: string; basis: string } | null;
+  independenceNote?: string;
   /** 人工修正后保留的系统自动判断 */
   autoRelation?: Relation;
   /** 有人工修正时才有；原始搜索返回与摘录不因此改变 */
@@ -239,6 +243,8 @@ export interface FactAssessment {
   contradicts: number;
   unclear?: number;
   irrelevant?: number;
+  unconfirmedSources?: number;
+  unconfirmedClusters?: number;
   sources: SourceAssessment[];
   reasons: string[];
 }
@@ -305,6 +311,8 @@ export interface TraceBundleView {
     pageCount?: number;
     followupCount?: number;
     correctionCount?: number;
+    unconfirmedPages?: string[];
+    clusterBasis?: Record<string, string>;
     corrections?: CorrectionRecord[];
   };
   checks: { name: string; passed: boolean; detail: string; status?: string }[];

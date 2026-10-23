@@ -457,3 +457,69 @@ describe("端到端：立案→检索→核验→人工确认→档案导出", (
     }
   }, 60000);
 });
+
+describe("来源独立性判定", () => {
+  it("同一篇文章挂在不同栏目：按文章编号合并", async () => {
+    const { groupSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [
+      { id: "a", url: "https://www.stats.gov.cn/sj/sjjd/202502/t20250228_1958819.html", site: "统计局", title: "统计公报评读", date: "2025-02-28", passage: "第一段内容不同" },
+      { id: "b", url: "https://www.stats.gov.cn/zwfwck/sjfb/202502/t20250228_1958819.html", site: "统计局", title: "统计公报评读", date: "2025-02-28", passage: "另一段措辞不同" },
+    ];
+    const grouping = groupSources(pages);
+    expect(grouping.clusterOf.get("a")).toBe(grouping.clusterOf.get("b"));
+    expect(grouping.duplicateOf.get("b")?.basis).toContain("同一文章编号");
+  });
+
+  it("繁体镜像页还原为同一网址后合并", async () => {
+    const { groupSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [
+      { id: "a", url: "https://www.gov.cn/yaowen/liebiao/202501/content_6998270.htm", site: "中国政府网", title: "新能源汽车产销量均超1200万辆", date: "2025-01-13", passage: "简体摘要内容" },
+      { id: "b", url: "https://big5.www.gov.cn/gate/big5/www.gov.cn/yaowen/liebiao/202501/content_6998270.htm", site: "中国政府网", title: "新能源汽車產銷量均超1200萬輛", date: "2025-01-13", passage: "繁體摘要內容" },
+    ];
+    const grouping = groupSources(pages);
+    expect(grouping.clusterOf.get("a")).toBe(grouping.clusterOf.get("b"));
+  });
+
+  it("标题相同但缺正文与编号：判为独立性未确认，不并簇", async () => {
+    const { groupSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [
+      { id: "a", url: "https://news.example.com/a.html", site: "甲站", title: "我国首条跨区域氢能重卡干线投运", date: "", passage: "甲站自己写的导语，描述线路投运情况与配套。" },
+      { id: "b", url: "https://auto.example.org/b.html", site: "乙站", title: "我国首条跨区域氢能重卡干线投运", date: "", passage: "乙站另一段完全不同措辞的报道，讲同一件事。" },
+    ];
+    const grouping = groupSources(pages);
+    // 标题完全一致（≥12 字）属于可指认依据，会被合并
+    expect(grouping.clusterOf.get("a")).toBe(grouping.clusterOf.get("b"));
+
+    const soft = groupSources([
+      { id: "c", url: "https://c.example.cn/c.html", site: "丙站", title: "氢能重卡干线投运情况综述", date: "", passage: "丙站综述。" },
+      { id: "d", url: "https://d.example.cn/d.html", site: "丁站", title: "氢能重卡干线投运情况一览", date: "", passage: "丁站一览。" },
+    ]);
+    expect(soft.clusterOf.get("c")).not.toBe(soft.clusterOf.get("d"));
+    expect(soft.unconfirmed.has("c")).toBe(true);
+    expect(soft.unconfirmed.has("d")).toBe(true);
+  });
+
+  it("独立性未确认的支持来源不计入独立证据簇", async () => {
+    const { assessFact } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const fact = { id: "fact-1", text: "2024年本市新能源汽车产量超过120万辆", queries: ["产量"] } as any;
+    const pages = [
+      { id: "a", url: "https://a.example.com/1.html", site: "甲站", title: "本市新能源汽车产量超过120万辆", date: "2024-06-01", passage: "本市统计局发布：2024年新能源汽车产量超过120万辆，同比增长明显。", score: 0.9 },
+      { id: "b", url: "https://b.example.com/2.html", site: "乙站", title: "本市新能源汽车产量超过120万辆", date: "2024-06-02", passage: "本市统计局发布：2024年新能源汽车产量超过120万辆，同比增长明显。", score: 0.8 },
+      { id: "c", url: "https://c.example.com/3.html", site: "丙站", title: "本市新能源汽车产量情况观察", date: "2024-06-03", passage: "本市新能源汽车产量超过120万辆，同比增长明显。", score: 0.7 },
+    ];
+    const { groupSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const grouping = groupSources(pages);
+    const bodies = new Map(pages.map((p) => [p.id, { ok: true, text: "本市统计局发布：2024年新能源汽车产量超过120万辆，同比增长明显。" + "补充正文".repeat(80), reprintMarkers: [] as string[] }]));
+    const assessment = assessFact({
+      fact,
+      pages,
+      bodies,
+      clusterOf: grouping.clusterOf,
+      duplicatePages: new Set(grouping.duplicateOf.keys()),
+      grouping,
+    });
+    // a/b 段落逐字一致 → 合并为一条；c 独立
+    expect(assessment.supports).toBeGreaterThanOrEqual(2);
+    expect(assessment.independentClusters).toBeLessThan(assessment.supports);
+  });
+});

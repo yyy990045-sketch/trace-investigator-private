@@ -24,7 +24,7 @@ import {
   applyCorrections,
   assessFact,
   buildStatement,
-  clusterSources,
+  groupSources,
   openQuestions,
   outcomeLabel,
   summarizeClusters,
@@ -130,21 +130,21 @@ export function buildAssessment(
       bodyTexts[body.pageId] = { ok: body.ok, text: body.text || "", reprintMarkers: body.reprintMarkers || [] };
   }
   const pages = [...pageMap.values()];
-  const clusterOf = clusterSources(pages);
-  const groups = new Map<string, AnalysablePage[]>();
-  for (const page of pages) {
-    const key = clusterOf.get(page.id) || "cluster-0";
-    groups.set(key, [...(groups.get(key) || []), page]);
-  }
-  const duplicatePages = new Set<string>();
-  for (const [, group] of groups) {
-    const ranked = [...group].sort(
-      (a, b) =>
-        Number(bodyTexts[b.id]?.ok === true) - Number(bodyTexts[a.id]?.ok === true) ||
-        (b.score || 0) - (a.score || 0),
-    );
-    for (const page of ranked.slice(1)) duplicatePages.add(page.id);
-  }
+  const grouping = groupSources(
+    pages,
+    new Map(
+      pages.map((page) => [
+        page.id,
+        {
+          ok: bodyTexts[page.id]?.ok === true,
+          text: bodyTexts[page.id]?.text || "",
+          reprintMarkers: bodyTexts[page.id]?.reprintMarkers || [],
+        },
+      ]),
+    ),
+  );
+  const clusterOf = grouping.clusterOf;
+  const duplicatePages = new Set(grouping.duplicateOf.keys());
   const bodies = new Map(
     pages.map((page) => [
       page.id,
@@ -157,10 +157,12 @@ export function buildAssessment(
   );
 
   const assessments = (bundle.case.facts as any[]).map((fact) =>
-    applyCorrections(assessFact({ fact, pages, bodies, clusterOf, duplicatePages }), corrections),
+    applyCorrections(assessFact({ fact, pages, bodies, clusterOf, duplicatePages, grouping }), corrections),
   );
   const independentSources = new Set(
-    pages.filter((page) => !duplicatePages.has(page.id)).map((page) => clusterOf.get(page.id)),
+    pages
+      .filter((page) => !duplicatePages.has(page.id) && !grouping.unconfirmed.has(page.id))
+      .map((page) => clusterOf.get(page.id)),
   ).size;
   const bodyAvailable = [...bodies.values()].filter((body) => body.ok).length;
   const search = bundle.search || {};
@@ -194,6 +196,8 @@ export function buildAssessment(
     correctionCount: corrections.length,
     pageCount: pages.length,
     corrections,
+    unconfirmedPages: [...grouping.unconfirmed],
+    clusterBasis: Object.fromEntries(grouping.clusterBasis),
   };
   return { bundle, assessment };
 }
@@ -316,7 +320,7 @@ function describeChanges(previous: any, current: any, context: { followups: numb
   }
   if (context.followups) changes.push(`首版之后新增 ${context.followups} 次追加检索（真实检索）。`);
   if (context.corrections) changes.push(`首版之后采纳 ${context.corrections} 条人工修正。`);
-  if (!changes.length) changes.push("结论与来源统计没有变化：新增证据未改变判断。");
+  if (!changes.length) changes.push("与上一版相比，结论类型与来源统计都没有变化。");
   return changes;
 }
 
@@ -504,12 +508,17 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       ? followups.filter((item) => (item.requestedAt || "") > delivered.at).length
       : followups.length;
     const pendingCorrections = delivered ? corrections.filter((item) => item.at > delivered.at).length : corrections.length;
+    const reassessments = run.evidence.filter((item) => item.kind === REASSESS_KIND);
+    const pendingReassessments = delivered
+      ? reassessments.filter((item) => item.createdAt > delivered.at).length
+      : reassessments.length;
     const { assessment } = buildAssessment(run);
     return {
       deliveredRevision: delivered?.revision || 0,
-      dirty: pendingFollowups > 0 || pendingCorrections > 0 || !delivered,
+      dirty: !delivered || pendingFollowups > 0 || pendingCorrections > 0 || pendingReassessments > 0,
       pendingFollowups,
       pendingCorrections,
+      pendingReassessments,
       current: assessment,
       changes:
         delivered && (pendingFollowups > 0 || pendingCorrections > 0)
@@ -517,7 +526,9 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
               followups: pendingFollowups,
               corrections: pendingCorrections,
             })
-          : [],
+          : delivered && pendingReassessments > 0
+            ? describeChanges(delivered.assessment, assessment, { followups: 0, corrections: 0 })
+            : [],
       revisions: revisions.map((item) => ({
         revision: item.revision,
         at: item.at,
@@ -540,11 +551,14 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
   });
 
   // ── 重算结论（自动判断 + 人工修正 + 追加检索）──────────────────
-  app.post<{ Params: { id: string } }>("/v1/runs/:id/trace/reassess", async (req) => {
+  app.post<{ Params: { id: string }; Body: { force?: boolean; reason?: string } }>(
+    "/v1/runs/:id/trace/reassess",
+    async (req) => {
     const run = traceRun(store, req.params.id);
     const followups = followupsOf(run);
     const corrections = correctionsOf(run);
-    if (!followups.length && !corrections.length)
+    // force：判定规则更新后对历史调查重算（例如同源识别口径变化），不需要先有追问或修正。
+    if (!followups.length && !corrections.length && req.body?.force !== true)
       throw new ExecutionError("NO_FOLLOWUP", "还没有追加检索或人工修正，无需重算。");
     const { assessment } = buildAssessment(run);
     const delivered = revisionsOf(run).pop();
@@ -559,9 +573,11 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       followupCount: followups.length,
       correctionCount: corrections.length,
       changes,
+      ...(req.body?.reason ? { reason: req.body.reason } : {}),
     });
     return { source: "reassessment", at: now(), assessment, changes };
-  });
+    },
+  );
 
   // ── 重新确认：把当前结论固化成新版本档案 ────────────────────────
   app.post<{ Params: { id: string }; Body: { actor: string } }>(
@@ -589,8 +605,11 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       const corrections = correctionsOf(run);
       const pendingFollowups = followups.filter((item) => (item.requestedAt || "") > previous.at);
       const pendingCorrections = corrections.filter((item) => item.at > previous.at);
-      if (!pendingFollowups.length && !pendingCorrections.length)
-        throw new ExecutionError("NO_CHANGES", "首版之后没有新的检索或修正，不需要重新确认。");
+      const pendingReassessments = run.evidence.filter(
+        (item) => item.kind === REASSESS_KIND && item.createdAt > previous.at,
+      );
+      if (!pendingFollowups.length && !pendingCorrections.length && !pendingReassessments.length)
+        throw new ExecutionError("NO_CHANGES", "首版之后没有新的检索、修正或重算，不需要重新确认。");
 
       const { bundle, assessment } = buildAssessment(run);
       const revision = previous.revision + 1;
@@ -598,6 +617,8 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         followups: pendingFollowups.length,
         corrections: pendingCorrections.length,
       });
+      if (!pendingFollowups.length && !pendingCorrections.length && pendingReassessments.length)
+        changes.unshift("按更新后的证据判定规则重算（同源识别更严格）后重新确认。");
       const generatedAt = now();
       const rendered = renderArchive({
         runId: run.id,

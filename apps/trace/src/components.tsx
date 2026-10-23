@@ -149,6 +149,12 @@ export function SourceCard({
         <span>{originalityText[source.originality]}</span>
         {fresh ? <span className="trace-evidence-fresh">本次追问新增</span> : null}
         {corrected ? <span className="trace-evidence-fixed">人工修正</span> : null}
+        {source.independence === "duplicate" ? (
+          <span className="trace-evidence-duplicate">同源转载 · {source.duplicateOf?.basis || "内容重合"}</span>
+        ) : null}
+        {source.independence === "unconfirmed" ? (
+          <span className="trace-evidence-unconfirmed">独立性未确认</span>
+        ) : null}
       </div>
       {corrected ? (
         <CorrectionDiff
@@ -160,9 +166,14 @@ export function SourceCard({
           impact={corrected.impact}
         />
       ) : null}
-      {source.duplicate && cluster ? (
+      {source.duplicate ? (
         <p className="trace-evidence-reprint">
-          与「{cluster.primary.site}」为同一原始内容，按 1 条独立证据计算。
+          与另一条来源为同一篇内容（依据：{source.duplicateOf?.basis || "内容重合"}），按 1 条独立证据计算。
+        </p>
+      ) : null}
+      {source.independence === "unconfirmed" ? (
+        <p className="trace-evidence-reprint">
+          可能与别的来源同源，但缺少正文/文章编号等可核对依据（{source.independenceNote || "相似度接近"}），因此不计入独立证据。
         </p>
       ) : null}
       {keyText ? (
@@ -408,8 +419,12 @@ export function EvidenceMap({ fact }: { fact: FactAssessment }) {
         ))}
       </div>
       <div className="evidence-map-foot">
-        <span>命中 {total} 条</span>
-        {reprints ? <span>其中 {reprints} 条为同源转载，按 1 条独立证据计算</span> : <span>未发现同源转载</span>}
+        <span>检索网页 {total} 条</span>
+        <span>独立证据 {fact.independentClusters || 0} 簇</span>
+        {reprints ? <span>同源转载合并 {reprints} 条（依据见来源明细）</span> : <span>未发现可指认的同源转载</span>}
+        {(fact.unconfirmedSources || 0) > 0 ? (
+          <span className="evidence-map-unconfirmed">{fact.unconfirmedSources} 条独立性未确认（未计入）</span>
+        ) : null}
         <span>取到原文正文 {bodies} 份</span>
       </div>
     </div>
