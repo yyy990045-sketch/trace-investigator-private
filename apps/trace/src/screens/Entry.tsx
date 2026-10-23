@@ -106,6 +106,7 @@ export function Entry() {
   const [modelConsent, setModelConsent] = useState(false);
   const [clueQuestion, setClueQuestion] = useState("");
   const [clueBusy, setClueBusy] = useState(false);
+  const [clueModelConsent, setClueModelConsent] = useState(false);
   const [clueError, setClueError] = useState<string | null>(null);
   const modelBlocked = useModel && model.data?.available !== true;
 
@@ -202,7 +203,7 @@ export function Entry() {
     setClueError(null);
     try {
       const project = await ensureClueProject();
-      const run = await startClueInvestigation(project, trimmed);
+      const run = await startClueInvestigation(project, trimmed, clueModelConsent);
       nav(`/cases/${run.id}`);
     } catch (e) {
       setClueError((e as Error).message);
@@ -322,6 +323,12 @@ export function Entry() {
             </button>
           </div>
         )}
+        {!SHOWCASE ? (
+          <label className="clue-hero-note" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" checked={clueModelConsent} onChange={(event) => setClueModelConsent(event.target.checked)} />
+            同意将这次线索发送给已配置的模型辅助生成搜索词（不勾选仍可使用规则检索）
+          </label>
+        ) : null}
         <div className="clue-hero-examples">
           {clueExamples.map((example) => (
             <button
