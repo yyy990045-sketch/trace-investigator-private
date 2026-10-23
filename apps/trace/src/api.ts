@@ -123,6 +123,56 @@ export const ASSEMBLY: AssemblyStep[] = [
   { capabilityId: "trace.archive.export", version: "1.0.0", config: {} },
 ];
 
+/** 线索追查流程：同样是 TRACE Runtime，只是把「事实比对」换成「候选发现和线索比对」。 */
+export const CLUE_ASSEMBLY: AssemblyStep[] = [
+  { capabilityId: "trace.clue.intake", version: "1.0.0", config: {}, timeoutMs: 60000 },
+  { capabilityId: "trace.facts.confirm", version: "1.0.0", config: {} },
+  {
+    capabilityId: "trace.web.search",
+    version: "1.0.0",
+    config: { fetchBodyBudget: 6, requestTimeoutMs: 20000, gapMs: 350 },
+    timeoutMs: 120000,
+  },
+  { capabilityId: "trace.clue.candidates", version: "1.0.0", config: {} },
+];
+export const CLUE_PROJECT_NAME = "线索侦探 · 线索追查流程";
+
+/** 首页主入口用的线索调查项目：一条一条线索查到底，不生成事实类结论。 */
+export async function ensureClueProject(): Promise<ProjectRecord> {
+  if (SHOWCASE) throw readOnly();
+  const projects = await client.projects();
+  const existing = projects.find((item) => item.name === CLUE_PROJECT_NAME);
+  if (existing) {
+    const same =
+      existing.steps.length === CLUE_ASSEMBLY.length &&
+      existing.steps.every((step, index) => step.capabilityId === CLUE_ASSEMBLY[index].capabilityId);
+    if (!same)
+      throw new Error("线索追查流程的能力序列已更新，请在 Studio 中删除旧项目后重试。");
+    return existing;
+  }
+  return client.createProject({
+    name: CLUE_PROJECT_NAME,
+    layout: "business",
+    permissions: [...PERMISSIONS, "model:invoke"],
+    steps: CLUE_ASSEMBLY,
+  });
+}
+
+/** 一句话线索 → 真实调查（规划 + 元宝搜索 + 候选比对都在 Runtime 里完成）。 */
+export function startClueInvestigation(project: ProjectRecord, question: string) {
+  return client.execute(
+    project.id,
+    {
+      filename: "线索调查.json",
+      text: question,
+      payload: { question },
+      dataConsent: true,
+      modelConsent: true,
+    },
+    project.revision,
+  );
+}
+
 export async function ensureProject(withModel = false): Promise<ProjectRecord> {
   if (SHOWCASE) throw readOnly();
   const name = withModel ? "溯证 TRACE 模型复核调查流程" : PROJECT_NAME;
@@ -321,10 +371,20 @@ export interface SearchAttemptView {
 export interface TraceCaseView {
   question: string;
   claim: string;
-  mode: "manual";
+  mode: "manual" | "clue";
   modeNote: string;
   createdAt: string;
   facts: FactDraft[];
+  /** 线索模式：调查目标、已识别线索与检索规划 */
+  goal?: string;
+  clues?: ClueItemView[];
+  plan?: {
+    source: "model" | "rule";
+    model?: string;
+    durationMs: number;
+    fallbackReason?: string;
+    queries: string[];
+  };
 }
 
 export interface TraceBundleView {
@@ -344,8 +404,13 @@ export interface TraceBundleView {
   searches: SearchAttemptView[];
   bodies: { pageId: string; url: string; ok: boolean; httpStatus: number | null; textLength: number; error: { code: string; message: string } | null }[];
   assessment?: {
-    facts: FactAssessment[];
-    verdict: Verdict;
+    mode?: "clue";
+    candidates?: CandidateView[];
+    decision?: ClueAssessmentView["decision"];
+    clues?: ClueItemView[];
+    /** 线索模式没有 verdict，下面两项仅事实模式存在 */
+    facts?: FactAssessment[];
+    verdict?: Verdict;
     independentSources: number;
     bodyAvailable: number;
     clusters?: SourceCluster[];
@@ -645,6 +710,86 @@ export function postRedeliver(runId: string, actor: string) {
     changes: string[];
     verdict: { outcome: Verdict["outcome"]; headline: string; counts: Verdict["counts"] };
   }>(`/v1/runs/${encodeURIComponent(runId)}/trace/redeliver`, "POST", { actor });
+}
+
+/* ------------------------------------------------------------ 线索调查 */
+
+export interface ClueItemView {
+  id: string;
+  text: string;
+  terms: string[];
+  kind: "genre" | "role" | "time" | "region" | "subject" | "other";
+  uncertain?: boolean;
+  addedByUser?: boolean;
+}
+
+export interface CandidateMatchView {
+  clueId: string;
+  clue: string;
+  found: boolean;
+  sentence: string;
+  url: string;
+  site: string;
+  title: string;
+  from: "body" | "excerpt";
+}
+
+export interface CandidateView {
+  name: string;
+  quoted: boolean;
+  mentions: number;
+  sites: number;
+  titleHits?: number;
+  score?: number;
+  pages: { url: string; site: string; title: string; date: string }[];
+  matches: CandidateMatchView[];
+  matchedClues: number;
+  missingClues: string[];
+}
+
+export interface ClueAssessmentView {
+  mode: "clue";
+  clues: ClueItemView[];
+  candidates: CandidateView[];
+  decision: {
+    state: "found" | "ambiguous" | "insufficient";
+    headline: string;
+    nextQueries: { query: string; reason: string }[];
+    askUser: string | null;
+  };
+  pageCount: number;
+  bodyAvailable: number;
+  followupCount: number;
+  answerCount: number;
+}
+
+/** 线索调查的当前判断（网页、线索与用户补充合并后重新比对）。 */
+export function fetchClueAssessment(runId: string) {
+  if (SHOWCASE) {
+    const item = showcaseCase(runId);
+    return Promise.resolve((item.assessment as unknown as ClueAssessmentView) ?? null);
+  }
+  return traceRequest<ClueAssessmentView>(`/v1/runs/${encodeURIComponent(runId)}/trace/clue`);
+}
+
+/** 继续追查：用真实搜索再查一轮，返回这一轮的请求信息与新的候选判断。 */
+export function postClueSearch(runId: string, query: string, reason?: string) {
+  if (SHOWCASE) return Promise.reject(readOnly());
+  return traceRequest<{ round: { query: string; resultCount: number; error: unknown }; assessment: ClueAssessmentView }>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace/clue/search`,
+    "POST",
+    { query, ...(reason ? { reason } : {}) },
+  );
+}
+
+/** 补充线索：记下回答，并围绕最接近的候选再检索一次。 */
+export function postClueAnswer(runId: string, text: string) {
+  if (SHOWCASE) return Promise.reject(readOnly());
+  return traceRequest<{ answer: { text: string; relatedCandidate: string | null }; assessment: ClueAssessmentView }>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace/clue/answer`,
+    "POST",
+    { text },
+  );
 }
 
 /** 三个真实案例：点一下即可带入表单，用户也可以完全自己提问。 */

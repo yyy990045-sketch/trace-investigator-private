@@ -29,9 +29,28 @@ export interface TraceCase {
   /** 用户想核查的说法；缺省时等于 question */
   claim: string;
   facts: TraceFact[];
-  /** 事实拆解来源：本版本只支持人工确认，绝不声称 AI 已完成拆解 */
-  mode: "manual";
+  /** manual=人工确认事实；clue=从模糊线索出发追查候选 */
+  mode: "manual" | "clue";
   modeNote: string;
+  /** 线索模式：用户到底想知道什么 */
+  goal?: string;
+  /** 线索模式：已识别的线索（每条带比对用检索词） */
+  clues?: {
+    id: string;
+    text: string;
+    terms: string[];
+    kind: "genre" | "role" | "time" | "region" | "subject" | "other";
+    uncertain?: boolean;
+    addedByUser?: boolean;
+  }[];
+  /** 线索规划来源与耗时：模型规划 / 规则拆分 */
+  plan?: {
+    source: "model" | "rule";
+    model?: string;
+    durationMs: number;
+    fallbackReason?: string;
+    queries: string[];
+  };
   consent: { search: boolean; model: boolean };
   createdAt: string;
 }
@@ -117,8 +136,11 @@ export const traceBundleSchema: Schema = {
         question: { type: "string", minLength: 2, maxLength: 500 },
         claim: { type: "string", minLength: 2, maxLength: 500 },
         facts: { type: "array", maxItems: 6, items: factSchema },
-        mode: { type: "string", const: "manual" },
+        mode: { type: "string", enum: ["manual", "clue"] },
         modeNote: { type: "string" },
+        goal: { type: "string", maxLength: 200 },
+        clues: { type: "array", maxItems: 8, items: { type: "object" } },
+        plan: { type: "object" },
         consent: {
           type: "object",
           required: ["search", "model"],

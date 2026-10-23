@@ -20,6 +20,7 @@ import {
 } from "../api";
 import { Tag, archiveHref, caseHref, formatTime } from "../components";
 import { Watershed } from "../Watershed";
+import { ensureClueProject, startClueInvestigation } from "../api";
 import { evidenceWording } from "../presentation";
 
 const MAX_FACTS = 6;
@@ -79,6 +80,16 @@ function useDigests() {
   }, [local.data, local.isLoading, local.isError, local.error]);
 }
 
+/** 首页只给短标签，避免把整句说法堆在入口处。 */
+function caseShortName(claim: string) {
+  if (claim.includes("法医") || claim.includes("大宝")) return "找线索：国产法医剧";
+  if (claim.includes("民法典")) return "查真假：民法典日期";
+  if (claim.includes("个人信息保护法")) return "跨调查经验复用";
+  if (claim.includes("氢能") || claim.includes("加氢")) return "查真假：氢能网络";
+  if (claim.includes("新能源汽车") || claim.includes("产量")) return "查冲突：产量两种口径";
+  return claim.length > 18 ? `${claim.slice(0, 18)}…` : claim;
+}
+
 export function Entry() {
   const nav = useNavigate();
   const availability = useQuery({ queryKey: ["search-availability"], queryFn: searchAvailability });
@@ -92,6 +103,9 @@ export function Entry() {
   const [error, setError] = useState<string | null>(null);
   const [useModel, setUseModel] = useState(true);
   const [modelConsent, setModelConsent] = useState(false);
+  const [clueQuestion, setClueQuestion] = useState("");
+  const [clueBusy, setClueBusy] = useState(false);
+  const [clueError, setClueError] = useState<string | null>(null);
   const modelBlocked = useModel && model.data?.available !== true;
 
   const blocked = !SHOWCASE && availability.data?.available !== true;
@@ -173,8 +187,169 @@ export function Entry() {
     }
   }
 
+  async function submitClue() {
+    await submitClueWith(clueQuestion);
+  }
+
+  async function submitClueWith(value: string) {
+    const trimmed = value.trim();
+    if (trimmed.length < 4) {
+      setClueError("再多说一点：记得的情节、人物、时间都可以。");
+      return;
+    }
+    setClueBusy(true);
+    setClueError(null);
+    try {
+      const project = await ensureClueProject();
+      const run = await startClueInvestigation(project, trimmed);
+      nav(`/cases/${run.id}`);
+    } catch (e) {
+      setClueError((e as Error).message);
+    } finally {
+      setClueBusy(false);
+    }
+  }
+
+  const clueExamples = [
+    {
+      key: "线索",
+      label: "找线索",
+      detail: "只记得几个情节，帮我找到一部电视剧。",
+      text: "我记得以前看过一部国产破案剧，男主好像是法医，有个人叫大宝，想不起电视剧名字了。",
+      mode: "clue" as const,
+      showcaseRunId: "run_f71cff1d-780a-4a67-8b14-3b6e788c9c2d",
+    },
+    {
+      key: "冲突",
+      label: "查冲突",
+      detail: "为什么两个官方渠道公布的新能源汽车产量不同？",
+      text: "为什么2024年中国新能源汽车产量有1288.8万辆和1316.8万辆两种说法？",
+      mode: "fact" as const,
+      showcaseRunId: "run_1509cd01-d852-4afe-b988-7ede65df0839",
+      claim: "2024年中国新能源汽车产量为1316.8万辆",
+      facts: [
+        {
+          id: "fact-1",
+          text: "2024年中国新能源汽车产量为1316.8万辆（国家统计局口径）",
+          queries: ["2024年 新能源汽车产量 1316.8万辆 统计局", "2024年 新能源汽车 产量 1288.8万辆 中汽协"],
+          timeScope: "2024年",
+          subjectScope: "中国",
+        },
+      ],
+    },
+    {
+      key: "真假",
+      label: "查真假",
+      detail: "某个工程项目是否真的已经全面建成？",
+      text: "2025年全国氢能重卡加氢网络是不是已经全面建成？我看到新闻说氢走廊已经投运。",
+      mode: "fact" as const,
+      showcaseRunId: "run_8fed9d25-ec95-4d7c-8d99-1b6828a72fdc",
+      claim: "2025年全国氢能重卡加氢网络已全面建成",
+      facts: [
+        {
+          id: "fact-1",
+          text: "2025年全国已建成覆盖全国的氢能长途重卡加氢网络",
+          queries: ["2025年 氢能重卡 加氢网络 全面建成 全国", "氢走廊 投运 氢能重卡 干线"],
+          timeScope: "2025年",
+          subjectScope: "中国",
+        },
+      ],
+    },
+  ];
+
+  /** 示例入口：找线索走线索流程，冲突/真假走事实核查流程，都是真实的 Runtime 调查。 */
+  async function startExample(example: (typeof clueExamples)[number]) {
+    // 只读展示：直接进入这次真实调查的回放，按钮不会发新请求。
+    if (SHOWCASE) {
+      if (example.showcaseRunId) nav(caseHref(example.showcaseRunId));
+      return;
+    }
+    if (example.mode === "clue") {
+      setClueQuestion(example.text);
+      await submitClueWith(example.text);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const project = await ensureProject(true);
+      const run = await startInvestigation(
+        project,
+        { question: example.text, claim: example.claim, facts: example.facts },
+        true,
+      );
+      nav(`/cases/${run.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="trace-page trace-home">
+      <section className="clue-hero" aria-label="用一句话开始调查">
+        <span className="clue-hero-brand">TRACE｜线索侦探</span>
+        <h1>记不清？查不明？给我线索，我来追查。</h1>
+        <p className="clue-hero-lede">从零碎线索中寻找答案，用真实搜索核对来源。查不到的，不乱猜。</p>
+        <div className="clue-hero-input">
+          <textarea
+            aria-label="你想查什么"
+            rows={2}
+            maxLength={500}
+            placeholder="例如：我以前看过一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档，想不起叫什么了。"
+            value={clueQuestion}
+            onChange={(event) => setClueQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
+            }}
+          />
+          <button
+            className="trace-btn trace-btn-primary trace-btn-lg"
+            disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
+            onClick={() => void submitClue()}
+          >
+            <Search size={16} /> {clueBusy ? "正在追查…" : "开始调查"}
+          </button>
+        </div>
+        <div className="clue-hero-examples">
+          {clueExamples.map((example) => (
+            <button
+              key={example.key}
+              className="clue-example"
+              disabled={clueBusy || busy || (!SHOWCASE && blocked)}
+              onClick={() => void startExample(example)}
+            >
+              <b>{example.label}</b>
+              <span>{example.detail}</span>
+              <em>{example.mode === "clue" ? "线索追查" : "事实核查"}</em>
+            </button>
+          ))}
+        </div>
+        {SHOWCASE ? (
+          <p className="clue-hero-note">
+            公网版本是只读回放，点上面任一示例可以看到当时的真实调查记录；要真正发起搜索，请在本机运行 Runtime。
+          </p>
+        ) : blocked ? (
+          <p className="clue-hero-note" role="status">联网检索当前不可用：{blockerReason}</p>
+        ) : (
+          <p className="clue-hero-note">会用元宝搜索真实检索，答案只来自查到的网页；查不到就说查不到。</p>
+        )}
+        {clueError ? <div className="trace-alert" role="alert">{clueError}</div> : null}
+      </section>
+
+      <div className="clue-hero-cases" aria-label="真实调查案例">
+        <span>真实调查案例：</span>
+        {[digests.E, digests.R, digests.C, digests.B, digests.A]
+          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+          .slice(0, 5)
+          .map((item) => (
+            <a key={item.digest.runId} href={caseHref(item.digest.runId)}>
+              {caseShortName(item.digest.claim)}
+            </a>
+          ))}
+      </div>
+
       {digests.datePair ? (
         <Watershed
           left={{ label: "原句（真实反证）", claim: digests.datePair.left.digest.claim, digest: digests.datePair.left.digest }}
@@ -195,9 +370,9 @@ export function Entry() {
 
       <section className="home-hero">
         <div className="home-hero-copy">
-          <span className="home-brand">溯证 TRACE</span>
-          <h1>网上说的，是真的吗？</h1>
-          <p className="home-lede">追查原始出处、比较证据、发现疑点，让每个结论都能复查。</p>
+          <span className="home-brand">要核查一句具体说法？</span>
+          <h1>把这句话交给证据去检验</h1>
+          <p className="home-lede">写下可以被判断真假的一句话，系统会真实检索、比对原文，并在证据不足时明确说不确定。</p>
 
           {SHOWCASE ? (
             <div className="home-actions">

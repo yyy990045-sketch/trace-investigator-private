@@ -1,5 +1,6 @@
 import { searchConfiguration } from "../adapters/trace/searchpro.ts";
 import { registerTraceEndpoints } from "./trace-followup.ts";
+import { registerClueEndpoints } from "./trace-clue.ts";
 import { matchExperiences, registerTraceExperienceEndpoints } from "./trace-experiences.ts";
 import { registerProductEndpoints } from "./product.ts";
 import Fastify from "fastify";
@@ -433,6 +434,8 @@ export async function createPlatform(
   registerTraceEndpoints(app, store, engine);
   // 调查经验：沉淀、确认/停用、匹配与使用效果记录。
   registerTraceExperienceEndpoints(app, store);
+  // 线索调查：继续追查、补充线索与候选重新比对。
+  registerClueEndpoints(app, store);
   // 项目应用、能力组合、运行反馈与经验、概览；端口白名单沿用同一份 allowed。
   registerProductEndpoints(app, { store, registry, engine, allowedOrigins: allowed });
   if (options.recover !== false) engine.recover();

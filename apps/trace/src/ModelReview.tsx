@@ -12,7 +12,7 @@ export function ModelReview({ run, at }: { run: RunRecord; at?: string }) {
     ["trace.followup", "trace.correction", "trace.reassessment"].includes(item.kind) &&
     item.createdAt > step.finishedAt! && (!at || item.createdAt <= at));
   const call = (run.modelCalls || []).findLast((item) => item.status === "completed");
-  const sources = bundleOf(run)?.assessment?.facts.flatMap((fact) => fact.sources) || [];
+  const sources = bundleOf(run)?.assessment?.facts?.flatMap((fact) => fact.sources) || [];
   const citations = (verification?.citations || []).flatMap((id) => {
     const citation = output?.citations?.find((item) => item.id === id);
     if (!citation) return [];

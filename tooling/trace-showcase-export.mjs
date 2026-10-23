@@ -57,6 +57,24 @@ const CASES = [
     note: "「《民法典》自2020年5月28日起施行」是错的：2020-05-28 是通过并公布日，施行日是 2021-01-01。规则与 DeepSeek 都判为与说法相反。",
   },
   {
+    key: "L",
+    runId: "run_f71cff1d-780a-4a67-8b14-3b6e788c9c2d",
+    label: "线索侦探｜模糊线索找剧",
+    note: "「国产破案剧，男主是法医，有人叫大宝」：模型只做检索规划，候选与线索比对全部来自真实网页；找到《法医秦明》并给出每条线索的原句。",
+  },
+  {
+    key: "F",
+    runId: "run_1509cd01-d852-4afe-b988-7ede65df0839",
+    label: "来源冲突｜1288.8 万辆与 1316.8 万辆",
+    note: "同一句话有两种数字：统计局口径 1316.8 万辆、中汽协口径 1288.8 万辆，分别保留原文，不认定哪一方错误。",
+  },
+  {
+    key: "H",
+    runId: "run_8fed9d25-ec95-4d7c-8d99-1b6828a72fdc",
+    label: "证据不足｜氢能重卡加氢网络",
+    note: "问的是「全国是否已全面建成」，查到的多是局部干线投运；证据不足时明确说不确定，并列出还缺什么。",
+  },
+  {
     key: "E",
     runId: "run_e2467008-5b5f-4c14-91c1-50a70e7d49ef",
     label: "跨调查经验复用｜通过日 vs 施行日",
@@ -169,12 +187,15 @@ async function main() {
     const run = await api(`/v1/runs/${item.runId}`);
     const record = run.run || run;
     if (record.status !== "completed") throw new Error(`${item.key} 尚未完成，不可作为已交付案例发布。`);
-    const revisions = await api(`/v1/runs/${item.runId}/trace/revisions`);
+    // 线索调查没有事实结论，导出的是「候选 + 线索比对」。
+    const isClue = Boolean((record.steps || []).some((step) => step.capabilityId === "trace.clue.candidates"));
+    const revisions = isClue ? null : await api(`/v1/runs/${item.runId}/trace/revisions`);
+    const clue = isClue ? await api(`/v1/runs/${item.runId}/trace/clue`) : null;
     for (const artifact of record.artifacts || [])
       artifactIndex[artifact.id] = `artifacts/${item.runId}/${encodeURIComponent(artifact.filename)}`;
     // 历史经验复用：取这条调查真实记录下来的匹配与使用结果（只读展示用）。
     const experience = await api(`/v1/runs/${item.runId}/trace/experiences`);
-    const assessment = sanitize(revisions.current || null);
+    const assessment = sanitize(clue || revisions?.current || null);
     if (assessment && Array.isArray(experience.hints) && experience.hints.length)
       assessment.experiences = sanitize(experience.hints);
     cases.push({
@@ -184,7 +205,7 @@ async function main() {
       runId: item.runId,
       run: trimRun(record),
       assessment,
-      revisions: sanitize(revisions),
+      revisions: sanitize(revisions || { deliveredRevision: 0, dirty: false, pendingFollowups: 0, pendingCorrections: 0, current: null, changes: [], revisions: [] }),
       experienceUsage: sanitize(experience.usage || []),
       experienceDetected: sanitize(experience.detected || null),
     });

@@ -30,6 +30,7 @@ import { useSearchParams } from "react-router-dom";
 import { digestOf } from "../api";
 import { InvestigationRoles } from "../InvestigationRoles";
 import { ExperienceReuse } from "../ExperienceReuse";
+import { ClueCase } from "./ClueCase";
 import { ModelReview } from "../ModelReview";
 import { evidenceWording } from "../presentation";
 
@@ -106,6 +107,28 @@ export function Case() {
     | undefined;
   const claimText = intake?.case?.claim || intake?.case?.question || run.input?.text || "调查中";
   const contradictionCount = facts.reduce((sum, fact) => sum + fact.contradicts, 0);
+  const supportCount = facts.reduce((sum, fact) => sum + fact.supports, 0);
+  /** 有相关来源，但它们都是摘要/未通过独立性核对，因此结论只能停在「证据不足」。 */
+  const weakOpposition =
+    verdict?.outcome === "insufficient" && supportCount + contradictionCount > 0;
+  /** 两个以上机构各自给出数字：这是「口径对照」而不是「谁错了」。 */
+  const quantityBySource = (() => {
+    const map = new Map<string, { value: number; unit: string; url: string; sentence: string; approximate: boolean }>();
+    for (const fact of facts)
+      for (const source of fact.sources)
+        for (const item of source.quantityEvidence || []) {
+          const key = `${item.statisticalSource}|${item.value}${item.unit}`;
+          if (map.has(key)) continue;
+          map.set(key, {
+            value: item.value,
+            unit: item.unit,
+            url: source.url,
+            sentence: item.sentence,
+            approximate: item.approximate,
+          });
+        }
+    return [...map.entries()].map(([key, value]) => ({ source: key.split("|")[0], ...value }));
+  })();
   const disputed = verdict?.outcome === "disputed" || facts.some((fact) => fact.relation === "mixed");
   const statisticalDifference = verdict?.headline.includes("统计口径差异") === true;
   const running = run.status === "running" || run.status === "queued";
@@ -207,6 +230,14 @@ export function Case() {
     }
   }
 
+  // 线索调查走另一套呈现：正在寻找什么 → 搜索过程 → 候选对照 → 最终结果。
+  if (bundle?.case?.mode === "clue")
+    return (
+      <div className="trace-page trace-page-wide">
+        <ClueCase run={run} bundle={bundle} runId={run.id} />
+      </div>
+    );
+
   return (
     <div className="trace-page trace-page-wide">
       <header className="trace-masthead">
@@ -276,6 +307,12 @@ export function Case() {
             </span>
           </div>
           <p className="case-now-text">{evidenceWording(verdict.statement)}</p>
+          {weakOpposition ? (
+            <p className="case-now-note">
+              补充说明：这次确实检索到相关内容（{contradictionCount} 条给出与说法相反的表述、{supportCount} 条给出支持表述），
+              但它们都只有搜索摘要、且没有通过独立性核对，按规则不能当作依据，所以结论停在「证据不足”。
+            </p>
+          ) : null}
           <p className="trace-hint">来源簇仅按已识别的同源线索归并；未检测到重复不等于已证明来源独立。</p>
           <div className="case-now-counts">
             <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
@@ -462,10 +499,35 @@ export function Case() {
         <section className="trace-conflict">
           <h2>{statisticalDifference ? "统计口径差异：先明确适用范围" : disputed ? "来源之间说法不一致" : "有来源给出相反说法"}</h2>
           <p>
-            {statisticalDifference ? "统计局相关统计与工信部引用的中汽协数据分别保留。支持或反对是各自口径对指定门槛的判断，不表示同口径权威来源直接矛盾，也不认定其中一方错误。" : disputed
-              ? "同一条事实既有支持也有反对来源。下面把它们并排列出，请直接打开原始网页判断。"
-              : `共 ${contradictionCount} 条来源与待核查说法相反，结论已按「存在反证」处理。`}
+            {statisticalDifference
+              ? "统计局相关统计与中汽协口径分别保留。支持或反对是各自口径对指定门槛的判断，不表示同口径权威来源直接矛盾，也不认定其中一方错误。"
+              : disputed
+                ? "同一条事实既有支持也有反对来源。下面把它们并排列出，请直接打开原始网页判断。"
+                : weakOpposition
+                  ? `共 ${contradictionCount} 条来源给出相反数字、${supportCount} 条给出支持数字，但它们都只有搜索摘要、且没有通过独立性核对，因此结论停在「证据不足」，不按任一方下判断。`
+                  : `共 ${contradictionCount} 条来源与待核查说法相反，结论已按「存在反证」处理。`}
           </p>
+          {quantityBySource.length > 1 ? (
+            <div className="trace-quantity-diff">
+              <h3>两个数字分别来自哪里</h3>
+              <ul>
+                {quantityBySource.slice(0, 4).map((item) => (
+                  <li key={`${item.source}-${item.value}`}>
+                    <b>
+                      {item.source}：{item.value}
+                      {item.unit}
+                      {item.approximate ? "（约）" : ""}
+                    </b>
+                    <span>{item.sentence.slice(0, 90)}</span>
+                    <a href={item.url} target="_blank" rel="noreferrer noopener">打开原始页面</a>
+                  </li>
+                ))}
+              </ul>
+              <p className="trace-hint">
+                两个数字都真实出现在公开报道里，发布机构与统计范围不同；本次没有找到能证明「谁算错」的原始口径说明，因此不认定哪一方错误。
+              </p>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
