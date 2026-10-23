@@ -58,6 +58,30 @@ describe("公网实时调查链路：服务端真实接口契约（提供方仅�
     await expect(investigate({claim,query:"个人信息保护法 施行",snapshot:first.snapshot+"x"},deps))
       .rejects.toThrow(/修改|签名/);
   });
+  it("用户询问两组数字为何不同，保留来源对照并拒绝臆造差异原因",async()=>{
+    const question="为什么2024年中国新能源汽车产量有1288.8万辆和1316.8万辆两种说法？";
+    const items=[
+      { ...page,id:"statistics",url:"https://example.org/statistics",site:"国家统计局",
+        passage:"国家统计局发布：2024年中国新能源汽车产量1316.8万辆，同比增长38.7%。" },
+      { ...page,id:"association",url:"https://example.org/association",site:"中国汽车工业协会",
+        passage:"中国汽车工业协会发布：2024年我国新能源汽车产量1288.8万辆，同比增长34.4%。" },
+    ];
+    const testDeps={
+      search:vi.fn(async(query:string)=>({
+        ...fakeSearch(query),resultCount:2,pages:items,
+      })) as any,
+      source:vi.fn(async(url:string)=>({
+        ...fakeBody(url),text:url.includes("statistics")?items[0].passage:items[1].passage,
+      })) as any,
+    };
+    const result=await investigate({claim:question,query:"2024 新能源汽车产量 国家统计局 中汽协"},testDeps);
+    expect(result.outcome).toBe("insufficient");
+    expect(result.statement).toContain("差异原因尚未核实");
+    expect(result.kind).toBe("comparison");
+    expect(result.figures.length).toBeGreaterThanOrEqual(2);
+    expect(result.figures.map(x=>x.value)).toContain(1316.8);
+    expect(result.figures.map(x=>x.value)).toContain(1288.8);
+  });
   it("无搜索结果时只能给证据不足，不得编造来源",async()=>{
     const empty={search:vi.fn(async(query:string)=>({
       ...fakeSearch(query),pages:[],resultCount:0,
