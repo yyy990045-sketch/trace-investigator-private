@@ -35,3 +35,22 @@ jobs:
         run: npm run check:frontend
       - name: Build TRACE
         run: npm run build --workspace @personal/trace
+      - name: Refresh audited read-only showcase from committed records
+        run: node tooling/trace-showcase-refresh.mjs
+      - name: Install Chromium for UI smoke test
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke: desktop, mobile, three locked cases
+        run: |
+          python3 -m http.server 4400 --directory delivery/trace-showcase >/tmp/trace-static-server.log 2>&1 &
+          sleep 2
+          node tooling/trace-ui-smoke.mjs
+      - name: Archive showcase and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-delivery-preview
+          path: |
+            delivery/trace-showcase
+            delivery/trace-review-screenshots
+          if-no-files-found: warn
+          retention-days: 7
