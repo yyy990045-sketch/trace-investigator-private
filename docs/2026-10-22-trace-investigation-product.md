@@ -198,6 +198,16 @@ node checks/trace-screenshots.mjs http://127.0.0.1:4316 <runId> real
 
 注意：`.env.platform` 里 `PLATFORM_DATA_DIR` 只有在需要自定义数据目录时才取消注释，并改成真实绝对路径。
 
+## 六点五、调查经验的沉淀与复用
+
+- 经验落在既有 `experiences` 表：`kind=trace_lesson`，结构化字段在 `trace_payload`（来源调查、原判断、修正后判断、触发条件、处理方式、适用边界、原始证据、状态与历史）。
+- 生成方式：`POST /v1/trace/experiences/extract`，字段从真实调查记录自动带出（旧判断与现行判断、人工修正的 before/after、原始证据句），人只补「怎么处理」与「适用边界」。
+- 状态：`pending → confirmed → disabled/restored`，每次变化写进经验历史，条目不删除；只有 `confirmed` 会进入匹配集合。
+- 匹配：立案时按触发条件（日期角色、严格数量门槛、范围差异）匹配，写进 `trace.experience.match` 证据并随案件下传；匹配结果只作检查提示，不参与支持/反证计数，也不改写任何来源关系。
+- 模型：DeepSeek 请求体里带 `experienceHints`，提示词明确「经验不是本次证据、不能作为 citation」；返回仍需通过 claimId/引用/证据句校验。
+- 使用效果：`experience_usage` 按（经验 × 调查）唯一，记录 matched/shown/采纳或忽略/本次实际判断/是否发生人工修正/是否真正有帮助（无法证明时记 `unknown`），不计算准确率。
+- 真实案例：《个人信息保护法》自2021年8月20日起施行 → 命中《民法典》通过日/施行日经验（run_e2467008-5b5f-4c14-91c1-50a70e7d49ef）。
+
 ## 七、未完成与已知边界
 
 - 事实拆解仍由人工确认，不显示为 AI 已完成。DeepSeek 辅助语义复核已通过一次真实调用，意见与规则判断单列。
