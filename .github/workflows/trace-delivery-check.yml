@@ -37,6 +37,8 @@ jobs:
         run: npm run build --workspace @personal/trace
       - name: Refresh audited read-only showcase from committed records
         run: node tooling/trace-showcase-refresh.mjs
+      - name: Verify serverless live API is closed without secrets
+        run: node tooling/trace-serverless-smoke.mjs
       - name: Install Chromium for UI smoke test
         run: npx playwright install --with-deps chromium
       - name: Browser smoke on desktop and mobile with three locked cases
