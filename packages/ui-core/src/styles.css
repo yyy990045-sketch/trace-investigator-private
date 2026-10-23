@@ -1987,3 +1987,71 @@ textarea {
 @media(min-width:760px){
   .composition-columns,.overview-columns{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 }
+
+/* 调查纠错经验（TRACE）：确认、停用与历史留痕。 */
+.trace-experience-admin {
+  border-top: 1px solid var(--line);
+  margin-top: 32px;
+  padding-top: 24px;
+}
+.trace-experience-actor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+.trace-experience-actor label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.trace-experience-actor input {
+  width: 100%;
+  font-size: 13px;
+}
+.trace-experience-admin-card h3 {
+  margin: 8px 0 6px;
+}
+.trace-experience-admin-fields {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.trace-experience-admin-fields > div {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.trace-experience-admin-fields dt {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.trace-experience-admin-fields dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.trace-experience-admin-fields dd .plain-link {
+  margin-right: 12px;
+  font-size: 12px;
+}
+.trace-experience-admin-evidence,
+.trace-experience-admin-history {
+  display: block;
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+@media (max-width: 720px) {
+  .trace-experience-admin-fields > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

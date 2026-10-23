@@ -3180,6 +3180,25 @@
 }
 
 /* 关键条件改写面板（本机版）：改一处 → 真实重跑 → 并列对照 */
+.ws-scope { border-top: 1px solid var(--trace-line); padding-top: 24px; }
+.ws-scope header { margin-bottom: 18px; }
+.ws-scope header h3 { font-size: 23px; }
+.ws-scope header p, .ws-scope article p { color: var(--trace-sub); font-size: 14px; line-height: 1.7; }
+.ws-scope-grid { display: grid; grid-template-columns: minmax(0,1fr) 130px minmax(0,1fr); gap: 16px; }
+.ws-scope article { min-width: 0; padding: 22px; border: 1px solid var(--trace-line); border-radius: 14px; background: white; }
+.ws-scope article h4 { font-size: 17px; }
+.ws-scope article strong { display: block; font-size: 42px; color: #1b6478; line-height: 1.4; margin: 10px 0; }
+.ws-scope article small { font-size: 15px; margin-left: 6px; }
+.ws-scope article b { display: block; font-size: 17px; }
+.ws-scope article details { margin-top: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.ws-scope article summary { cursor: pointer; padding: 8px 0; color: var(--trace-accent); }
+.ws-scope blockquote { margin: 12px 0; padding: 12px; background: #f2f5f2; line-height: 1.75; border-left: 3px solid #97b5ad; }
+.ws-scope-difference { display: flex; flex-direction: column; justify-content: center; gap: 12px; align-items: center; text-align: center; color: #77551c; }
+.ws-scope-difference b { font-size: 23px; line-height: 1.5; }
+.ws-scope-difference span { font-size: 13px; line-height: 1.7; }
+.ws-scope-note { margin-top: 18px; padding: 15px 18px; background: #eaf0ef; line-height: 1.8; font-size: 14px; border-radius: 10px; }
+@media(max-width:760px) { .ws-scope-grid { grid-template-columns: minmax(0,1fr); } .ws-scope-difference { padding: 4px; } .ws-scope article { padding: 18px; } }
+
 .splitter {
   display: grid;
   gap: 12px;
@@ -3247,5 +3266,130 @@
   }
   .splitter {
     padding: 18px;
+  }
+}
+
+/* 历史经验复用：只作检查提示，不参与计数。 */
+.trace-experience {
+  margin: 26px 0;
+  border: 1px solid var(--trace-line);
+  border-left: 3px solid var(--trace-accent);
+  background: var(--card);
+  padding: 16px 18px 6px;
+}
+.trace-experience-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--trace-accent);
+}
+.trace-experience-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: .01em;
+}
+.trace-experience-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--trace-sub);
+}
+.trace-experience-card {
+  border-top: 1px dashed var(--trace-line);
+  padding: 13px 0 10px;
+}
+.trace-experience-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.trace-experience-title b {
+  font-size: 14.5px;
+  color: var(--trace-ink);
+}
+.trace-experience-kind {
+  font-size: 11.5px;
+  color: var(--trace-accent);
+  background: var(--trace-accent-soft);
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.trace-experience-fields {
+  margin: 0;
+  display: grid;
+  gap: 7px;
+}
+.trace-experience-fields > div {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.trace-experience-fields dt {
+  font-size: 12px;
+  color: var(--trace-sub);
+  line-height: 1.7;
+}
+.trace-experience-fields dd {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--trace-ink);
+}
+.trace-experience-fields dd span,
+.trace-experience-fields dd em {
+  display: block;
+}
+.trace-experience-fields dd em {
+  font-style: normal;
+  color: var(--trace-sub);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+.trace-experience-fields ol {
+  margin: 0;
+  padding-left: 18px;
+}
+.trace-experience-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.trace-experience-links {
+  display: flex;
+  gap: 12px;
+  font-size: 12.5px;
+}
+.trace-experience-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.trace-experience-decided {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--trace-sub);
+}
+.trace-experience-decided[data-decision="accepted"] {
+  color: var(--support);
+}
+.trace-experience-note {
+  margin: 8px 0 4px;
+  font-size: 11.5px;
+  color: var(--trace-sub);
+}
+@media (max-width: 720px) {
+  .trace-experience-fields > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .trace-experience-actions,
+  .trace-experience-decided {
+    margin-left: 0;
   }
 }

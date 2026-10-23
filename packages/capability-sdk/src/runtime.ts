@@ -183,6 +183,37 @@ export interface ExperienceRecord {
   createdAt: string;
   updatedAt: string;
 }
+/** 一条调查纠错经验：结构化字段来自真实调查记录，人工只补处理方式与边界。 */
+export interface TraceExperienceRecord {
+  id: string;
+  title: string;
+  kind: string;
+  status: "pending" | "confirmed" | "disabled";
+  version: number;
+  projectId: string | null;
+  projectName: string | null;
+  runId: string | null;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+  payload: {
+    kind: "date_role" | "quantity_strict" | "scope_partial";
+    sourceClaim: string;
+    sourceFacts: string[];
+    sourceRunIds: string[];
+    sourceProjectIds: string[];
+    wrongJudgment: string;
+    correctedJudgment: string;
+    handling: string;
+    limits: string;
+    checkPoints: string[];
+    evidence: { runId: string; url: string; title: string; relation: string; quote: string; date: string }[];
+    version: number;
+    status: "pending" | "confirmed" | "disabled";
+    history: { at: string; action: string; actor: string; note?: string }[];
+  } | null;
+}
+
 /** 一次运行的可反馈摘要：项目、能力、失败步骤与真实交付。 */
 export interface RunFeedbackBundle {
   run: {
@@ -574,6 +605,22 @@ export function createRuntimeClient(base = "/api") {
     portfolioSuggestion: (id: string) =>
       request<PortfolioSuggestion>(
         "/experiences/" + encodeURIComponent(id) + "/portfolio-suggestion",
+      ),
+    /** 调查纠错经验（TRACE）：待确认 → 已确认 → 停用，状态变化保留历史。 */
+    traceExperiences: () =>
+      request<{
+        total: number;
+        byStatus: { pending: number; confirmed: number; disabled: number };
+        experiences: TraceExperienceRecord[];
+      }>("/trace/experiences"),
+    traceExperienceStatus: (
+      id: string,
+      value: { action: "confirm" | "disable" | "restore"; actor: string; note?: string },
+    ) =>
+      request<{ experience: TraceExperienceRecord }>(
+        "/trace/experiences/" + encodeURIComponent(id) + "/status",
+        "POST",
+        value,
       ),
   };
 }

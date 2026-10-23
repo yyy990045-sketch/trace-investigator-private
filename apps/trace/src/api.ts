@@ -21,6 +21,8 @@ const liveClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "
 export const SHOWCASE = import.meta.env.VITE_TRACE_MODE === "showcase";
 
 export interface ShowcaseCase {
+  experienceUsage?: ExperienceUsage[];
+  experienceDetected?: { kind: string; reasons: string[] } | null;
   key: string;
   label: string;
   note: string;
@@ -218,6 +220,7 @@ export function startInvestigation(project: ProjectRecord, draft: CaseDraft, mod
 export type Relation = "supports" | "contradicts" | "unclear" | "irrelevant" | "mixed" | "none";
 
 export interface SourceAssessment {
+  sourceOrigin?: "operator_url" | "search";
   pageId: string;
   url: string;
   site: string;
@@ -248,6 +251,12 @@ export interface SourceAssessment {
   /** 与完整说法的范围/状态是否一致 */
   scopeCompatible?: boolean;
   scopeNote?: string;
+  quantityEvidence?: {
+    subject: string; metric: string; year: string; value: number; unit: string;
+    approximate: boolean; sentence: string; context: string; publisher: string;
+    statisticalSource: string; scope: string; scopeBasis: string; url: string;
+    from: "body" | "excerpt"; relation: "supports" | "contradicts" | "unclear";
+  }[];
   duplicateOf?: { primary: string; basis: string } | null;
   independenceNote?: string;
   /** 人工修正后保留的系统自动判断 */
@@ -348,6 +357,8 @@ export interface TraceBundleView {
     clusterBasis?: Record<string, string>;
     keySentenceSources?: number;
     corrections?: CorrectionRecord[];
+    /** 匹配到的历史调查经验：只作检查提示，不参与支持/反证计数 */
+    experiences?: ExperienceHint[];
   };
   checks: { name: string; passed: boolean; detail: string; status?: string }[];
 }
@@ -433,6 +444,7 @@ export interface FollowupPage {
 }
 
 export interface FollowupRecord {
+  searchExecuted?: boolean;
   query: string;
   requestId: string | null;
   httpStatus: number | null;
@@ -495,6 +507,62 @@ export function postReassess(runId: string) {
     "POST",
     {},
   );
+}
+
+/** 一条历史调查经验在当前调查里的提示形态（不含结论，只含检查点）。 */
+export interface ExperienceHint {
+  experienceId: string;
+  title: string;
+  kind: "date_role" | "quantity_strict" | "scope_partial";
+  kindLabel: string;
+  sourceClaim: string;
+  sourceRunIds: string[];
+  sourceProjectIds: string[];
+  wrongJudgment: string;
+  correctedJudgment: string;
+  handling: string;
+  limits: string;
+  checkPoints: string[];
+  matchReasons: string[];
+  evidence: { runId: string; url: string; title: string; relation: string; quote: string; date: string }[];
+  version: number;
+}
+
+export interface ExperienceUsage {
+  experienceId: string;
+  matched: boolean;
+  shown: boolean;
+  decision: "accepted" | "ignored" | null;
+  actualJudgment: string | null;
+  correctionHappened: boolean;
+  helped: string;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** 这次调查匹配到的历史经验与用户处理结果。 */
+export function fetchRunExperiences(runId: string) {
+  if (SHOWCASE) {
+    const item = showcaseCase(runId);
+    const hints = (item.assessment?.experiences || []) as ExperienceHint[];
+    return Promise.resolve({
+      hints,
+      detected: (item.experienceDetected || null) as { kind: string; reasons: string[] } | null,
+      usage: (item.experienceUsage || []) as ExperienceUsage[],
+    });
+  }
+  return traceRequest<{ hints: ExperienceHint[]; detected: { kind: string; reasons: string[] } | null; usage: ExperienceUsage[] }>(
+    `/v1/runs/${encodeURIComponent(runId)}/trace/experiences`,
+  );
+}
+
+/** 采纳或忽略一条历史经验：记录使用效果，不修改任何结论。 */
+export function postExperienceUsage(
+  runId: string,
+  input: { experienceId: string; decision: "accepted" | "ignored"; note?: string },
+) {
+  if (SHOWCASE) return Promise.reject(readOnly());
+  return traceRequest<{ ok: boolean }>(`/v1/runs/${encodeURIComponent(runId)}/trace/experiences/usage`, "POST", input);
 }
 
 /** 一次人工修正在写入前后对结论的实际影响（服务端真实重算出来的）。 */
@@ -656,7 +724,7 @@ export const sampleCases: SampleCase[] = [
 /** 从调查记录里取出所有追加检索。 */
 export function followupsOf(run: RunRecord): FollowupRecord[] {
   return run.evidence
-    .filter((item) => item.kind === "trace.followup")
+    .filter((item) => item.kind === "trace.followup" && (item.data as { searchExecuted?: boolean }).searchExecuted !== false)
     .map((item) => item.data as FollowupRecord);
 }
 

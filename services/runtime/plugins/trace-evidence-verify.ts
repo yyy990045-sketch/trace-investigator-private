@@ -167,6 +167,8 @@ export default {
         bodyAvailable,
         clusters,
         openQuestions: missing,
+        // 历史经验匹配：只展示检查提示，不参与上面的支持/反证计数与结论。
+        experiences: Array.isArray(input.case?.experienceHints) ? input.case.experienceHints : [],
       },
       checks: [
         ...(input.checks || []).filter(

@@ -78,6 +78,9 @@ export default {
       };
     });
 
+    // 历史经验只作为检查提示随案件带下去：命中的是历史错误的形态，不是本次事实的证据。
+    const experienceMatch = (payload.experienceMatch || null) as any;
+    const experienceHints = Array.isArray(experienceMatch?.hints) ? experienceMatch.hints : [];
     const config = searchConfiguration();
     const bundle = {
       filename: input.filename,
@@ -93,6 +96,7 @@ export default {
         modeNote: MANUAL_NOTE,
         consent: { search: input.dataConsent === true, model: input.modelConsent === true },
         createdAt: new Date().toISOString(),
+        ...(experienceHints.length ? { experienceHints } : {}),
       },
       search: emptySearchStatus(config),
       searches: [],
@@ -124,6 +128,15 @@ export default {
         },
       ],
     };
+    if (experienceMatch?.detected)
+      ctx.evidence("trace.experience.match", {
+        detected: experienceMatch.detected,
+        hints: experienceHints,
+        note:
+          experienceHints.length
+            ? "匹配到已确认的历史调查经验，只作为检查提示；本次结论仍只依据本次真实来源。"
+            : "本次说法命中了历史错误的高发形态，但没有已确认的相关经验可用。",
+      });
     ctx.evidence("trace.case.opened", {
       question,
       claim,

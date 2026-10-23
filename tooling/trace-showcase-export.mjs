@@ -16,6 +16,7 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { statisticalScopePair, statisticalCardHtml } from "../apps/trace/src/presentation.ts";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtime = process.env.TRACE_RUNTIME || "http://127.0.0.1:4313";
@@ -47,13 +48,19 @@ const CASES = [
     key: "V",
     runId: "run_488c5ff0-a71e-43e1-82a8-d1b1c1777c27",
     label: "同一句话改数量门槛",
-    note: "2024 年新能源汽车产量：把「超过1200万辆」改成「超过1300万辆」，同一批来源给出 1317 万辆与 1288.8 万辆两种口径，结论从「有依据支持」变成「存在争议」。",
+    note: "2024年新能源汽车产量：保留1200/1300万辆门槛对照；统计局规模以上工业产品统计与工信部引用中汽协数据分开解释，不把口径差异当作同口径直接矛盾。",
   },
   {
     key: "R",
     runId: "run_2254f124-88ea-4efd-807b-f613ec4b7396",
     label: "真实反证案例",
     note: "「《民法典》自2020年5月28日起施行」是错的：2020-05-28 是通过并公布日，施行日是 2021-01-01。规则与 DeepSeek 都判为与说法相反。",
+  },
+  {
+    key: "E",
+    runId: "run_e2467008-5b5f-4c14-91c1-50a70e7d49ef",
+    label: "跨调查经验复用｜通过日 vs 施行日",
+    note: "「《个人信息保护法》自2021年8月20日起施行」：立案时匹配到《民法典》那条已确认经验，按提示逐字比对「通过/公布」与「施行」日期；模型复核引用的仍是本次真实证据。",
   },
   {
     key: "D",
@@ -165,14 +172,21 @@ async function main() {
     const revisions = await api(`/v1/runs/${item.runId}/trace/revisions`);
     for (const artifact of record.artifacts || [])
       artifactIndex[artifact.id] = `artifacts/${item.runId}/${encodeURIComponent(artifact.filename)}`;
+    // 历史经验复用：取这条调查真实记录下来的匹配与使用结果（只读展示用）。
+    const experience = await api(`/v1/runs/${item.runId}/trace/experiences`);
+    const assessment = sanitize(revisions.current || null);
+    if (assessment && Array.isArray(experience.hints) && experience.hints.length)
+      assessment.experiences = sanitize(experience.hints);
     cases.push({
       key: item.key,
       label: item.label,
       note: item.note,
       runId: item.runId,
       run: trimRun(record),
-      assessment: sanitize(revisions.current || null),
+      assessment,
       revisions: sanitize(revisions),
+      experienceUsage: sanitize(experience.usage || []),
+      experienceDetected: sanitize(experience.detected || null),
     });
     console.log(`读取 ${item.key}：${record.status} · 证据 ${record.evidence?.length || 0} 条 · 产物 ${record.artifacts?.length || 0} 个`);
   }
@@ -307,6 +321,13 @@ async function main() {
       ``,
     ].join("\n");
     await writeFile(join(outDir, "facts", pair.file), body, "utf8");
+    if (pair.right === "V") {
+      const scopes = statisticalScopePair((right.assessment?.facts || []).flatMap((fact) => fact.sources));
+      if (scopes) {
+        const claim = right.run.steps.find((step) => step.capabilityId === "trace.case.intake")?.output?.case?.claim || "";
+        await writeFile(join(outDir,"facts","新能源产量视觉对照卡.html"), statisticalCardHtml(claim, scopes), "utf8");
+      }
+    }
   }
 
   const files = await readdir(outDir);

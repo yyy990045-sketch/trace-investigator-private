@@ -60,6 +60,8 @@ function useDigests() {
       C: pick(["氢能", "加氢"]),
       D: rows.find((row) => row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
       R: rows.find((row) => row.digest.outcome === "contradicted") || null,
+      // 跨调查经验复用：新调查命中了历史经验（通过日/施行日混淆）
+      E: pick(["2021年8月20日"]) || null,
       // 事实分水岭：只差一个关键条件的两次真实调查
       datePair: (() => {
         const right = rows.find((row) => row.digest.claim.includes("2021年1月1日") && row.digest.outcome === "supported");
@@ -368,6 +370,29 @@ export function Entry() {
             <a className="trace-btn" href={archiveHref(digests.D.digest.runId)}>查看对应调查档案</a>
           </div>
         </section> : null}
+        {digests.E ? (
+          <section className="trace-block" aria-label="案例E 跨调查经验复用">
+            <div className="trace-section-head">
+              <h2>跨调查经验复用｜「《个人信息保护法》自2021年8月20日起施行」</h2>
+              <span>E · 立案时匹配到历史经验</span>
+            </div>
+            <p className="trace-lede">
+              这句话把<strong>通过日</strong>当成了<strong>施行日</strong>——和《民法典》那条历史错误一模一样。
+              系统在立案时匹配到已确认经验，把「先分清通过/公布与施行」写成检查清单；
+              模型复核引用的仍是本次真实证据，经验没有替代任何来源。
+            </p>
+            <div className="home-actions">
+              <a className="trace-btn trace-btn-primary" href={caseHref(digests.E.digest.runId)}>
+                查看这次调查 <ArrowRight size={14} />
+              </a>
+              {digests.R ? (
+                <a className="trace-btn" href={caseHref(digests.R.digest.runId)}>
+                  查看被复用的历史案例
+                </a>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
         <div className="home-section-head">
           <h2>A / B / C · 三次真实查询</h2>
           <span>{SHOWCASE ? "点开就是当时的真实调查记录" : "点开看真实调查，或带入表单重新跑一次"}</span>

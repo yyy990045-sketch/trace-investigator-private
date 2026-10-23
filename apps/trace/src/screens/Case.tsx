@@ -29,6 +29,7 @@ import { Watershed } from "../Watershed";
 import { useSearchParams } from "react-router-dom";
 import { digestOf } from "../api";
 import { InvestigationRoles } from "../InvestigationRoles";
+import { ExperienceReuse } from "../ExperienceReuse";
 import { ModelReview } from "../ModelReview";
 import { evidenceWording } from "../presentation";
 
@@ -106,6 +107,7 @@ export function Case() {
   const claimText = intake?.case?.claim || intake?.case?.question || run.input?.text || "调查中";
   const contradictionCount = facts.reduce((sum, fact) => sum + fact.contradicts, 0);
   const disputed = verdict?.outcome === "disputed" || facts.some((fact) => fact.relation === "mixed");
+  const statisticalDifference = verdict?.headline.includes("统计口径差异") === true;
   const running = run.status === "running" || run.status === "queued";
 
   function openComposer(fact?: FactAssessment, source?: SourceAssessment) {
@@ -245,6 +247,7 @@ export function Case() {
       {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
       <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
       <InvestigationRoles run={run} />
+      <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
 
       {run.status === "rejected" || run.status === "canceled" ? (
         <section className="trace-blocker" role="status">
@@ -457,9 +460,9 @@ export function Case() {
 
       {disputed || contradictionCount > 0 ? (
         <section className="trace-conflict">
-          <h2>{disputed ? "来源之间说法不一致" : "有来源给出相反说法"}</h2>
+          <h2>{statisticalDifference ? "统计口径差异：先明确适用范围" : disputed ? "来源之间说法不一致" : "有来源给出相反说法"}</h2>
           <p>
-            {disputed
+            {statisticalDifference ? "统计局相关统计与工信部引用的中汽协数据分别保留。支持或反对是各自口径对指定门槛的判断，不表示同口径权威来源直接矛盾，也不认定其中一方错误。" : disputed
               ? "同一条事实既有支持也有反对来源。下面把它们并排列出，请直接打开原始网页判断。"
               : `共 ${contradictionCount} 条来源与待核查说法相反，结论已按「存在反证」处理。`}
           </p>

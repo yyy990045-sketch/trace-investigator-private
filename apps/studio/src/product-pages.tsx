@@ -16,6 +16,7 @@ import type {
   FeedbackOutcome,
   ProjectRecord,
   RunRecord,
+  TraceExperienceRecord,
 } from "@personal/capability-sdk";
 import { client, readActor, rememberActor } from "./platform-client";
 
@@ -1213,6 +1214,227 @@ export function RunReviewPage() {
 
 /* ------------------------------------------------------------ 经验库页面 */
 
+/* ------------------------------------------------ 调查纠错经验（TRACE） */
+
+const traceStatusName: Record<TraceExperienceRecord["status"], string> = {
+  pending: "待确认",
+  confirmed: "已确认 · 可复用",
+  disabled: "已停用",
+};
+const traceKindName: Record<string, string> = {
+  date_role: "日期角色混淆（通过/公布日 vs 施行/生效日）",
+  quantity_strict: "近似数字被当成严格门槛",
+  scope_partial: "局部投运被当成全国建成",
+};
+const traceActionName: Record<string, string> = {
+  created: "从真实调查生成",
+  confirmed: "确认可复用",
+  disabled: "停用",
+  restored: "恢复",
+};
+
+/**
+ * 调查纠错经验的确认与停用：状态变化全部留痕，条目永不删除。
+ * 这里不做新的后台看板，只是在既有经验库页面把这一类经验管起来。
+ */
+export function TraceExperienceSection() {
+  const qc = useQueryClient();
+  const [actor, setActor] = useState(readActor);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const experiences = useQuery({
+    queryKey: ["trace-experiences"],
+    queryFn: () => client.traceExperiences(),
+  });
+  async function change(
+    record: TraceExperienceRecord,
+    action: "confirm" | "disable" | "restore",
+  ) {
+    setBusy(record.id + action);
+    setError("");
+    setMessage("");
+    try {
+      if (!actor.trim()) throw new Error("请先填写操作人。");
+      await client.traceExperienceStatus(record.id, {
+        action,
+        actor: actor.trim(),
+        ...(action === "disable" ? { note: note.trim() || "停用原因未填" } : {}),
+      });
+      rememberActor(actor.trim());
+      await qc.invalidateQueries({ queryKey: ["trace-experiences"] });
+      setMessage(
+        `「${record.title}」已${
+          action === "confirm" ? "确认进入可复用集合" : action === "disable" ? "停用" : "恢复"
+        }，历史记录已保留。`,
+      );
+      setNote("");
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  const rows = experiences.data?.experiences || [];
+  return (
+    <section className="trace-experience-admin">
+      <div className="section-heading">
+        <div>
+          <h2>调查纠错经验</h2>
+          <p>
+            来自真实调查的纠错：待确认的经验不会进入可复用集合，只有确认过才会被下一次调查匹配；
+            停用和恢复都保留历史。
+          </p>
+        </div>
+        <Badge>
+          {experiences.data
+            ? `待确认 ${experiences.data.byStatus.pending} · 已确认 ${experiences.data.byStatus.confirmed} · 已停用 ${experiences.data.byStatus.disabled}`
+            : "读取中"}
+        </Badge>
+      </div>
+      {experiences.isError ? (
+        <p className="error-text" role="alert">{msg(experiences.error)}</p>
+      ) : experiences.isLoading ? (
+        <p aria-busy="true">正在读取调查经验…</p>
+      ) : rows.length === 0 ? (
+        <p className="muted-note">还没有调查纠错经验。完成一次调查并在证据里做人工修正后即可沉淀。</p>
+      ) : (
+        <>
+          <div className="trace-experience-actor">
+            <label>
+              操作人
+              <input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="填写确认人" />
+            </label>
+            <label>
+              停用原因（停用时必填）
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：只在特定统计口径下成立" />
+            </label>
+          </div>
+          {error ? <p className="error-text" role="alert">{error}</p> : null}
+          {message ? <p className="inline-note" role="status">{message}</p> : null}
+          <div className="experience-list">
+            {rows.map((record) => {
+              const payload = record.payload;
+              return (
+                <article key={record.id} className="experience-card trace-experience-admin-card">
+                  <div className="experience-head">
+                    <Badge
+                      tone={
+                        record.status === "confirmed" ? "green" : record.status === "pending" ? "amber" : "red"
+                      }
+                    >
+                      {traceStatusName[record.status]}
+                    </Badge>
+                    <span className="muted-note">
+                      {payload ? traceKindName[payload.kind] || payload.kind : record.kind} · v{record.version} ·{" "}
+                      {record.projectName || "未关联项目"} · {formatTime(record.updatedAt)}
+                    </span>
+                  </div>
+                  <h3>{record.title}</h3>
+                  {payload ? (
+                    <dl className="trace-experience-admin-fields">
+                      <div>
+                        <dt>历史说法</dt>
+                        <dd>{payload.sourceClaim}</dd>
+                      </div>
+                      <div>
+                        <dt>历史错误判断</dt>
+                        <dd>{payload.wrongJudgment}</dd>
+                      </div>
+                      <div>
+                        <dt>修正后判断</dt>
+                        <dd>{payload.correctedJudgment}</dd>
+                      </div>
+                      <div>
+                        <dt>正确处理</dt>
+                        <dd>{payload.handling}</dd>
+                      </div>
+                      <div>
+                        <dt>适用边界</dt>
+                        <dd>{payload.limits}</dd>
+                      </div>
+                      <div>
+                        <dt>检查要点</dt>
+                        <dd>{payload.checkPoints.join("；")}</dd>
+                      </div>
+                      <div>
+                        <dt>来源调查</dt>
+                        <dd>
+                          {payload.sourceRunIds.map((runId) => (
+                            <Link key={runId} className="plain-link" to={"/runs/" + runId + "/review"}>
+                              {runId}
+                            </Link>
+                          ))}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>原始证据</dt>
+                        <dd>
+                          {payload.evidence.map((item) => (
+                            <span key={item.url} className="trace-experience-admin-evidence">
+                              [{item.relation}] {item.quote}
+                              <a href={item.url} target="_blank" rel="noreferrer noopener">
+                                {" "}
+                                {item.url}
+                              </a>
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>状态历史</dt>
+                        <dd>
+                          {payload.history.map((item, index) => (
+                            <span key={index} className="trace-experience-admin-history">
+                              {formatTime(item.at)} {traceActionName[item.action] || item.action} · {item.actor}
+                              {item.note ? ` · ${item.note}` : ""}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    </dl>
+                  ) : null}
+                  <div className="experience-actions">
+                    {record.status !== "confirmed" ? (
+                      <Button
+                        size="sm"
+                        disabled={busy === record.id + "confirm"}
+                        onClick={() => void change(record, "confirm")}
+                      >
+                        {busy === record.id + "confirm" ? "正在确认…" : "确认可复用"}
+                      </Button>
+                    ) : null}
+                    {record.status !== "disabled" ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === record.id + "disable"}
+                        onClick={() => void change(record, "disable")}
+                      >
+                        {busy === record.id + "disable" ? "正在停用…" : "停用"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === record.id + "restore"}
+                        onClick={() => void change(record, "restore")}
+                      >
+                        {busy === record.id + "restore" ? "正在恢复…" : "恢复"}
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function ExperienceLibraryPage() {
   const qc = useQueryClient();
   const [query, setQuery] = useState("");
@@ -1267,6 +1489,7 @@ export function ExperienceLibraryPage() {
         </div>
         <Badge>人工确认后写入</Badge>
       </div>
+      <TraceExperienceSection />
       <div className="library-controls">
         <label className="search-field">
           <input

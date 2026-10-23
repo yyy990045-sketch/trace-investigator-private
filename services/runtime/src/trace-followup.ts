@@ -16,7 +16,7 @@ import { ExecutionError } from "./contracts.ts";
 import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine.ts";
-import { searchConfiguration, searchPro } from "../adapters/trace/searchpro.ts";
+import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { renderArchive } from "../adapters/trace/archive.ts";
 import {
@@ -173,7 +173,7 @@ export function buildAssessment(
   const aggregated = aggregateCase({
     facts: assessments,
     searchSummary: {
-      total: (Number(search.totalQueries) || 0) + followups.length,
+      total: (Number(search.totalQueries) || 0) + followups.filter((item) => item.searchExecuted !== false).length,
       failed: Number(search.failedQueries) || 0,
       empty: Number(search.emptyQueries) || 0,
     },
@@ -330,7 +330,7 @@ function describeChanges(previous: any, current: any, context: { followups: numb
 
 export function registerTraceEndpoints(app: FastifyInstance, store: Store, engine: Engine) {
   // ── 追加一次真实检索 ───────────────────────────────────────────
-  app.post<{ Params: { id: string }; Body: { query: string; factId?: string } }>(
+  app.post<{ Params: { id: string }; Body: { query: string; factId?: string; sourceUrls?: string[]; sourceOnly?: boolean } }>(
     "/v1/runs/:id/trace/followup",
     {
       schema: {
@@ -340,6 +340,8 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
           properties: {
             query: { type: "string", minLength: 2, maxLength: 120 },
             factId: { type: "string", maxLength: 40 },
+            sourceUrls: { type: "array", maxItems: 2, uniqueItems: true, items: { type: "string", minLength: 8, maxLength: 2000 } },
+            sourceOnly: { type: "boolean" },
           },
           additionalProperties: false,
         },
@@ -355,8 +357,9 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       if (!config.available)
         throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
 
-      const attempt = await searchPro(req.body.query);
-      const pages = attempt.pages.slice(0, MAX_FOLLOWUP_PAGES);
+      if (req.body.sourceOnly && !req.body.sourceUrls?.length) throw new ExecutionError("SOURCE_REQUIRED", "请提供要取得原文的公开网址。");
+      const attempt = req.body.sourceOnly ? null : await searchPro(req.body.query);
+      const pages = (attempt?.pages || []).slice(0, MAX_FOLLOWUP_PAGES);
       const bodies: {
         pageId: string;
         url: string;
@@ -378,18 +381,33 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
           reprintMarkers: fetched.reprintMarkers,
         });
       }
+      // An operator can supply original URLs alongside a real search. They are
+      // recorded as supplied sources, never represented as search hits/snippets.
+      const suppliedSources: { url: string; ok: boolean; httpStatus: number | null }[] = [];
+      for (const url of req.body.sourceUrls || []) {
+        if (!/^https?:\/\//i.test(url)) throw new ExecutionError("SOURCE_URL_INVALID", "原始来源仅支持http/https。");
+        const fetched = await fetchSource(url, {timeoutMs:30000});
+        const pageId = "page_" + hash(url).slice(0, 16);
+        const page = {id:pageId,url,site:new URL(url).hostname,title:fetched.title || "操作者提供的原始来源",date:"",passage:"",score:0,sourceOrigin:"operator_url"} as WebPage & {sourceOrigin:string};
+        if (!pages.some((item) => item.url === url)) pages.push(page);
+        bodies.push({pageId,url,ok:fetched.ok,httpStatus:fetched.httpStatus,error:fetched.error,
+          text:fetched.ok ? fetched.text.slice(0, 40_000) : "",reprintMarkers:fetched.reprintMarkers});
+        suppliedSources.push({url,ok:fetched.ok,httpStatus:fetched.httpStatus});
+      }
       const payload = {
         query: req.body.query,
         factId: req.body.factId || null,
-        requestedAt: attempt.requestedAt,
-        requestId: attempt.requestId,
-        httpStatus: attempt.httpStatus,
-        attempts: attempt.attempts,
-        durationMs: attempt.durationMs,
-        resultCount: attempt.resultCount,
-        error: attempt.error,
+        requestedAt: attempt?.requestedAt || now(),
+        requestId: attempt?.requestId || null,
+        httpStatus: attempt?.httpStatus || null,
+        attempts: attempt?.attempts || 0,
+        durationMs: attempt?.durationMs || 0,
+        resultCount: attempt?.resultCount || 0,
+        error: attempt?.error || null,
+        searchExecuted: attempt !== null,
         pages,
         bodies,
+        suppliedSources,
       };
       recordEvidence(store, run.id, FOLLOWUP_KIND, payload);
       return {
@@ -622,7 +640,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         corrections: pendingCorrections.length,
       });
       if (!pendingFollowups.length && !pendingCorrections.length && pendingReassessments.length)
-        changes.unshift("按更新后的证据判定规则重算（同源识别更严格）后重新确认。");
+        changes.unshift("按更新后的证据判定规则重新计算并确认；具体原因见本次重算记录，旧版档案不改写。");
       const generatedAt = now();
       const rendered = renderArchive({
         runId: run.id,

@@ -126,6 +126,7 @@ export const traceBundleSchema: Schema = {
           additionalProperties: false,
         },
         createdAt: { type: "string" },
+        experienceHints: { type: "array", maxItems: 3, items: { type: "object" } },
       },
       additionalProperties: false,
     },

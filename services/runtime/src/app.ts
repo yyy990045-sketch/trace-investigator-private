@@ -1,5 +1,6 @@
 import { searchConfiguration } from "../adapters/trace/searchpro.ts";
 import { registerTraceEndpoints } from "./trace-followup.ts";
+import { matchExperiences, registerTraceExperienceEndpoints } from "./trace-experiences.ts";
 import { registerProductEndpoints } from "./product.ts";
 import Fastify from "fastify";
 import { resolve, join } from "node:path";
@@ -280,6 +281,18 @@ export async function createPlatform(
       const { expectedRevision, ...input } = req.body;
       if (!Number.isInteger(expectedRevision) || expectedRevision < 1)
         throw new ExecutionError("REVISION_REQUIRED", "执行需要明确的项目组合版本。");
+      // 调查经验：立案前在「已确认经验」里匹配检查提示，随输入带进上下文，
+      // 只作为分析辅助，不参与来源判定，也不改动任何结论。
+      const steps = (engine.project(req.params.id) as any).steps || [];
+      if (steps.some((step: any) => String(step.capabilityId) === "trace.evidence.verify")) {
+        const payload: any = (input as any).payload || {};
+        const claim = String(payload.claim ?? payload.question ?? "");
+        const facts = (Array.isArray(payload.facts) ? payload.facts : []).map((fact: any) =>
+          typeof fact === "string" ? fact : String(fact?.text ?? ""),
+        );
+        const { detected, hints } = matchExperiences(store, claim, facts);
+        if (detected) (input as any).payload = { ...payload, experienceMatch: { detected, hints } };
+      }
       return engine.createRun(req.params.id, input, expectedRevision);
     },
   );
@@ -418,6 +431,8 @@ export async function createPlatform(
   });
   // TRACE 专用端点：证据追问与结论重算（复用真实检索/抓取与同一套规则）。
   registerTraceEndpoints(app, store, engine);
+  // 调查经验：沉淀、确认/停用、匹配与使用效果记录。
+  registerTraceExperienceEndpoints(app, store);
   // 项目应用、能力组合、运行反馈与经验、概览；端口白名单沿用同一份 allowed。
   registerProductEndpoints(app, { store, registry, engine, allowedOrigins: allowed });
   if (options.recover !== false) engine.recover();

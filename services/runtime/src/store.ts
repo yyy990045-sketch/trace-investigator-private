@@ -23,7 +23,14 @@ CREATE TABLE IF NOT EXISTS compositions(id TEXT PRIMARY KEY,name TEXT NOT NULL,d
 CREATE TABLE IF NOT EXISTS run_feedback(id TEXT PRIMARY KEY,run_id TEXT NOT NULL UNIQUE REFERENCES runs(id),project_id TEXT NOT NULL,project_name TEXT NOT NULL,outcome TEXT NOT NULL,correction TEXT NOT NULL,reusable INTEGER NOT NULL,reference_value TEXT NOT NULL,author TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,title TEXT NOT NULL,kind TEXT NOT NULL,problem TEXT NOT NULL,resolution TEXT NOT NULL,project_id TEXT,project_name TEXT,run_id TEXT,capabilities TEXT NOT NULL,tags TEXT NOT NULL,source_feedback_id TEXT,verified_run_id TEXT,verified_project_name TEXT,verified_at TEXT,author TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS project_applications(project_id TEXT PRIMARY KEY REFERENCES projects(id),app_name TEXT NOT NULL,title TEXT NOT NULL,layout TEXT NOT NULL,port INTEGER NOT NULL,path TEXT NOT NULL,status TEXT NOT NULL,message TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS experience_usage(id TEXT PRIMARY KEY,experience_id TEXT NOT NULL REFERENCES experiences(id),run_id TEXT NOT NULL REFERENCES runs(id),project_id TEXT NOT NULL,matched INTEGER NOT NULL DEFAULT 0,shown INTEGER NOT NULL DEFAULT 0,decision TEXT,actual_judgment TEXT,correction_happened INTEGER NOT NULL DEFAULT 0,helped TEXT NOT NULL DEFAULT 'unknown',note TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(experience_id,run_id));
 `);
+    // 经验结构化字段：老库直接加列，不重建表（不新增另一套经验库）。
+    const experienceColumns = new Set(
+      this.all("PRAGMA table_info(experiences)").map((column: any) => column.name),
+    );
+    if (!experienceColumns.has("trace_payload"))
+      this.db.exec("ALTER TABLE experiences ADD COLUMN trace_payload TEXT");
   }
   get(sql: string, ...args: any[]): any {
     return this.db.prepare(sql).get(...args);
