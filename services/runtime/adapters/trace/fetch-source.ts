@@ -116,6 +116,47 @@ export function htmlToText(html: string) {
     .trim();
 }
 
+/** Respect the page's encoding; unreadable bytes must not become original-text evidence. */
+export function decodeSource(buffer: Uint8Array, contentType: string) {
+  const prefix = Buffer.from(buffer.subarray(0, 4096)).toString("latin1");
+  const charset = (value: string) => value.match(/(?:^|;)\s*charset\s*=\s*["']?([^\s;"']+)/i)?.[1];
+  const declared = charset(contentType);
+  let meta: string | undefined;
+  const declarations = prefix
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+    .replace(/<(script|style|title|textarea|xmp|iframe|noembed|noframes|noscript|template)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
+  for (const tag of declarations.matchAll(/<meta\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const attrs = new Map([...tag[0].matchAll(/\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g)]
+      .map((attr) => [attr[1].toLowerCase(), (attr[2] ?? attr[3] ?? attr[4]).trim()]));
+    meta = attrs.get("charset") ||
+      (attrs.get("http-equiv")?.toLowerCase() === "content-type" ? charset(attrs.get("content") || "") : undefined);
+    if (meta) break;
+  }
+  const bom = buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf
+    ? "utf-8"
+    : buffer[0] === 0xff && buffer[1] === 0xfe
+      ? "utf-16le"
+      : buffer[0] === 0xfe && buffer[1] === 0xff
+        ? "utf-16be"
+        : undefined;
+  const encoding = bom || declared || meta || "utf-8";
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(encoding, { fatal: true });
+  } catch {
+    throw Object.assign(new Error("页面声明的字符编码不受支持，未将内容作为原文证据。"), {
+      code: "FETCH_CHARSET_UNSUPPORTED",
+    });
+  }
+  try {
+    return decoder.decode(buffer);
+  } catch {
+    throw Object.assign(new Error("页面字节与字符编码不符或正文被截断，未将乱码作为原文证据。"), {
+      code: "FETCH_DECODE_FAILED",
+    });
+  }
+}
+
 export interface FetchOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -202,7 +243,9 @@ export async function fetchSource(url: string, options: FetchOptions = {}): Prom
         }
       }
       const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-      const html = buffer.toString("utf8");
+      // Preserve response metadata even when decoding fails.
+      Object.assign(base, { finalUrl: parsed.toString(), httpStatus: response.status, contentType, bytes: buffer.byteLength });
+      const html = decodeSource(buffer, contentType);
       const text = htmlToText(html);
       return {
         ...base,

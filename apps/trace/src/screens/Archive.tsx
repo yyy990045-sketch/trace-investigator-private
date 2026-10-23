@@ -57,7 +57,6 @@ export function Archive() {
   const shown =
     versions.find((item) => item.revision === pickedVersion) || versions[versions.length - 1] || null;
   const latest = versions[versions.length - 1] || null;
-  const viewingLatest = !shown || !latest || shown.revision === latest.revision;
   const pending = revisionsQuery.data?.dirty === true && !!latest;
   // pickedVersion === 0 表示查看「当前结论」（重算后、还没成档的那一版）
   const showCurrent = pickedVersion === 0 && pending;
@@ -130,8 +129,50 @@ export function Archive() {
         </p>
       </header>
 
+      <section className="trace-verdict trace-verdict-hero" data-outcome={verdict.outcome}>
+        <div className="trace-verdict-head">
+          <h2>{outcomeText[verdict.outcome]}</h2>
+          <Tag tone={tone}>把握程度 {verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}</Tag>
+        </div>
+        {!showCurrent && files.length ? (
+          <button type="button" className="trace-btn" onClick={() => {
+            const target = document.getElementById("trace-downloads");
+            target?.scrollIntoView({ block: "start" });
+            target?.focus({ preventScroll: true });
+          }}>
+            <Download size={14} /> 下载{shown ? `第 ${shown.revision} 版` : "调查"}档案
+          </button>
+        ) : null}
+        <p className="trace-verdict-text">{verdict.statement}</p>
+        <div className="trace-counts">
+          <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
+            未检测到重复 <b>{verdict.counts.independentSources}</b>
+          </span>
+          <span>
+            取得原文 <b>{verdict.counts.bodyAvailable}</b>
+          </span>
+          <span>
+            命中网页 <b>{verdict.counts.pages}</b>
+          </span>
+          <span>
+            检索 <b>{verdict.counts.queries}</b> 次
+          </span>
+          {unconfirmedTotal ? (
+            <span title="可能是转载但缺少可核对依据，未计入独立来源">
+              独立性未确认 <b>{unconfirmedTotal}</b>
+            </span>
+          ) : null}
+        </div>
+        <ul className="trace-notes">
+          {verdict.reasons.map((reason, index) => (
+            <li key={index}>{reason}</li>
+          ))}
+        </ul>
+      </section>
+
       {versions.length ? (
-        <section className="trace-versionbar">
+        <details className="trace-details trace-versionbar">
+          <summary>版本与变化（{versions.length} 版，当前{showCurrent ? "查看未成档结论" : `查看第 ${shown?.revision} 版`}）{pending ? " · 有新证据尚未成档" : ""}</summary>
           <div className="trace-versionbar-head">
             <strong>
               {showCurrent
@@ -186,7 +227,7 @@ export function Archive() {
             </p>
           ) : null}
           {shown && shown.changes.length ? (
-            <details className="trace-version-changes" open={viewingLatest && shown.revision > 1}>
+            <details className="trace-version-changes">
               <summary>这一版为什么变化（相对第 {shown.revision - 1} 版）</summary>
               <ul className="trace-verdict-changes">
                 {shown.changes.map((item, index) => (
@@ -208,40 +249,8 @@ export function Archive() {
               </a>
             </div>
           ) : null}
-        </section>
+        </details>
       ) : null}
-
-      <section className="trace-verdict trace-verdict-hero" data-outcome={verdict.outcome}>
-        <div className="trace-verdict-head">
-          <h2>{outcomeText[verdict.outcome]}</h2>
-          <Tag tone={tone}>把握程度 {verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}</Tag>
-        </div>
-        <p className="trace-verdict-text">{verdict.statement}</p>
-        <div className="trace-counts">
-          <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
-            未检测到重复 <b>{verdict.counts.independentSources}</b>
-          </span>
-          <span>
-            取得原文 <b>{verdict.counts.bodyAvailable}</b>
-          </span>
-          <span>
-            命中网页 <b>{verdict.counts.pages}</b>
-          </span>
-          <span>
-            检索 <b>{verdict.counts.queries}</b> 次
-          </span>
-          {unconfirmedTotal ? (
-            <span title="可能是转载但缺少可核对依据，未计入独立来源">
-              独立性未确认 <b>{unconfirmedTotal}</b>
-            </span>
-          ) : null}
-        </div>
-        <ul className="trace-notes">
-          {verdict.reasons.map((reason, index) => (
-            <li key={index}>{reason}</li>
-          ))}
-        </ul>
-      </section>
 
       {keyEvidence.length ? (
         <section className="trace-block">
@@ -321,7 +330,7 @@ export function Archive() {
         <div className="trace-section-head">
           <h2>来源清单</h2>
           <span>
-            {clusters.length ? `${clusters.length} 组独立来源` : `${allSources.length} 条来源`}
+            {clusters.length ? `${clusters.length} 组来源（未证实相互独立）` : `${allSources.length} 条来源`}
           </span>
         </div>
         {clusters.length ? (
@@ -358,7 +367,7 @@ export function Archive() {
         )}
       </section>
 
-      <section className="trace-block">
+      <section id="trace-downloads" tabIndex={-1} className="trace-block">
         <div className="trace-section-head">
           <h2>下载与复查</h2>
           <span>

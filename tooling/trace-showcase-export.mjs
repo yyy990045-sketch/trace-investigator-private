@@ -41,7 +41,7 @@ const CASES = [
     key: "C",
     runId: "run_d34a959a-e748-4208-b9a6-eac33c1de13a",
     label: "补充调查后仍证据不足",
-    note: "2025 年全国氢能重卡加氢网络是否已建成：追查 20 个独立来源、1 次追加检索、2 次人工修正，结论仍是证据不足。",
+    note: "2025 年全国氢能重卡加氢网络是否已建成：追加真实检索并人工修正，结论仍是证据不足；命中网页不等于独立证据。",
   },
 ];
 
@@ -183,6 +183,7 @@ async function main() {
   // 3) 组装成品目录
   if (existsSync(outDir)) await rm(outDir, { recursive: true, force: true });
   await cp(appDist, outDir, { recursive: true });
+  await writeFile(join(outDir, ".gitignore"), ".vercel\n");
   await mkdir(join(outDir, "artifacts"), { recursive: true });
 
   // 每个案例一个子目录：不同调查的同名档案（调查档案.md）不能互相覆盖。

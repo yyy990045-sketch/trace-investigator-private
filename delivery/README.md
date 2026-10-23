@@ -1,6 +1,8 @@
-# 溯证 TRACE · 交付物清单（可直接提交）
+# 溯证 TRACE · 交付物清单（投稿前核对）
 
-公网作品地址：**https://trace-showcase-eight.vercel.app**
+公网作品地址：**https://trace-showcase-eight.vercel.app**（只读历史回放）
+
+> 2026-10-23 核对：当前静态数据为 A/B/C 各 5/4/6 版，共 30 个档案文件。既有视频与 C 进阶报告仍有旧版数字，不能将整个目录宣称为同一版的最终投稿包。最新投稿文案、规则和待办见 `../docs/2026-10-22-trace-competition-submission.md`。
 
 ## 目录结构
 
@@ -9,7 +11,7 @@ delivery/
 ├── trace-showcase/          只读展示站点（已部署到上面那个地址）
 │   ├── index.html
 │   ├── showcase-data.js     三个案例的真实运行数据（已剔除密钥与本机路径）
-│   ├── artifacts/           12 个真实档案文件（调查档案 / -v2 / -v3 的 md+json）
+│   ├── artifacts/           30 个真实档案文件（各案例所有已交付版本的 md+json）
 │   └── 部署说明.md
 ├── materials/               三份真实查询材料 + 进阶调查报告（PDF + Markdown）
 │   ├── 案例A·原始证据调查：个人信息保护法施行日期.pdf / .md
@@ -18,7 +20,7 @@ delivery/
 │   ├── 案例C·进阶调查报告：一条氢能说法为什么查不下去.pdf / .md
 │   └── shots/               生成材料时现场截取的页面截图
 └── demo/
-    ├── trace-demo-full.mp4          投稿用，2 分 46 秒：只读展示 + 本机实时联网调查
+    ├── trace-demo-full.mp4          历史运行演示（待更新），2 分 46 秒：只读展示 + 本机实时联网调查
     └── trace-demo-showcase-only.mp4 只读展示段（100 秒，历史记录回放）
 ```
 
@@ -29,18 +31,18 @@ delivery/
 | 作品名称 | 溯证 TRACE |
 | 一句话简介 | 把一句可疑说法交给证据去检验——真实联网检索、抓原文、认转载、判支持与反对，最后给一份可复查、可追问、可纠错、有版本的调查档案。 |
 | 作品地址 | https://trace-showcase-eight.vercel.app |
-| 演示视频 | `demo/trace-demo-full.mp4` |
+| 演示视频 | `demo/trace-demo-full.mp4` 仅作历史运行记录；投稿需更新同版录屏 |
 | 案例材料 ×3 | `materials/案例A…pdf`、`案例B…pdf`、`案例C…pdf` |
-| 进阶报告 | `materials/案例C·进阶调查报告…pdf` |
+| 进阶报告 | `materials/案例C·进阶调查报告…pdf` 尚有旧数字，更新后使用 |
 | 赛道 / 工具 | 侦探 / 元宝搜索（腾讯云 WSA SearchPro） |
 
 ## 三个案例直链
 
-- A 有明确原始证据（《个人信息保护法》施行日期，v1→v2）
+- A 有明确原始证据（《个人信息保护法》施行日期，当前已交付 v5）
   https://trace-showcase-eight.vercel.app/#/archive/run_13dcfa4f-3074-4bdc-a36b-53b2933bb7b8
 - B 需要跨来源核查（2024 新能源汽车产量超 1200 万辆）
   https://trace-showcase-eight.vercel.app/#/archive/run_ef9af382-947a-4a9d-acd0-34b496b3d9b3
-- C 补充调查后仍证据不足（全国氢能重卡加氢网络，v1→v2→v3）
+- C 补充调查后仍证据不足（全国氢能重卡加氢网络，当前已交付 v6）
   https://trace-showcase-eight.vercel.app/#/archive/run_d34a959a-e748-4208-b9a6-eac33c1de13a
 
 ## 重新生成 / 重新部署
