@@ -9,6 +9,7 @@ import "./trace.css";
 import { Entry } from "./screens/Entry";
 import { Case } from "./screens/Case";
 import { Archive } from "./screens/Archive";
+import { LiveInvestigation } from "./screens/LiveInvestigation";
 
 const showcase = import.meta.env.VITE_TRACE_MODE === "showcase";
 const Router = showcase ? HashRouter : BrowserRouter;
@@ -35,6 +36,7 @@ createRoot(document.getElementById("root")!).render(
         <BusinessShell config={config}>
           <Routes>
             <Route path="/" element={<Entry />} />
+            <Route path="/live" element={<LiveInvestigation />} />
             <Route path="/cases/:runId" element={<Case />} />
             <Route path="/archive/:runId" element={<Archive />} />
             <Route
