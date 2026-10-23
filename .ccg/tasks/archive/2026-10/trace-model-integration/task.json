@@ -1,0 +1,12 @@
+{
+  "id": "trace-model-integration",
+  "title": "TRACE真实模型复核接入",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "本地归档；异常场景实调与来源独立性措辞保留为后续项",
+  "createdAt": "2026-10-23T05:46:19.604177+00:00",
+  "branch": "feature/trace-frontend-v2"
+}
