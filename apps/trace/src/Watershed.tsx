@@ -128,11 +128,14 @@ export function Watershed({
   right,
   compact = false,
   historical = true,
+  cardHref,
 }: {
   left: WatershedSide;
   right: WatershedSide;
   compact?: boolean;
   historical?: boolean;
+  /** 只读版里已有的静态对照卡文件（无需实时服务） */
+  cardHref?: string;
 }) {
   const diff = useMemo(() => varyingToken(left.claim, right.claim), [left.claim, right.claim]);
   const [focus, setFocus] = useState<"left" | "right">("right");
@@ -214,8 +217,13 @@ export function Watershed({
             </button>
           </div>
           <button type="button" className="trace-btn trace-btn-ghost" onClick={downloadCard}>
-            <Download size={14} /> 下载事实对照卡
+            <Download size={14} /> 生成事实对照卡
           </button>
+          {cardHref ? (
+            <a className="trace-btn" href={cardHref} download>
+              <Download size={14} /> 下载静态对照卡
+            </a>
+          ) : null}
         </div>
       </header>
 

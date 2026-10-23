@@ -24,6 +24,10 @@ import {
 } from "../api";
 import { BackLink, FactBlock, StepRail, Tag, archiveHref, formatTime } from "../components";
 import { InvestigationStory } from "../InvestigationStory";
+import { ConditionSplitter } from "../ConditionSplitter";
+import { Watershed } from "../Watershed";
+import { useSearchParams } from "react-router-dom";
+import { digestOf } from "../api";
 import { InvestigationRoles } from "../InvestigationRoles";
 import { ModelReview } from "../ModelReview";
 import { evidenceWording } from "../presentation";
@@ -37,6 +41,13 @@ export function Case() {
   const [composer, setComposer] = useState<{ factId?: string; label?: string; query: string } | null>(null);
   const [followupError, setFollowupError] = useState<string | null>(null);
 
+  const [searchParams] = useSearchParams();
+  const compareId = searchParams.get("compare") || "";
+  const compareQuery = useQuery({
+    queryKey: ["run", compareId],
+    queryFn: () => client.run(compareId),
+    enabled: !!compareId && !SHOWCASE,
+  });
   const runQuery = useQuery({
     queryKey: ["run", runId],
     queryFn: () => client.run(runId),
@@ -220,6 +231,18 @@ export function Case() {
         </p>
       </header>
 
+      {compareId && compareQuery.data && assessment?.verdict ? (
+        <Watershed
+          historical={false}
+          left={{
+            label: "原始调查",
+            claim: digestOf(compareQuery.data).claim,
+            digest: digestOf(compareQuery.data),
+          }}
+          right={{ label: "改条件后重新调查", claim: claimText, digest: digestOf(run) }}
+        />
+      ) : null}
+      {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
       <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
       <InvestigationRoles run={run} />
 

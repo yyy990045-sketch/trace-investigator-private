@@ -178,6 +178,7 @@ export function Entry() {
           left={{ label: "原句（真实反证）", claim: digests.datePair.left.digest.claim, digest: digests.datePair.left.digest }}
           right={{ label: "只改日期", claim: digests.datePair.right.digest.claim, digest: digests.datePair.right.digest }}
           historical={SHOWCASE}
+          cardHref={SHOWCASE ? "./facts/民法典日期对照卡.md" : undefined}
         />
       ) : null}
       {digests.volumePair ? (
@@ -186,6 +187,7 @@ export function Entry() {
           left={{ label: "原句（有依据支持）", claim: digests.volumePair.left.digest.claim, digest: digests.volumePair.left.digest }}
           right={{ label: "把门槛提高到 1300 万", claim: digests.volumePair.right.digest.claim, digest: digests.volumePair.right.digest }}
           historical={SHOWCASE}
+          cardHref={SHOWCASE ? "./facts/新能源产量对照卡.md" : undefined}
         />
       ) : null}
 

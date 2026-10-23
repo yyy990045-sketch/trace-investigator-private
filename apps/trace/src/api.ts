@@ -832,3 +832,26 @@ export function keyConditions(claim: string) {
     .map((word) => ({ kind: "status" as const, value: word, hint: "项目状态（计划/在建/投运/建成）" }));
   return [...dates, ...numbers, ...regions, ...statuses];
 }
+
+
+/**
+ * 用改过的说法重新发起一次真实调查（仅本机版）：全程走既有立案→检索→核验流程，
+ * 不在这里预判真假，也不复用旧结果。
+ */
+export async function startVariantInvestigation(input: {
+  question: string;
+  claim: string;
+  factTexts: string[];
+  queries: string[];
+}) {
+  const project = await ensureProject();
+  return startInvestigation(project, {
+    question: input.question,
+    claim: input.claim,
+    facts: input.factTexts.map((text, index) => ({
+      id: `fact-${index + 1}`,
+      text,
+      queries: input.queries.length ? input.queries : [text],
+    })),
+  });
+}

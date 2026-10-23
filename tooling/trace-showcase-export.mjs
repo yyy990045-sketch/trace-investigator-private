@@ -264,6 +264,51 @@ async function main() {
     "utf8",
   );
 
+  // ── 事实对照卡（静态文件，供评委单独下载；不改动任何调查档案）──
+  const pairs = [
+    { file: "民法典日期对照卡.md", left: "R", right: "D", title: "《民法典》施行日期对照" },
+    { file: "新能源产量对照卡.md", left: "B", right: "V", title: "2024 新能源汽车产量门槛对照" },
+  ];
+  const OUTCOME = { supported: "有依据支持", contradicted: "存在反证", disputed: "存在争议", outdated: "信息过期或原文不足", insufficient: "证据不足" };
+  await mkdir(join(outDir, "facts"), { recursive: true });
+  for (const pair of pairs) {
+    const left = cases.find((entry) => entry.key === pair.left);
+    const right = cases.find((entry) => entry.key === pair.right);
+    if (!left || !right) continue;
+    const side = (entry, label) => {
+      const assessment = entry.assessment || {};
+      const verdict = assessment.verdict || {};
+      const facts = (assessment.facts || [])[0] || {};
+      const sources = (facts.sources || []).filter((source) => source.keySentence).slice(0, 3);
+      return [
+        `## ${label}`,
+        ``,
+        `- 说法：${(entry.run.steps || []).find((step) => step.capabilityId === "trace.case.intake")?.output?.case?.claim || ""}`,
+        `- 结论：${OUTCOME[verdict.outcome] || verdict.outcome || "记录"}`,
+        `- 说明：${verdict.statement || ""}`,
+        `- 规模：${verdict.counts?.pages ?? "—"} 条网页 / ${assessment.independentSources ?? "—"} 个未检测到重复 / ${assessment.bodyAvailable ?? "—"} 份原文`,
+        `- 支持 ${facts.supports ?? 0} 条、反证 ${facts.contradicts ?? 0} 条、无法确认 ${facts.unclear ?? 0} 条`,
+        ...sources.map((source) => `- 关键原文：${source.site}｜${source.title}｜「${String(source.keySentence || "").slice(0, 160)}」${source.url}`),
+        `- 调查档案：https://trace-showcase-eight.vercel.app/#/archive/${entry.runId}`,
+        ``,
+      ];
+    };
+    const body = [
+      `# 事实对照卡：${pair.title}`,
+      ``,
+      `> 两次调查分别真实执行（元宝搜索检索 + 规则判定，D/V 含 DeepSeek 辅助复核）。本卡不重新判断真假，只并列结果与原文。`,
+      ``,
+      ...side(left, "原句"),
+      ...side(right, "修改后"),
+      `## 说明`,
+      ``,
+      `- 未检测到重复不等于已证明独立；仍不确定的部分见各自档案。`,
+      `- 本卡为静态文件，不包含任何密钥、本机路径或个人身份信息。`,
+      ``,
+    ].join("\n");
+    await writeFile(join(outDir, "facts", pair.file), body, "utf8");
+  }
+
   const files = await readdir(outDir);
   const artifactFiles = await readdir(join(outDir, "artifacts"));
   console.log(`\n成品目录：delivery/trace-showcase（${files.length} 项，档案 ${artifactFiles.length} 个）`);
