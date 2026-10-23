@@ -2861,3 +2861,320 @@
   font-weight: 600;
   margin-bottom: 6px;
 }
+
+/* ═══ 事实分水岭：大面积左右对照 ═══════════════════════════════ */
+.watershed {
+  display: grid;
+  gap: 22px;
+  padding: 32px 34px 28px;
+  border-radius: 20px;
+  border: 1px solid var(--trace-line);
+  background: linear-gradient(180deg, #fffefb 0%, #f8f5ee 100%);
+  box-shadow: 0 30px 70px -50px rgb(21 27 34 / 55%);
+}
+.ws-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ws-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--trace-accent);
+}
+.ws-head h2 {
+  font-size: 30px;
+  line-height: 1.25;
+  letter-spacing: -0.8px;
+  margin: 8px 0 6px;
+}
+.ws-diff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--trace-sub);
+}
+.ws-diff del {
+  color: #963a2e;
+  text-decoration-thickness: 2px;
+}
+.ws-diff ins {
+  color: #1f6b4a;
+  font-weight: 650;
+  text-decoration: none;
+  background: #e9f3ed;
+  padding: 1px 7px;
+  border-radius: 6px;
+}
+.ws-flag {
+  font-size: 11.5px;
+  color: #7c5a12;
+  background: #fbf2df;
+  border: 1px solid #ecdcbd;
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.ws-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ws-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: #eeeae1;
+}
+.ws-toggle button {
+  border: 0;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--trace-sub);
+  cursor: pointer;
+}
+.ws-toggle button[data-active="true"] {
+  background: #fff;
+  color: var(--trace-ink);
+  font-weight: 640;
+  box-shadow: 0 1px 3px rgb(21 27 34 / 12%);
+}
+.ws-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+}
+.ws-divider {
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: #9b958a;
+}
+.ws-divider span {
+  writing-mode: vertical-rl;
+  padding: 10px 4px;
+  border-radius: 999px;
+  background: #efece4;
+}
+.ws-side {
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+  border-radius: 16px;
+  border: 1px solid var(--trace-line);
+  background: #fff;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ws-grid[data-focus="left"] .ws-side[data-tone="right"],
+.ws-grid[data-focus="right"] .ws-side[data-tone="left"] {
+  opacity: 0.72;
+}
+.ws-side[data-outcome="contradicted"] {
+  border-left: 4px solid #963a2e;
+}
+.ws-side[data-outcome="supported"] {
+  border-left: 4px solid #1f6b4a;
+}
+.ws-side[data-outcome="disputed"] {
+  border-left: 4px solid #9a6a14;
+}
+.ws-side[data-outcome="insufficient"] {
+  border-left: 4px solid #6a6459;
+}
+.ws-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ws-side-label {
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--trace-sub);
+}
+.ws-side-outcome {
+  font-size: 15px;
+  font-weight: 700;
+}
+.ws-side[data-outcome="contradicted"] .ws-side-outcome {
+  color: #963a2e;
+}
+.ws-side[data-outcome="supported"] .ws-side-outcome {
+  color: #1f6b4a;
+}
+.ws-side[data-outcome="disputed"] .ws-side-outcome {
+  color: #9a6a14;
+}
+.ws-claim {
+  font-size: 21px;
+  line-height: 1.5;
+  font-weight: 620;
+  letter-spacing: -0.3px;
+}
+.ws-claim mark {
+  background: #fdf0d5;
+  color: #7c5a12;
+  padding: 0 4px;
+  border-radius: 4px;
+  border-bottom: 2px solid #e0b968;
+}
+.ws-statement {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: #3f4650;
+}
+.ws-stats {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px dashed var(--trace-line-soft);
+  border-bottom: 1px dashed var(--trace-line-soft);
+  font-size: 12.5px;
+  color: var(--trace-sub);
+}
+.ws-stats b {
+  color: var(--trace-ink);
+  font-variant-numeric: tabular-nums;
+}
+.ws-evidence h4 {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--trace-sub);
+  margin-bottom: 8px;
+}
+.ws-evidence ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ws-evidence li {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #faf8f2;
+  border-left: 3px solid var(--trace-line);
+}
+.ws-evidence li[data-relation="contradicts"] {
+  border-left-color: #963a2e;
+  background: #fdf4f2;
+}
+.ws-evidence li[data-relation="supports"] {
+  border-left-color: #1f6b4a;
+  background: #f3f8f4;
+}
+.ws-evidence a {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--trace-accent);
+}
+.ws-evidence p {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 5px 0 3px;
+  color: #333a43;
+}
+.ws-evidence small {
+  font-size: 11.5px;
+  color: var(--trace-sub);
+}
+.ws-gaps {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fbf7ec;
+  border: 1px solid #ece1c6;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.ws-gaps strong {
+  display: block;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  color: #7c5a12;
+  margin-bottom: 4px;
+}
+.ws-gaps ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.ws-gaps-ok {
+  font-size: 12.5px;
+  color: var(--trace-sub);
+}
+.ws-side-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 12.5px;
+}
+.ws-why {
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: #16202a;
+  color: #dfe3e8;
+}
+.ws-why h3 {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8fb4cc;
+  margin-bottom: 10px;
+}
+.ws-why ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.ws-why b {
+  color: #fff;
+  margin-right: 4px;
+}
+.watershed-compact {
+  padding: 24px;
+  gap: 16px;
+}
+.watershed-compact .ws-head h2 {
+  font-size: 24px;
+}
+
+@media (max-width: 900px) {
+  .ws-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .ws-divider {
+    display: none;
+  }
+  .watershed {
+    padding: 22px 18px;
+  }
+  .ws-head h2 {
+    font-size: 23px;
+  }
+  .ws-claim {
+    font-size: 18px;
+  }
+}

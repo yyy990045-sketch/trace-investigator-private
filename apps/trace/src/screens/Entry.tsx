@@ -19,6 +19,7 @@ import {
   type FactDraft,
 } from "../api";
 import { Tag, archiveHref, caseHref, formatTime } from "../components";
+import { Watershed } from "../Watershed";
 import { evidenceWording } from "../presentation";
 
 const MAX_FACTS = 6;
@@ -59,6 +60,17 @@ function useDigests() {
       C: pick(["氢能", "加氢"]),
       D: rows.find((row) => row.run.steps.some((step) => step.capabilityId === "model.verify" && step.status === "completed")) || null,
       R: rows.find((row) => row.digest.outcome === "contradicted") || null,
+      // 事实分水岭：只差一个关键条件的两次真实调查
+      datePair: (() => {
+        const right = rows.find((row) => row.digest.claim.includes("2021年1月1日") && row.digest.outcome === "supported");
+        const left = rows.find((row) => row.digest.claim.includes("2020年5月28日") && row.digest.outcome === "contradicted");
+        return left && right ? { left, right } : null;
+      })(),
+      volumePair: (() => {
+        const supported = rows.find((row) => row.digest.claim.includes("1200万") && row.digest.outcome === "supported");
+        const disputed = rows.find((row) => row.digest.claim.includes("1300万"));
+        return supported && disputed ? { left: supported, right: disputed } : null;
+      })(),
       loading: !SHOWCASE && local.isLoading,
       error: local.isError ? (local.error as Error).message : null,
     };
@@ -161,6 +173,22 @@ export function Entry() {
 
   return (
     <div className="trace-page trace-home">
+      {digests.datePair ? (
+        <Watershed
+          left={{ label: "原句（真实反证）", claim: digests.datePair.left.digest.claim, digest: digests.datePair.left.digest }}
+          right={{ label: "只改日期", claim: digests.datePair.right.digest.claim, digest: digests.datePair.right.digest }}
+          historical={SHOWCASE}
+        />
+      ) : null}
+      {digests.volumePair ? (
+        <Watershed
+          compact
+          left={{ label: "原句（有依据支持）", claim: digests.volumePair.left.digest.claim, digest: digests.volumePair.left.digest }}
+          right={{ label: "把门槛提高到 1300 万", claim: digests.volumePair.right.digest.claim, digest: digests.volumePair.right.digest }}
+          historical={SHOWCASE}
+        />
+      ) : null}
+
       <section className="home-hero">
         <div className="home-hero-copy">
           <span className="home-brand">溯证 TRACE</span>

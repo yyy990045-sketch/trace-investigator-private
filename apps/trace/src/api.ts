@@ -790,3 +790,45 @@ export function digestOf(run: RunRecord): CaseDigest {
     modelReview: modelReviewOf(run),
   };
 }
+
+
+/** 找出两句话里"只改了一个条件"的那个片段（日期或数字），用于事实分水岭展示。 */
+export function varyingToken(a: string, b: string): { before: string; left: string; right: string; after: string } | null {
+  const tokens = (text: string) => [
+    ...text.matchAll(/(?:19|20)\d{2}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日|(?:19|20)\d{2}\s*年(?:\d{1,2}\s*月)?|\d+(?:\.\d+)?\s*(?:万|亿)?(?:辆|台|座|公里|吨|人|%|个百分点)/g),
+  ].map((match) => ({ value: match[0].replace(/\s+/g, ""), index: match.index || 0 }));
+  const left = tokens(a);
+  const right = tokens(b);
+  if (!left.length || !right.length) return null;
+  for (const l of left)
+    for (const r of right) {
+      if (l.value === r.value) continue;
+      const prefix = a.slice(0, l.index);
+      const suffix = a.slice(l.index + l.value.length);
+      // 只改了一个片段：其余文字一致
+      if (prefix === b.slice(0, r.index) && suffix === b.slice(r.index + r.value.length))
+        return { before: prefix, left: l.value, right: r.value, after: suffix };
+    }
+  return null;
+}
+
+/** 一句话里可被替换的关键条件（日期 / 数字 / 范围词 / 状态词），供"改一个条件"使用；也可手填。 */
+export function keyConditions(claim: string) {
+  const dates = [...claim.matchAll(/(?:19|20)\d{2}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日|(?:19|20)\d{2}\s*年(?:\d{1,2}\s*月)?/g)].map((match) => ({
+    kind: "date" as const,
+    value: match[0].replace(/\s+/g, ""),
+    hint: "日期（可能是通过日/公布日/施行日）",
+  }));
+  const numbers = [...claim.matchAll(/\d+(?:\.\d+)?\s*(?:万|亿)?(?:辆|台|座|公里|吨|人|%|个百分点)/g)].map((match) => ({
+    kind: "number" as const,
+    value: match[0].replace(/\s+/g, ""),
+    hint: "数量或比较条件（注意同口径、同单位）",
+  }));
+  const regions = ["全国", "覆盖全国", "全省", "本市", "主要干线", "西部", "东部", "跨区域"]
+    .filter((word) => claim.includes(word))
+    .map((word) => ({ kind: "region" as const, value: word, hint: "地域或覆盖范围" }));
+  const statuses = ["已建成", "建成", "已完成", "投运", "贯通", "开工", "在建", "计划", "规划"]
+    .filter((word) => claim.includes(word))
+    .map((word) => ({ kind: "status" as const, value: word, hint: "项目状态（计划/在建/投运/建成）" }));
+  return [...dates, ...numbers, ...regions, ...statuses];
+}
