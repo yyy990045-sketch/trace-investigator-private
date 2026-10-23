@@ -4168,3 +4168,12 @@
   .trace-live-metrics{gap:10px}
   .trace-live-hero-actions>.trace-btn{flex:1}
 }
+
+.trace-live-figures{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:20px 0}
+.trace-live-figures>div{border:1px solid #dfebef;background:#f6fafb;border-radius:10px;display:flex;flex-direction:column;gap:7px;padding:16px;min-width:0}
+.trace-live-figures span{font-size:12px;color:#546779}
+.trace-live-figures b{font-size:27px;color:#1b516b;line-height:1.25}
+.trace-live-figures p{font-size:12px;color:#576d7d;line-height:1.6;margin:1px 0;overflow-wrap:anywhere}
+.trace-live-figures small{font-size:11px;color:#87969f}
+.trace-live-figures a{display:inline-flex;align-items:center;gap:5px;font-size:12px}
+@media(max-width:690px){.trace-live-figures{grid-template-columns:1fr}}
