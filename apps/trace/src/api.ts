@@ -141,17 +141,22 @@ export const CLUE_PROJECT_NAME = "线索侦探 · 线索追查流程";
 export async function ensureClueProject(): Promise<ProjectRecord> {
   if (SHOWCASE) throw readOnly();
   const projects = await client.projects();
-  const existing = projects.find((item) => item.name === CLUE_PROJECT_NAME);
-  if (existing) {
-    const same =
-      existing.steps.length === CLUE_ASSEMBLY.length &&
-      existing.steps.every((step, index) => step.capabilityId === CLUE_ASSEMBLY[index].capabilityId);
-    if (!same)
-      throw new Error("线索追查流程的能力序列已更新，请在 Studio 中删除旧项目后重试。");
-    return existing;
-  }
+  // 装配升级不应迫使用户离开 TRACE 到 Studio 手动删旧项目。
+  // 保留历史项目和运行记录；当前流程自动使用兼容项目或创建新版本。
+  const lineage = (name: string) =>
+    name === CLUE_PROJECT_NAME || name.startsWith(`${CLUE_PROJECT_NAME} · 更新-`);
+  const compatible = projects.find((item) =>
+    lineage(item.name) &&
+    item.steps.length === CLUE_ASSEMBLY.length &&
+    item.steps.every((step, index) =>
+      step.capabilityId === CLUE_ASSEMBLY[index].capabilityId &&
+      step.version === CLUE_ASSEMBLY[index].version
+    ),
+  );
+  if (compatible) return compatible;
+  const hasOldAssembly = projects.some((item) => lineage(item.name));
   return client.createProject({
-    name: CLUE_PROJECT_NAME,
+    name: hasOldAssembly ? `${CLUE_PROJECT_NAME} · 更新-${Date.now()}` : CLUE_PROJECT_NAME,
     layout: "business",
     permissions: [...PERMISSIONS, "model:invoke"],
     steps: CLUE_ASSEMBLY,
@@ -159,7 +164,7 @@ export async function ensureClueProject(): Promise<ProjectRecord> {
 }
 
 /** 一句话线索 → 真实调查（规划 + 元宝搜索 + 候选比对都在 Runtime 里完成）。 */
-export function startClueInvestigation(project: ProjectRecord, question: string) {
+export function startClueInvestigation(project: ProjectRecord, question: string, modelConsent = false) {
   return client.execute(
     project.id,
     {
@@ -167,7 +172,7 @@ export function startClueInvestigation(project: ProjectRecord, question: string)
       text: question,
       payload: { question },
       dataConsent: true,
-      modelConsent: true,
+      modelConsent,
     },
     project.revision,
   );
