@@ -127,9 +127,9 @@ export function Archive() {
 
   return (
     <div className="trace-page trace-page-wide">
-      <header className="trace-masthead">
-        <span className="trace-eyebrow">调查档案 · {formatTime(run.updatedAt)}</span>
-        <h1>{caseInfo?.claim || caseInfo?.question || "调查档案"}</h1>
+      <header className="t-report-head">
+        <span className="t-eyebrow">调查档案 · {formatTime(run.updatedAt)}</span>
+        <h1 className="t-report-title">{caseInfo?.claim || caseInfo?.question || "调查档案"}</h1>
         <p className="trace-lede">
           {caseInfo?.question && caseInfo.question !== caseInfo.claim ? `原始问题：${caseInfo.question} · ` : ""}
           {followups.length ? `追加检索 ${followups.length} 次 · ` : ""}
@@ -138,8 +138,7 @@ export function Archive() {
         </p>
       </header>
 
-      <InvestigationRoles run={run} />
-      <section className="trace-verdict trace-verdict-hero" data-outcome={verdict.outcome}>
+      <section className="trace-verdict t-verdict" data-outcome={verdict.outcome}>
         <div className="trace-verdict-head">
           <h2>{outcomeText[verdict.outcome]}</h2>
           <Tag tone={tone}>规则判断 · 把握程度 {verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}</Tag>
@@ -153,7 +152,7 @@ export function Archive() {
             <Download size={14} /> 下载{shown ? `第 ${shown.revision} 版` : "调查"}档案
           </button>
         ) : null}
-        <p className="trace-verdict-text">{evidenceWording(verdict.statement)}</p>
+        <p className="t-answer-line">{evidenceWording(verdict.statement)}</p>
         <p className="trace-hint">来源簇数量不代表已经证明相互独立。已识别同源的材料合并；没有发现重复的材料仍需追溯原始出处。</p>
         <div className="trace-counts">
           <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
@@ -180,6 +179,13 @@ export function Archive() {
           ))}
         </ul>
       </section>
+
+      <details className="t-disclose" aria-label="执行分工">
+        <summary>这次调查是谁做的（执行分工）</summary>
+        <div className="t-disclose-body">
+          <InvestigationRoles run={run} />
+        </div>
+      </details>
 
       <ModelReview run={run} at={showCurrent ? undefined : shown?.at} />
 

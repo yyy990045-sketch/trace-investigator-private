@@ -187,64 +187,129 @@ export function ClueCase({
 
   return (
     <main className="clue-page" aria-label="线索调查">
-      {/* 区域一：正在寻找什么 */}
-      <header className="clue-intro">
-        <span className="clue-kicker">
-          线索调查 · {run.status === "completed" ? "已完成" : run.status === "failed" ? "已中断" : "进行中"}
-        </span>
-        <h1>{bundle.case?.question}</h1>
-        {bundle.case?.goal ? <p className="clue-goal">调查目标：{bundle.case.goal}</p> : null}
-        <ul className="clue-chips" aria-label="已识别的线索">
-          {clues.map((clue) => (
-            <li key={clue.id} data-added={clue.addedByUser ? "true" : "false"}>
-              <span className="clue-chip-kind">{clueKindName[clue.kind] || "细节"}</span>
-              {clue.text}
-              {clue.addedByUser ? <em>你补充的</em> : null}
-              {clue.uncertain ? <em>你不确定</em> : null}
-            </li>
-          ))}
-        </ul>
-        {assessment?.targetKind ? (
-          <p className="clue-target-kind">
-            你要找的是：<b>{targetKindName[assessment.targetKind] || "还没说清"}</b>
-            {assessment.targetKind === "unknown" ? "（按作品处理，候选类型会在下面标出）" : ""}
-          </p>
-        ) : null}
-        <p className="clue-meta">
-          {plan
-            ? plan.source === "model"
-              ? `线索与检索式由 ${plan.model || "模型"} 规划（${(plan.durationMs / 1000).toFixed(1)} 秒），答案只来自真实检索。`
-              : `线索与检索式按规则拆分（${plan.fallbackReason || "未使用模型"}），答案只来自真实检索。`
-            : "正在识别线索…"}
-        </p>
+      {/* 区域一：用户正在寻找的作品 */}
+      <header className="t-case-top-group">
+        <div className="t-case-top">
+          <span>{run.status === "completed" ? "线索调查 · 已完成" : run.status === "failed" ? "线索调查 · 已中断" : "线索调查 · 进行中"}</span>
+          {assessment?.targetKind ? (
+            <span className="t-chip">{targetKindName[assessment.targetKind] || "目标不明"}</span>
+          ) : null}
+        </div>
+        <p className="t-question">{bundle.case?.question}</p>
       </header>
 
       {/* 首屏：答案、依据与未解疑点，优先于搜索过程 */}
-      <section className="clue-result" data-state={decision?.state || "insufficient"} aria-label="调查结果">
-        <h2>
-          {decision
-            ? decision.state === "found"
-              ? decision.unverified?.length
-                ? "作品已确定，部分细节还没核实"
-                : stateCopy.found.title
-              : stateCopy[decision.state].title
-            : "调查进行中"}
-        </h2>
-        <p className="clue-headline">{decision?.headline}</p>
+      <section className="t-verdict" data-state={decision?.state || "insufficient"} aria-label="调查结果">
+        <div className="t-verdict-head">
+          <span className="t-status" data-tone={decision?.state || "insufficient"}>
+            {decision
+              ? decision.state === "found"
+                ? decision.unverified?.length
+                  ? "作品已确定 · 细节待核"
+                  : "已确认"
+                : decision.state === "ambiguous"
+                  ? "最可能"
+                  : "证据不足"
+              : "调查中"}
+          </span>
+          {candidates[0] ? (
+            <span className="t-hint">
+              {candidates[0].matchedClues}/{clues.length} 条线索在资料里核到
+              {decision?.unverified?.length ? ` · ${decision.unverified.length} 条待核` : ""}
+            </span>
+          ) : null}
+        </div>
+        {/* 作品名是视觉主体：已确认直接给名字，未定案给最可能的名字。 */}
+        {decision?.state === "found" && candidates[0] ? (
+          <p className="t-answer-name" data-state="found">
+            {candidates[0].name}
+          </p>
+        ) : decision?.bestGuess ? (
+          <p className="t-answer-name" data-state="ambiguous">
+            {decision.bestGuess}
+          </p>
+        ) : null}
+
+        {/* found 时作品名就是答案，不再重复一遍同样的句子；其余状态保留解释性结论。 */}
+        {decision?.state !== "found" ? (
+          <p className="clue-headline t-answer-line">
+            {/* 作品名已经作为标题显示，结论句里不再重复一遍。 */}
+            {String(decision?.headline || "").replace(/^最可能是[^：]{0,30}：/, "")}
+          </p>
+        ) : null}
         {decision?.evidenceLimit ? (
-          <p className="clue-hint" data-evidence-limit="true">
+          <p className="t-hint" data-evidence-limit="true" style={{ marginTop: 8 }}>
             证据限制：{decision.evidenceLimit}。
           </p>
         ) : null}
-        {decision?.state === "found" && candidates[0] ? (
-          <div className="clue-answer">
-            <b>{candidates[0].name}</b>
-            <span>
-              对上 {candidates[0].matchedClues}/{clues.length} 条线索
-              {decision.unverified?.length ? `，${decision.unverified.length} 条还没核实` : ""}
-            </span>
-          </div>
-        ) : null}
+        {/* 首屏事实清单：核到哪些、哪些还没核到，一眼能扫完。 */}
+        {(() => {
+          const lead =
+            candidates.find((candidate) => candidate.name === (decision?.bestGuess || candidates[0]?.name)) ||
+            candidates[0];
+          if (!lead) return null;
+          const confirmed = lead.matches.filter((match) => match.found).map((match) => match.clue);
+          const pendingClues = decision?.unverified?.length ? decision.unverified : lead.missingClues;
+          return (
+            <dl className="t-facts">
+              <div className="t-fact">
+                <dt>已核实</dt>
+                <dd>
+                  {confirmed.length ? (
+                    <div className="t-chips">
+                      {confirmed.map((clue) => (
+                        <span className="t-chip" data-tone="ok" key={clue}>
+                          {clue}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="t-hint">还没有任何情节在资料里核到</span>
+                  )}
+                </dd>
+              </div>
+              {pendingClues.length ? (
+                <div className="t-fact">
+                  <dt>待核实</dt>
+                  <dd>
+                    <div className="t-chips">
+                      {pendingClues.map((clue) => (
+                        <span className="t-chip" data-tone="pending" key={clue}>
+                          {clue}
+                        </span>
+                      ))}
+                    </div>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          );
+        })()}
+
+        {/* 最重要的一条实际依据：带原句与来源，不需要展开就能核对。 */}
+        {(() => {
+          const lead =
+            candidates.find((candidate) => candidate.name === (decision?.bestGuess || candidates[0]?.name)) ||
+            candidates[0];
+          const hit = lead?.matches.find((match) => match.found && match.sentence && match.url);
+          if (!hit) return null;
+          return (
+            <div className="t-evidence" style={{ marginTop: 18 }}>
+              <div className="t-evidence-item">
+                <p className="t-evidence-quote">{hit.sentence}</p>
+                <div className="t-evidence-meta">
+                  <span>{hit.site || "来源"}</span>
+                  <span>{hit.from === "body" ? "原文正文" : "搜索摘要"}</span>
+                  {hit.url ? (
+                    <a href={hit.url} target="_blank" rel="noreferrer noopener">
+                      打开原始页面
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 答案已确定，但有的情节并没有在资料里核到：必须单独列出来，不能默认成立。 */}
         {decision?.state === "found" && decision.unverified?.length ? (
@@ -286,47 +351,9 @@ export function ClueCase({
           </div>
         ) : null}
 
-        {/* 还没定案时：最可能答案 + 已确认的事实 + 待确认的事实，一次说清。 */}
-        {decision && decision.state !== "found"
-          ? (() => {
-              // 没有「最可能答案」时不要拿候选第一名冒充它（检索噪声会被读成结论）。
-              if (!decision.bestGuess) return null;
-              const guess = candidates.find((candidate) => candidate.name === decision.bestGuess);
-              if (!guess) return null;
-              const confirmed = guess.matches.filter((match) => match.found).map((match) => match.clue);
-              const pending = guess.missingClues;
-              const corrected = (decision.conflicts || []).map((item) => item.clue);
-              return (
-                <div className="clue-explain" aria-label="最可能答案的已确认与待确认事实">
-                  <h3>最可能的答案：{guess.name}</h3>
-                  <div className="clue-hint">
-                    已确认：{confirmed.length ? confirmed.join("、") : "暂无"}
-                  </div>
-                  <div className="clue-hint">
-                    待确认：{pending.length ? pending.join("、") : "暂无"}
-                  </div>
-                  {corrected.length ? (
-                    <div className="clue-hint">
-                      与资料不符的记忆：{corrected.join("、")}（原文见上方「记忆与资料不一致」）
-                    </div>
-                  ) : null}
-                  <p className="clue-hint">所以现在只能给「最可能」，不能当成已经确认。</p>
-                </div>
-              );
-            })()
-          : null}
-
-        {/* 还无法排除其他候选时：先给最可能答案，再摊开各候选符合/缺少的情节。 */}
-        {decision?.bestGuess ? (
-          <div className="clue-answer clue-answer-partial">
-            <b>最可能：{decision.bestGuess}</b>
-            <span>尚未完全排除其他候选</span>
-          </div>
-        ) : null}
-
         {/* 作品身份：类型 / 年份 / 导演 / 主演，都带来源，第一屏就能核对。 */}
         {candidates[0]?.identity ? (
-          <div className="clue-hint" aria-label="作品身份">
+          <div className="t-identity" aria-label="作品身份">
             <b>作品身份：</b>
             {[
               (candidates[0].identity.types || []).map((item: any) => (item.value === "tv" ? "电视剧" : item.value === "film" ? "电影" : item.value === "anime" ? "动画" : item.value === "book" ? "小说/原著" : "类型未知")),
@@ -355,6 +382,20 @@ export function ClueCase({
             })()}
           </div>
         ) : null}
+
+        <details className="t-disclose" aria-label="候选比较">
+          <summary>候选比较：各自符合与缺少的情节</summary>
+          <div className="t-disclose-body">
+            {!decision?.comparison?.length ? (
+              <p className="t-hint" style={{ marginBottom: 10 }}>
+                {decision?.state === "found"
+                  ? "没有第二个候选能解释这些情节，所以不需要在候选之间取舍。"
+                  : "没有出现第二个能解释这些情节的候选；还不能定案的原因见上方「待核实」。"}
+              </p>
+            ) : null}
+        {/* 还无法排除其他候选时：摊开各候选符合/缺少的情节。 */}
+          </div>
+        </details>
 
         {decision?.comparison?.length ? (
           <div className="clue-explain" aria-label="候选对照">
@@ -428,6 +469,9 @@ export function ClueCase({
           </p>
         ) : null}
 
+        <details className="t-disclose" aria-label="版本与追问">
+          <summary>同名版本、排除理由与继续追查</summary>
+          <div className="t-disclose-body">
         {/* 同一个名字的不同版本（动画/真人/不同年份）：这是「多个相似候选」最常见的形态。 */}
         {assessment?.variants?.length ? (
           <div className="clue-explain" aria-label="同名作品的版本">
@@ -553,36 +597,73 @@ export function ClueCase({
           </div>
         ) : null}
 
-        {error ? <div className="trace-alert" role="alert">{error}</div> : null}
+          </div>
+        </details>
 
-        <div className="clue-sources">
-          <h3>这次用到的来源</h3>
-          <ul>
-            {(assessment?.candidates || [])
-              .slice(0, 2)
-              .flatMap((candidate) => candidate.pages.slice(0, 2))
-              .filter((page, index, list) => list.findIndex((other) => (other.title || other.url) === (page.title || page.url)) === index)
-              .map((page) => (
-                <li key={page.url}>
-                  <a href={page.url} target="_blank" rel="noreferrer noopener">
-                    {page.title || page.url}
-                  </a>
-                  <span>{page.site}</span>
-                </li>
-              ))}
-          </ul>
-          {assessment?.pageCount && assessment.pageCount > 4 ? (
-            <p className="clue-hint">
-              共 {assessment.pageCount} 条网页、{assessment.bodyAvailable} 份取得原文；其余在下方技术记录里。
-            </p>
-          ) : null}
-        </div>
+        <details className="t-disclose" aria-label="来源与记录">
+          <summary>这次用到的来源（{assessment?.pageCount || 0} 条网页）</summary>
+          <div className="t-disclose-body">
+            {error ? <div className="trace-alert" role="alert">{error}</div> : null}
+            <ul className="t-plain-list">
+              {(assessment?.candidates || [])
+                .slice(0, 2)
+                .flatMap((candidate) => candidate.pages.slice(0, 2))
+                .filter(
+                  (page, index, list) =>
+                    list.findIndex((other) => (other.title || other.url) === (page.title || page.url)) === index,
+                )
+                .map((page) => (
+                  <li key={page.url}>
+                    <a href={page.url} target="_blank" rel="noreferrer noopener">
+                      {page.title || page.url}
+                    </a>
+                    <span className="t-hint">{page.site}</span>
+                  </li>
+                ))}
+            </ul>
+            {assessment?.pageCount && assessment.pageCount > 4 ? (
+              <p className="t-hint" style={{ marginTop: 8 }}>
+                共 {assessment.pageCount} 条网页、{assessment.bodyAvailable} 份取得原文；其余在下方技术记录里。
+              </p>
+            ) : null}
+          </div>
+        </details>
       </section>
 
+        <details className="t-disclose" aria-label="识别到的线索">
+          <summary>
+            识别到的 {clues.length} 条线索
+            {plan ? (plan.source === "model" ? " · 由模型规划检索式" : " · 按规则拆分线索") : ""}
+          </summary>
+          <div className="t-disclose-body">
+            <div className="t-chips">
+              {clues.map((clue) => (
+                <span className="t-chip" key={clue.id}>
+                  {clue.text}
+                  <em style={{ fontStyle: "normal", opacity: 0.6, marginLeft: 6 }}>
+                    {clueKindName[clue.kind] || "细节"}
+                  </em>
+                </span>
+              ))}
+            </div>
+            <p className="t-hint" style={{ marginTop: 10 }}>
+              {plan
+                ? plan.source === "model"
+                  ? `检索式由 ${plan.model || "模型"} 规划（${(plan.durationMs / 1000).toFixed(1)} 秒），答案只来自真实检索。`
+                  : `检索式按关键词规则拆分（${plan.fallbackReason || "未使用模型"}），答案只来自真实检索。`
+                : "正在识别线索…"}
+              {bundle.case?.goal ? ` 调查目标：${bundle.case.goal}` : ""}
+            </p>
+          </div>
+        </details>
+
       {/* 区域二：搜索过程 */}
-      <details className="clue-timeline" aria-label="搜索过程">
-        <summary>搜索与主动补查过程（{searches.length + rounds.length} 次检索，{rounds.length} 轮追查）</summary>
-        <ol>
+      <details className="t-disclose" aria-label="搜索过程">
+        <summary>
+          调查过程：{searches.length + rounds.length} 次检索、{rounds.length} 轮主动补查
+        </summary>
+        <div className="t-disclose-body">
+          <ol className="t-timeline">
           <li data-done={started?.status === "completed" ? "true" : "false"}>
             <span className="clue-step-dot" />
             <div>
@@ -648,30 +729,22 @@ export function ClueCase({
               </p>
             </div>
           </li>
-        </ol>
+          </ol>
+        </div>
       </details>
 
-      {/* 区域三：候选对照 */}
-      {candidates.length ? (
-        <section className="clue-candidates" aria-label="候选结果">
-          <header className="clue-section-head">
-            <h2>{decision?.state === "found" ? "最匹配的答案" : "候选对照"}</h2>
-            <span>
-              {candidates.length} 个候选 · 共 {assessment?.pageCount} 条网页
-              {decision?.state !== "found" ? " · 未给出确定排名" : ""}
-            </span>
-          </header>
-          <div className="clue-candidate-grid" data-state={decision?.state}>
-            {candidates.slice(0, 4).map((candidate) => (
-              <CandidateCard
-                key={candidate.name}
-                candidate={candidate}
-                highlight={decision?.state === "found" && candidate === candidates[0]}
-                clues={clues}
-              />
-            ))}
+      {/* 区域三：其他候选（主答案已在首屏给出，这里不重复渲染） */}
+      {candidates.length > 1 ? (
+        <details className="t-disclose" aria-label="其他候选">
+          <summary>其他候选：{candidates.length - 1} 个（各自对上与缺少的情节）</summary>
+          <div className="t-disclose-body">
+            <div className="clue-candidate-grid" data-state={decision?.state}>
+              {candidates.slice(1, 4).map((candidate) => (
+                <CandidateCard key={candidate.name} candidate={candidate} highlight={false} clues={clues} />
+              ))}
+            </div>
           </div>
-        </section>
+        </details>
       ) : null}
 
       {graph.length ? (
