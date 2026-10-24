@@ -637,7 +637,9 @@ export function personClueTexts(question: string, clues: ClueItem[]): Set<string
       const suffix = question.slice(at + term.length, at + term.length + 4);
       // 只认明确的「谁演的/谁主演」句式；裸的「男主角」后面跟任何词都不是人名。
       const framed =
-        /(主演是|主演为|演员是|演员表有|由|饰演|扮演|主角是|主角叫|主角好像|男主角是|女主角是|男主是|女主是|叫做|名叫)\s*$/.test(prefix) ||
+        /(主演是|主演为|演员是|演员表有|由|饰演|扮演|主角是|主角叫|男主角是|女主角是|男主是|女主是|叫做|名叫)\s*$/.test(prefix) ||
+        // 「主演好像是X」「主角似乎是X」同样是明确的人名位，不能漏。
+        /(?:主演|主角|男主|女主)(?:好像|似乎|大概|貌似|可能)?(?:是|为)?\s*$/.test(prefix) ||
         /^(主演|演的|出演|饰演|饰)/.test(suffix);
       if (framed) {
         found.add(clue.text);

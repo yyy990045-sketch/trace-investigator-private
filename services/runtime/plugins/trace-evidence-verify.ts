@@ -9,7 +9,7 @@
  *    否则明确输出证据不足，并列出还缺什么证据。
  */
 import { type CapabilityDefinition } from "../src/contracts.ts";
-import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion } from "../src/lookup-answer.ts";
+import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion, lookupStatement } from "../src/lookup-answer.ts";
 import {
   aggregateCase,
   assessFact,
@@ -172,7 +172,7 @@ export default {
       claims,
       assessment: {
         facts: assessments,
-        verdict: { ...verdict, statement },
+        verdict: { ...verdict, statement: sourcedLookupAnswer ? lookupStatement(sourcedLookupAnswer) : statement },
         independentSources,
         bodyAvailable,
         clusters,
