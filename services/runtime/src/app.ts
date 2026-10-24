@@ -17,6 +17,7 @@ import { hash, now } from "./util.ts";
 import type { ProjectDraft, UploadInput } from "@personal/capability-sdk";
 import {
   createGuard,
+  expireAbandonedApprovals,
   installPublicGuard,
   publicMode,
   requestIp,
@@ -508,7 +509,23 @@ export async function createPlatform(
         .send(bytes);
     },
   );
+  // 公网匿名调查在等待人工确认期间可能被关闭浏览器。
+  // 每分钟清理超过有效期的遗弃审批；服务重启后同样执行一次。
+  // 取消沿用 Engine 原有事务与审计事件，已完成或本地运行不会受到影响。
+  const sweepApprovals = () => {
+    try {
+      expireAbandonedApprovals(store, engine);
+    } catch (error) {
+      app.log.error({ error }, "public approval expiration failed");
+    }
+  };
+  if (publicMode()) sweepApprovals();
+  const publicSweepTimer = publicMode()
+    ? setInterval(sweepApprovals, 60_000)
+    : null;
+  publicSweepTimer?.unref?.();
   app.addHook("onClose", async () => {
+    if (publicSweepTimer) clearInterval(publicSweepTimer);
     await engine.stop();
     store.close();
   });
