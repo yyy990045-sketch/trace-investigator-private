@@ -188,6 +188,39 @@ describe("侦探链路的通用判定（本轮修复回归）", () => {
   });
 });
 
+describe("found 不等于「全部线索都对上」", () => {
+  const page = {
+    id: "p1",
+    url: "https://baike.example.com/m",
+    site: "百科",
+    title: "解密",
+    date: "",
+    passage: "《解密》讲述数学天才容金珍破译密码的故事",
+  } as any;
+  const body = new Map([["p1", { ok: true, text: "《解密》由陈思诚执导。" } as any]]);
+  const clues: ClueItem[] = [
+    { id: "c1", text: "数学天才", terms: ["数学天才"], kind: "other" as const },
+    { id: "c2", text: "密码", terms: ["密码"], kind: "other" as const },
+    { id: "c3", text: "招募", terms: ["招募"], kind: "other" as const },
+  ];
+
+  it("具体剧情线索没在资料里核到时不能定案", () => {
+    const { decision, candidates } = evaluateCandidates(
+      [{ name: "解密", pages: [page], score: 0, titleHits: 1 } as any],
+      clues,
+      [page],
+      body,
+      "screen_work",
+      "讲一个数学天才破译密码，被招募",
+    );
+    expect(candidates[0].missingClues).toContain("招募");
+    expect(decision.state).not.toBe("found");
+    // 不能只丢一句「证据不足」：最可能的答案要摆出来，前端才能给已确认/待确认。
+    expect(decision.bestGuess).toBe("解密");
+    expect(decision.headline).not.toContain("全部对上");
+  });
+});
+
 describe("用户记忆与资料冲突（V18 主线）", () => {
   const page = { id: "p1", url: "https://baike.example.com/a", site: "百科", title: "暗算", date: "", passage: "《暗算》主演 柳云龙、王宝强、陈数" } as any;
   const body = new Map([["p1", { ok: true, text: "《暗算》主演 柳云龙、王宝强、陈数。该剧讲述密码破译。" } as any]]);

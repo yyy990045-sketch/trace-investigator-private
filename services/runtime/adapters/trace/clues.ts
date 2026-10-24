@@ -958,6 +958,14 @@ export function evaluateCandidates(
   // 题材/地区这类线索常常只出现在网页别处：它们没同句命中时不算决定性缺口，但必须写进结论。
   const auxiliary = clues.filter((clue) => clue.kind === "genre" || clue.kind === "region").map((clue) => clue.text);
   const auxiliaryMissing = best.missingClues.filter((text) => auxiliary.includes(text));
+  // 「重要剧情缺口」：具体（非泛词）线索在没有同句证据时，就不能说整段描述已经核实。
+  // 泛词（主角/电影/悬疑这类）和题材/地区线索不在其中——它们本来就只做辅助。
+  const plotMissing = best.missingClues.filter((text) => {
+    if (auxiliary.includes(text)) return false;
+    const clue = clues.find((item) => item.text === text);
+    const terms = clue?.terms?.length ? clue.terms : [text];
+    return terms.some((term) => term.length >= 2 && !GENERIC_CLUE_TERMS.has(term));
+  });
   // 只有「决定性线索全部有直接证据」才算找到答案；普通线索缺一两条不影响。
   const coverage = total ? best.matchedClues / total : 0;
   const lead = best.matchedClues - (runnerUp?.matchedClues ?? 0);
@@ -1085,6 +1093,9 @@ export function evaluateCandidates(
   const explainsEnough = coverage >= 0.6 || decisiveHit >= 2;
   if (
     !decisiveMissing.length &&
+    // 还有具体剧情没在资料里核到 → 只能说「最可能」，不能说已经找到。
+    // 用户记错的主演/年份不算缺口（那条已经查过，结论写在 conflicts 里）。
+    !plotMissing.length &&
     (decisiveHit > 0 || coOccurrence) &&
     enough &&
     explainsEnough &&
@@ -1102,11 +1113,9 @@ export function evaluateCandidates(
         ...conflictFields,
         ...(yearCheck ? { yearCheck } : {}),
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
-        headline: decisiveOf(best).length
-          ? `决定性线索全部对上：${best.name}${conflictNote ? "；" + conflictNote : ""}`
-          : coOccurrence
-            ? `同一条来源同时符合 ${bestSourceCount} 条线索：${best.name}${conflictNote ? "；" + conflictNote : ""}`
-            : `线索全部对上：${best.name}${conflictNote ? "；" + conflictNote : ""}`,
+        // 只有「具体剧情线索全部有下落」时才可能走到这里，所以文案如实写「剧情线索都已核到」，
+        // 不再用「全部线索都对上」这种会把用户记忆也算成已核实的说法。
+        headline: `你说的剧情线索都在资料里找到了：${best.name}${conflictNote ? `；${conflictNote}` : ""}`,
         nextQueries: [],
         askUser: null,
         ...(auxiliaryMissing.length ? { auxiliaryClues: auxiliaryMissing } : {}),
@@ -1227,6 +1236,13 @@ export function evaluateCandidates(
       state: "insufficient",
       ...conflictFields,
       ...typeConflictInfo,
+      // 不能定案时也要把「最可能的是哪一个」摆出来，并配合已确认/待确认一起看：
+      // 只写一句「证据不足」会让用户不知道系统到底查到哪一步。
+      // 只有在「至少一条决定性线索真的对上」时才敢说「最可能的答案是它」。
+      // 只靠覆盖率（动画/男孩/朋友这类泛词凑出来的）会把检索噪声当成最可能答案。
+      ...(best && decisiveHit > 0 && !(userType !== "other" && best.typeConflict)
+        ? { bestGuess: best.name }
+        : {}),
       decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
       headline: userType !== "other" && best.typeConflict
         ? `${typeLabel[userType]}与${typeLabel[(best.type || "other") as WorkType]}对不上：「${best.name}」是${typeLabel[(best.type || "other") as WorkType]}，暂不能按你的说法定案`

@@ -53,7 +53,9 @@ const graphName: Record<string, string> = {
 };
 
 const stateCopy: Record<ClueAssessmentView["decision"]["state"], { title: string; tone: string }> = {
-  found: { title: "找到能对上全部线索的答案", tone: "found" },
+  // 不写「全部线索都对上」：用户自己的某条记忆可能已被资料纠正，
+  // 只有具体剧情线索都在资料里核到时才会走到 found。
+  found: { title: "在资料里核到了你说的剧情线索", tone: "found" },
   ambiguous: { title: "有几个候选都能对上部分线索", tone: "ambiguous" },
   insufficient: { title: "还没有足够证据给出答案", tone: "insufficient" },
 };
@@ -259,6 +261,36 @@ export function ClueCase({
             </p>
           </div>
         ) : null}
+
+        {/* 还没定案时：最可能答案 + 已确认的事实 + 待确认的事实，一次说清。 */}
+        {decision && decision.state !== "found"
+          ? (() => {
+              // 没有「最可能答案」时不要拿候选第一名冒充它（检索噪声会被读成结论）。
+              if (!decision.bestGuess) return null;
+              const guess = candidates.find((candidate) => candidate.name === decision.bestGuess);
+              if (!guess) return null;
+              const confirmed = guess.matches.filter((match) => match.found).map((match) => match.clue);
+              const pending = guess.missingClues;
+              const corrected = (decision.conflicts || []).map((item) => item.clue);
+              return (
+                <div className="clue-explain" aria-label="最可能答案的已确认与待确认事实">
+                  <h3>最可能的答案：{guess.name}</h3>
+                  <div className="clue-hint">
+                    已确认：{confirmed.length ? confirmed.join("、") : "暂无"}
+                  </div>
+                  <div className="clue-hint">
+                    待确认：{pending.length ? pending.join("、") : "暂无"}
+                  </div>
+                  {corrected.length ? (
+                    <div className="clue-hint">
+                      与资料不符的记忆：{corrected.join("、")}（原文见上方「记忆与资料不一致」）
+                    </div>
+                  ) : null}
+                  <p className="clue-hint">所以现在只能给「最可能」，不能当成已经确认。</p>
+                </div>
+              );
+            })()
+          : null}
 
         {/* 还无法排除其他候选时：先给最可能答案，再摊开各候选符合/缺少的情节。 */}
         {decision?.bestGuess ? (
