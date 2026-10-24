@@ -444,7 +444,11 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       if (!config.available)
         throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
 
-      const budget = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
+      // 总额限制按 run 持久化，页面刷新/重复进入也不会重新花两次搜索预算。
+      // 手动追加保留原行为，自动追加只在本次调查中最多占用两次。
+      const previousAuto = followupsOf(run).filter((item) => typeof item.autoReason === "string").length;
+      const requested = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
+      const budget = Math.max(0, Math.min(requested, 2 - previousAuto));
       const executed: {
         question: string;
         query: string;
@@ -454,7 +458,10 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         after: string;
         error: unknown;
       }[] = [];
-      const tried = new Set<string>();
+      const tried = new Set<string>([
+        ...followupsOf(run).map((item) => String(item.query || "").trim()),
+        ...((baseBundle(run).searches || []) as { query?: string }[]).map((item) => String(item.query || "").trim()),
+      ].filter(Boolean));
       let current = buildAssessment(run).assessment;
       const claimText = String(
         (current.facts?.[0] as any)?.fact?.text || run.input?.text || "",
@@ -518,7 +525,6 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         const next = askNext(current);
         if (!next) break;
         tried.add(next.query);
-        const liveRun = store.run(run.id)!;
         const attempt = await searchPro(next.query);
         const pages = (attempt.pages || []).slice(0, MAX_FOLLOWUP_PAGES);
         const bodies: {
