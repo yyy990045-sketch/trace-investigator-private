@@ -61,6 +61,12 @@ export interface CandidateMatch {
   scope: "sentence" | "paragraph" | "page";
   /** 这条证据属于哪一类：直接支持 / 间接关联 / 未核实 / 与资料冲突 */
   relation: "direct" | "indirect" | "unverified" | "conflicts";
+  /**
+   * 冲突强度：
+   *  - explicit：资料里有明确的否定表述（例如「并非由 X 主演」），可以算反证；
+   *  - absent：只是现有资料的主演名单里没有出现这个人，不能推断用户记错。
+   */
+  conflictStrength?: "explicit" | "absent";
   /** 证据实际描述的主体（通常等于候选名；列举句里会是别人） */
   subject: string;
   /** 这是不是决定性线索 */
@@ -116,6 +122,12 @@ export interface Candidate {
   /** 与用户说法冲突的线索条数（有原文依据，才会计入） */
   conflicts?: number;
   conflictClues?: string[];
+  /** 类型证据票数（电影/电视剧/动画/小说），来自真实句子 */
+  typeVotes?: Partial<Record<WorkType, number>>;
+  /** 归类后的作品类型 */
+  type?: WorkType;
+  /** 类型是否与用户说法矛盾 */
+  typeConflict?: boolean;
   /** 只有全部线索命中且明显领先时才算 confirmed */
   status: "leading" | "tied" | "partial";
   /** 与线索的差异说明（用于「为什么排除」） */
@@ -141,7 +153,11 @@ export interface ClueDecision {
     url: string;
     site: string;
     from: "body" | "excerpt";
+    /** explicit=有明确否定表述；absent=只是资料名单里没出现 */
+    strength: "explicit" | "absent";
   }[];
+  /** 类型矛盾：用户说电影，候选却是电视剧等 */
+  typeConflict?: { userType: WorkType; candidateType: WorkType; candidate: string; note: string };
 }
 
 const STOP_NAMES = new Set([
@@ -152,6 +168,35 @@ const STOP_NAMES = new Set([
 
 /** 从一段文本里找「可能是名字」的候选：书名号优先，其次标题主干。 */
 const tidyName = (value: string) => value.replace(/^[〈《「『"“'‘（(\s]+/, "").replace(/[〉》」』"”'’）)\s]+$/, "").trim();
+
+/**
+ * 作品类型：电影 / 电视剧 / 动画 / 小说。
+ * 只从真实句子里读，不根据名字猜——「用户说电影，候选是电视剧」这类判断必须能指回原句。
+ */
+export type WorkType = "film" | "tv" | "anime" | "book" | "other";
+
+const TYPE_PATTERNS: { pattern: RegExp; type: WorkType }[] = [
+  { pattern: /(电视剧|电视连续剧|剧集|网剧|连续剧|共\s*\d+\s*集|每集|开播)/, type: "tv" },
+  { pattern: /(电影|影片|院线|上映|公映)/, type: "film" },
+  { pattern: /(动画片|动画电影|动画剧集|番剧|动画)/, type: "anime" },
+  { pattern: /(小说|原著|长篇小说|文学作品)/, type: "book" },
+];
+
+export function workTypeOf(question: string): WorkType {
+  const text = String(question || "");
+  if (/(动画|动漫)/.test(text)) return "anime";
+  if (/(电视剧|剧集|网剧|连续剧|每集|集数)/.test(text)) return "tv";
+  if (/(电影|影片|院线|片名)/.test(text)) return "film";
+  return "other";
+}
+
+const typeLabel: Record<WorkType, string> = {
+  film: "电影",
+  tv: "电视剧",
+  anime: "动画",
+  book: "小说/原著",
+  other: "作品",
+};
 
 function namesIn(text: string): string[] {
   const found: string[] = [];
@@ -183,7 +228,7 @@ export function extractCandidates(
   pages: PageLike[],
   bodies: Map<string, BodyLike>,
   clueTerms: string[] = [],
-  limit = 6,
+  limit = 24,
 ): Candidate[] {
   const byName = new Map<string, Candidate>();
   for (const page of pages) {
@@ -191,6 +236,12 @@ export function extractCandidates(
     const text = [page.title, page.passage, body?.ok ? body.text.slice(0, 6000) : ""].join("\n");
     const quotedNames = new Set(namesIn(text));
     const names = new Set(quotedNames);
+    // 第一阶段（召回）：不只认书名号。正文里「电视剧《X》」「X 是一部电影」这类
+    // 明确的类型标记也说明它是一个作品名，漏掉它们会直接导致候选召回不足。
+    for (const match of text.matchAll(/(?:电影|电视剧|影片|剧集|网剧|动画片|动画|纪录片)\s*《([^》]{2,24})》/g))
+      names.add(tidyName(match[1]));
+    for (const match of text.matchAll(/《([^》]{2,24})》\s*(?:是|为)?\s*一部?\s*(电影|电视剧|影片|剧集|网剧|动画片|动画|纪录片)/g))
+      names.add(tidyName(match[1]));
     // 标题常常就是「XX 第1集」这类，补一条：标题开头到第一个分隔符
     const titleHead = page.title.split(/[_|｜:：\-—]/)[0].trim();
     if (titleHead.length >= 2 && titleHead.length <= 24 && namesIn(titleHead).length === 0) names.add(titleHead);
@@ -214,6 +265,24 @@ export function extractCandidates(
         note: "",
       };
       if (quotedNames.has(name)) existing.quoted = true;
+      // 类型证据：同名作品可能同时是电影和电视剧，取最多票的那个，并保留原句。
+      // 类型优先看「和这个名字同一句」的表述，其次才看标题/正文的泛称；
+      // 否则《暗算》会因为有小说原著页面而被判成小说。
+      const nearName = (() => {
+        const at = normalized(text).indexOf(normalized(name));
+        if (at < 0) return "";
+        const plain = text;
+        const ratio = plain.length / Math.max(1, normalized(text).length);
+        const center = Math.round(at * ratio);
+        return plain.slice(Math.max(0, center - 60), center + 90);
+      })();
+      const typeHit =
+        TYPE_PATTERNS.find((item) => item.pattern.test(nearName)) ||
+        TYPE_PATTERNS.find((item) => item.pattern.test(page.title));
+      if (typeHit) {
+        existing.typeVotes = existing.typeVotes || {};
+        existing.typeVotes[typeHit.type] = (existing.typeVotes[typeHit.type] || 0) + 1;
+      }
       if (!existing.pages.some((item) => item.url === page.url)) {
         existing.mentions += 1;
         existing.pages.push({ url: page.url, site: page.site, title: page.title, date: page.date });
@@ -225,14 +294,47 @@ export function extractCandidates(
   const candidates: Candidate[] = [];
   for (const candidate of byName.values()) {
     const inTitle = pages.some((page) => page.title.includes(candidate.name));
-    if (candidate.mentions < 2 && !inTitle) continue;
+    // 第一阶段是「尽量发现」：名字只被提到一次，只要它和关键剧情出现在同一句里，
+    // 也先收进候选（很多作品是在「类似作品」段落里被提到的）。
+    const plotRelated = pages.some((page) => {
+      const body = bodies.get(page.id);
+      const text = [page.title, page.passage, body?.ok ? body.text.slice(0, 6000) : ""].join("\n");
+      const at = text.indexOf(candidate.name);
+      if (at < 0) return false;
+      const window = text.slice(Math.max(0, at - 120), at + 160);
+      return clueTerms.some((term) => term.length >= 2 && window.includes(term));
+    });
+    if (candidate.mentions < 2 && !inTitle && !plotRelated) continue;
     candidate.sites = new Set(candidate.pages.map((page) => page.site)).size;
     candidate.titleHits = pages.filter((page) => page.title.includes(candidate.name)).length;
+    const votes = candidate.typeVotes || {};
+    const best = (Object.entries(votes) as [WorkType, number][]).sort((a, b) => b[1] - a[1])[0];
+    candidate.type = best ? best[0] : "other";
     candidates.push(candidate);
   }
+  // 作品上下文：名字附近出现「电影/电视剧/上映/主演/导演/豆瓣…」才像一部作品，
+  // 否则只是新闻标题里的短语（例如「国内首个可以睡觉的列车」）。
+  for (const candidate of candidates) {
+    let signals = 0;
+    for (const page of pages) {
+      const body = bodies.get(page.id);
+      const text = [page.title, page.passage, body?.ok ? body.text.slice(0, 6000) : ""].join("\n");
+      const at = text.indexOf(candidate.name);
+      if (at < 0) continue;
+      const window = text.slice(Math.max(0, at - 40), at + candidate.name.length + 60);
+      if (/(电影|电视剧|影片|剧集|网剧|动画|上映|首播|主演|导演|编剧|豆瓣|评分|剧情|讲述|改编)/.test(window))
+        signals += 1;
+    }
+    (candidate as Candidate & { workSignals?: number }).workSignals = signals;
+  }
+
   // 不是作品名的东西不要当候选：疑问句标题、角色名（含用户给的线索词）、明显是句子片段。
   const workLike = candidates.filter((item) => {
+    if (!item.quoted && ((item as Candidate & { workSignals?: number }).workSignals || 0) === 0) return false;
+    if (/(首个|可以|我们|怎样|多少|揭秘|真相|最新|回应|公布)/.test(item.name)) return false;
     if (/[？?]|哪|怎么|多少|为什么|如何/.test(item.name)) return false;
+    // 科普/教程类标题不是作品名
+    if (/(方法|原理|教程|攻略|介绍|是什么|解析|揭秘|盘点|排行榜|合集|大全|指南)/.test(item.name)) return false;
     if (item.name.length > 16) return false;
     if (!item.quoted && candidateLooksLikeClue(item.name, clueTerms)) return false;
     if (!item.quoted && /(剧|电视剧|影片|电影)$/.test(item.name)) return false;
@@ -606,10 +708,12 @@ export function matchCandidate(
               castAt >= 0
                 ? `${castAt > 20 ? "…" : ""}${sentence.slice(Math.max(0, castAt - 20), castAt + 80).trim()}${castAt + 80 < sentence.length ? "…" : ""}`
                 : snippetAround(sentence, candidate.name);
+            const explicitDenial = /(并非|不是|未出演|没有出演|并没有|并非由)/.test(sentence);
             conflict = {
               clueId: clue.id,
               clue: clue.text,
               found: false,
+              conflictStrength: explicitDenial ? "explicit" : "absent",
               sentence: castSnippet,
               url: page.url,
               site: page.site,
@@ -720,9 +824,30 @@ export function evaluateCandidates(
     return matchCandidate({ ...candidate, entity }, clues, pages, bodies, raw.map((item) => item.name), question, personTexts);
   });
   const relations = classified.filter((item) => isRelation(item, targetKind));
+  // 第二阶段：把「作品类型」纳入比较。用户说电影时，电视剧不能仅凭主题词相近就排第一；
+  // 但允许它留在候选里，只标注这处矛盾，不直接抹掉。
+  const userType = workTypeOf(question);
+  const typeCompatible = (a: WorkType, b: WorkType) =>
+    a === b ||
+    a === "other" ||
+    b === "other" ||
+    (a === "anime" && (b === "film" || b === "tv")) ||
+    (b === "anime" && (a === "film" || a === "tv"));
+  for (const item of classified) {
+    const candidateType = (item.type || "other") as WorkType;
+    if (userType === "other" || candidateType === "other") continue;
+    if (typeCompatible(userType, candidateType)) continue;
+    item.typeConflict = true;
+    item.score -= 8;
+  }
   const candidates = classified
     .filter((item) => !isRelation(item, targetKind))
-    .sort((a, b) => b.matchedClues - a.matchedClues || b.score - a.score)
+    .sort(
+      (a, b) =>
+        b.matchedClues - a.matchedClues ||
+        Number(Boolean(a.typeConflict)) - Number(Boolean(b.typeConflict)) ||
+        b.score - a.score,
+    )
     // 一条线索都没对上的名字（正文里的栏目名、标语）不占候选位，避免把噪声摆到用户面前。
     .filter((item, index) => item.matchedClues > 0 || index === 0);
   const pending = planDisambiguation(
@@ -744,8 +869,13 @@ export function evaluateCandidates(
       },
     };
 
+  // 头名仍按「线索命中 + 类型是否相符」排序的结果取；但要并列比较时，
+  // 只和类型相符的候选比——用户说电影，就不该拿电视剧来判「并列无法区分」。
   const best = candidates[0];
-  const runnerUp = candidates[1];
+  const comparableRunners = userType !== "other"
+    ? candidates.slice(1).filter((item) => !item.typeConflict)
+    : candidates.slice(1);
+  const runnerUp = comparableRunners[0] || candidates[1];
   const total = clues.length;
   // 与资料冲突的线索：有原文依据才算，结论里必须点名说明，不能悄悄改用户的描述。
   const conflicts = (best?.matches || [])
@@ -757,15 +887,23 @@ export function evaluateCandidates(
       url: match.url,
       site: match.site,
       from: match.from,
+      strength: (match.conflictStrength || "absent") as "explicit" | "absent",
     }));
-  const conflictNote = conflicts.length
-    ? `你说的「${conflicts.map((item) => item.clue).join("」「")}」与资料不符：资料显示的是别的人/内容，这里以原文为准`
-    : "";
+  const explicitConflicts = conflicts.filter((item) => item.strength === "explicit");
+  // 只有明确的否定表述才能说「与资料不符」；名单里没出现只能说「现有资料里没有」。
+  const conflictNote = explicitConflicts.length
+    ? `资料明确写到「${explicitConflicts.map((item) => item.clue).join("」「")}」不成立，这里以原文为准`
+    : conflicts.length
+      ? `现有资料的主演名单里没有出现「${conflicts.map((item) => item.clue).join("」「")}」（这不等于他没参演）`
+      : "";
   const conflictFields = conflicts.length ? { conflicts } : {};
   // 决定性线索才决定答案：题材/身份/地区这类词命中多少都不足以定案。
   const decisiveOf = (candidate: Candidate | undefined) =>
     (candidate?.matches || []).filter((match) => match.decisive);
-  const decisiveMissing = decisiveOf(best).filter((match) => !match.found).map((match) => match.clue);
+  // 与资料冲突的线索不算「缺证据」：它已经查过，结论是资料里没有这个人/这一条。
+  const decisiveMissing = decisiveOf(best)
+    .filter((match) => !match.found && match.relation !== "conflicts")
+    .map((match) => match.clue);
   const decisiveHit = decisiveOf(best).filter((match) => match.found).length;
   const runnerDecisiveMissing = runnerUp
     ? decisiveOf(runnerUp).filter((match) => !match.found).length
@@ -811,12 +949,41 @@ export function evaluateCandidates(
   //  c) 覆盖率≥75% 且比第二名多出至少两条（排除「只是关键词出现得多」）。
   // 同源共现必须配合覆盖率：只对上「用户说的主演 + 一个泛词」不算证据组合，
   // 否则一旦用户把主演记错，错误候选反而更容易被当成答案。
+  // 剧情线索命中来自多少个不同来源：只靠一篇网页的巧合不足以定案。
+  const foundSources = new Set(
+    best.matches.filter((match) => match.found && match.url).map((match) => match.url),
+  );
   const enough =
     decisiveHit >= 2 ||
     (decisiveHit >= 1 && coverage >= 0.5) ||
     (coverage >= 0.75 && lead >= 2) ||
-    (coOccurrence && coverage >= 0.5 && lead >= 1);
-  if (!decisiveMissing.length && (decisiveHit > 0 || coOccurrence) && enough && !tie)
+    (coOccurrence && coverage >= 0.5 && lead >= 1) ||
+    // 剧情证据足够且领先，同时唯一「对不上」的人物线索只是资料里没出现（不是明确反证）：
+    // 这种情形应当给出答案，并把那条记忆标注出来，而不是假装没有结论。
+    (coverage >= 0.5 &&
+      lead >= 1 &&
+      foundSources.size >= 2 &&
+      explicitConflicts.length === 0);
+  // 作品上下文与证据广度：只有一条线索命中、或名字只是被顺带提到的，不能算答案。
+  // 「像一部作品」的证据：附近有作品类字样，或它本身就是标题里点到 / 书名号里的名字。
+  const workSignal =
+    ((best as Candidate & { workSignals?: number }).workSignals || 0) > 0 ||
+    (best.titleHits || 0) > 0 ||
+    best.quoted === true;
+  const breadthGate = best.matchedClues >= 2 && (foundSources.size >= 2 || coOccurrence);
+  const typeGate = !(userType !== "other" && best.typeConflict) && workSignal && breadthGate;
+  const typeConflictInfo =
+    userType !== "other" && best.typeConflict
+      ? {
+          typeConflict: {
+            userType,
+            candidateType: (best.type || "other") as WorkType,
+            candidate: best.name,
+            note: `你说的是一部${typeLabel[userType]}，但现有资料显示《${best.name}》是${typeLabel[(best.type || "other") as WorkType]}`,
+          },
+        }
+      : {};
+  if (!decisiveMissing.length && (decisiveHit > 0 || coOccurrence) && enough && !tie && typeGate)
     return {
       candidates,
       relations,
@@ -856,6 +1023,7 @@ export function evaluateCandidates(
       decision: {
         state: "ambiguous",
         ...conflictFields,
+        ...typeConflictInfo,
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
         headline: `找到 ${candidates.length} 个可能候选，还差一条能区分的线索`,
         nextQueries,
@@ -879,10 +1047,13 @@ export function evaluateCandidates(
       // 检索式耗尽不能反过来证明答案成立，特别是只有“科幻/悬疑”之类泛线索时。
       state: "insufficient",
       ...conflictFields,
+      ...typeConflictInfo,
       decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
-      headline: decisiveHit === 0
-        ? `「${best.name}」有部分特征符合，但没有能够确定身份的关键证据`
-        : `比较接近的是「${best.name}」，但关键证据仍不足以定案`,
+      headline: userType !== "other" && best.typeConflict
+        ? `${typeLabel[userType]}与${typeLabel[(best.type || "other") as WorkType]}对不上：「${best.name}」是${typeLabel[(best.type || "other") as WorkType]}，暂不能按你的说法定案`
+        : decisiveHit === 0
+          ? `「${best.name}」有部分特征符合，但没有能够确定身份的关键证据`
+          : `比较接近的是「${best.name}」，但关键证据仍不足以定案`,
       nextQueries,
       askUser: nextQueries.length
         ? null

@@ -31,6 +31,8 @@ export interface InvestigationSnapshot {
   clues: { text: string; terms: string[] }[];
   /** 用户点名的人物类线索（主演/演员）：这类线索必须单独核实 */
   personClues?: string[];
+  /** 类型矛盾：用户说的类型与现有候选不一致 */
+  typeConflict?: { userType: string; candidateType: string; candidate: string; note: string };
 }
 
 const normal = (value: string) => value.normalize("NFKC").replace(/[\s“”"'《》：:，,、]+/g, "").toLowerCase();
@@ -66,6 +68,34 @@ export function nextClueSearch(
       kind: "relationship",
     });
     if (choice) return choice;
+  }
+
+  // 类型对不上（用户说电影、候选是电视剧）：按用户说的类型再找一轮候选，
+  // 而不是继续围着类型不符的那部剧补查。
+  if (snapshot.typeConflict) {
+    const plotTerms = snapshot.clues
+      .flatMap((clue) => clue.terms || [clue.text])
+      .filter((term) => term.length >= 2 && !lowSignal(term))
+      .filter((term) => !(snapshot.personClues || []).some((name) => name.includes(term) || term.includes(name)));
+    const typeWord =
+      snapshot.typeConflict.userType === "film"
+        ? "电影"
+        : snapshot.typeConflict.userType === "tv"
+          ? "电视剧"
+          : snapshot.typeConflict.userType === "anime"
+            ? "动画"
+            : "";
+    if (typeWord) {
+      const choice = offer({
+        question: `按你描述的「${typeWord}」，还有哪部作品符合这些剧情？`,
+        query: `${[...new Set(plotTerms)].slice(0, 5).join(" ")} ${typeWord}`.trim(),
+        reason: `现有候选是${snapshot.typeConflict.candidateType === "tv" ? "电视剧" : snapshot.typeConflict.candidateType === "film" ? "电影" : snapshot.typeConflict.candidateType === "book" ? "小说/原著" : "其他类型"}，和你说的「${typeWord}」不一致；按类型重新找候选。`,
+        subject: "",
+        object: "",
+        kind: "discovery",
+      });
+      if (choice) return choice;
+    }
   }
 
   // 人物线索没有命中时，先去核对该作品的演职员表：

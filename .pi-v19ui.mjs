@@ -1,0 +1,34 @@
+import { chromium } from "@playwright/test";
+const base = "http://127.0.0.1:4316";
+const browser = await chromium.launch({ headless: true, executablePath: process.env.TRACE_CHROMIUM });
+const shots = process.env.SHOT;
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const bad = [];
+page.on("pageerror", (e) => bad.push(e.message));
+await page.goto(base + "/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(2000);
+await page.getByRole("button", { name: "凭线索找作品" }).first().click();
+await page.locator("textarea[aria-label='你想查什么']").fill("有一部电影，讲一个数学天才在纸上推演密码，后来卷入间谍案，主角好像是布拉德·皮特演的");
+await page.locator("button.trace-btn-primary").first().click();
+await page.waitForURL(/\/cases\//, { timeout: 40000 });
+const runId = page.url().split("/cases/")[1];
+for (let i = 0; i < 30; i++) {
+  await page.waitForTimeout(6000);
+  const t = await page.locator("body").innerText();
+  if (/决定性线索全部对上/.test(t)) break;
+  const approve = page.getByRole("button", { name: /^确认/ }).first();
+  if (await approve.count()) await approve.click().catch(() => {});
+}
+await page.waitForTimeout(3000);
+const body = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+console.log("runId:", runId);
+console.log("答案区:", body.slice(Math.max(0, body.indexOf("最可能的答案")), Math.max(0, body.indexOf("最可能的答案")) + 160));
+console.log("类型/冲突:", /资料不一致/.test(body) ? "冲突区已显示" : "无冲突区", "|", /电视剧/.test(body) ? "含类型说明" : "");
+await page.screenshot({ path: `${shots}/answer-desktop.png` });
+const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await phone.goto(base + "/cases/" + runId, { waitUntil: "domcontentloaded" });
+await phone.waitForTimeout(3500);
+console.log("移动端溢出:", await phone.evaluate(() => document.documentElement.scrollWidth - window.innerWidth));
+await phone.screenshot({ path: `${shots}/answer-mobile.png` });
+console.log("错误:", bad.length ? bad[0].slice(0, 50) : "无");
+await browser.close();

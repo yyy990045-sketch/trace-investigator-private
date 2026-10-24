@@ -36,6 +36,8 @@ export interface ClueAssessment {
   clues: ClueItem[];
   /** 用户点名的人物类线索（主演/演员） */
   personClues?: string[];
+  /** 用户描述的类型与现有候选不一致 */
+  typeConflict?: { userType: string; candidateType: string; candidate: string; note: string };
   /** 同名不同版本（动画/真人/不同年份），带年份、形态与原句 */
   variants?: {
     label: string;
@@ -152,6 +154,7 @@ export function clueAssessment(store: Store, runId: string): ClueAssessment {
     targetKind,
     clues,
     personClues: [...personClueTexts(String(bundle.case?.question || ""), clues)],
+    ...(finalDecision.typeConflict ? { typeConflict: finalDecision.typeConflict } : {}),
     variants,
     ...(variants.length && wantedForm
       ? {

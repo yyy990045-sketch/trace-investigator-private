@@ -223,7 +223,14 @@ export function planByRule(question: string): CluePlan {
 
   if (!clues.length && question.trim().length >= 2)
     clues.push({ text: question.trim().slice(0, 40), terms: [question.trim().slice(0, 20)], kind: "other" });
-  const base = [...new Set(clues.flatMap((item) => item.terms).filter((term) => term.length >= 2))]
+  // 年份不能进主检索式：用户说「我记得是2005年」时，年份本身可能就是错的，
+  // 带上它会把真正的那部片子直接筛掉。年份留作后面核对的条件。
+  const isYear = (term: string) => /^(19|20)\d{2}\s*年?$/.test(term) || /^\d{2,4}年代$/.test(term);
+  const base = [...new Set(
+    clues
+      .flatMap((item) => item.terms)
+      .filter((term) => term.length >= 2 && !isYear(term)),
+  )]
     .slice(0, 9)
     .join(" ")
     .slice(0, 100);
