@@ -1748,3 +1748,51 @@
     gap: 8px;
   }
 }
+
+/* 8. 分享简明结论 ---------------------------------------------------------- */
+.trace-v2 .t-share {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--t-line);
+  border-radius: 12px;
+  background: var(--t-surface-2);
+}
+.trace-v2 .t-share-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.trace-v2 .t-share-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--t-line-strong);
+  border-radius: 10px;
+  background: var(--t-surface);
+  color: var(--t-ink);
+  font: inherit;
+  line-height: 1.65;
+  resize: vertical;
+}
+.trace-v2 .t-share-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.trace-v2 .t-share-source {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .trace-v2 .t-share {
+    padding: 12px;
+  }
+  .trace-v2 .t-share-text {
+    min-height: 120px;
+    font-size: 14px;
+  }
+}
