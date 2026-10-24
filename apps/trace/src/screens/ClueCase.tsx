@@ -97,7 +97,7 @@ export function ClueCase({
     () =>
       run.evidence
         .filter((item) => item.kind === "trace.clue.question")
-        .map((item) => item.data as { question: string; query: string; reason: string; subject: string; object: string }),
+        .map((item) => item.data as { question: string; query: string; reason: string; subject: string; object: string; kind?: string; stateBefore?: string; stateAfter?: string; resultCount?: number }),
     [run.evidence],
   );
   const graph = assessment?.graph || [];
@@ -124,8 +124,10 @@ export function ClueCase({
 
   // 发现关系疑点就自动补查（只读回放不发请求；同一页面只自动触发一次）。
   const pendingCount = assessment?.pending?.length || 0;
+  const decision = assessment?.decision;
+  const actionable = pendingCount > 0 || (decision?.state !== "found" && (decision?.nextQueries?.length || 0) > 0) || (decision?.state === "insufficient" && candidates.length === 0);
   useEffect(() => {
-    if (SHOWCASE || autoState !== "idle" || !pendingCount) return;
+    if (SHOWCASE || autoState !== "idle" || !actionable) return;
     if ((assessment?.followupCount || 0) >= 4) {
       setAutoState("done");
       return;
@@ -141,8 +143,7 @@ export function ClueCase({
         setAutoState("failed");
       }
     })();
-  }, [pendingCount, autoState, assessment?.followupCount, cache, runId]);
-  const decision = assessment?.decision;
+  }, [actionable, autoState, assessment?.followupCount, cache, runId]);
 
   async function continueSearch(query: string, reason: string) {
     setBusy(query);
@@ -209,6 +210,169 @@ export function ClueCase({
         </p>
       </header>
 
+      {/* 首屏：答案、依据与未解疑点，优先于搜索过程 */}
+      <section className="clue-result" data-state={decision?.state || "insufficient"} aria-label="调查结果">
+        <h2>{decision ? stateCopy[decision.state].title : "调查进行中"}</h2>
+        <p className="clue-headline">{decision?.headline}</p>
+        {decision?.state === "found" && candidates[0] ? (
+          <div className="clue-answer">
+            <b>{candidates[0].name}</b>
+            <span>对上 {candidates[0].matchedClues}/{clues.length} 条线索</span>
+          </div>
+        ) : null}
+
+        {decision?.decisiveClues?.length ? (
+          <div className="clue-decisive">
+            <h3>用来定案的决定性线索</h3>
+            <ul>
+              {decision.decisiveClues.map((clue) => {
+                const hit = candidates[0]?.matches.find((match) => match.clue === clue && match.found);
+                return (
+                  <li key={clue} data-hit={hit ? "true" : "false"}>
+                    <b>{clue}</b>
+                    {hit ? (
+                      <span>「{hit.sentence}」 · <a href={hit.url} target="_blank" rel="noopener noreferrer">{hit.site || "查看来源"}（{hit.from === "body" ? "原文" : "搜索摘要"}）</a></span>
+                    ) : <span>还没有直接证据</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {decision?.state === "found" && decision.auxiliaryClues?.length ? (
+          <p className="clue-hint">
+            说明：{decision.auxiliaryClues.join("、")} 属于题材/地区类线索，网页里没有和片名出现在同一句，按整页内容判断，未单独取证。
+          </p>
+        ) : null}
+
+        {candidates.length > 1 && decision?.state === "found" ? (
+          <div className="clue-explain">
+            <h3>为什么不是其他候选</h3>
+            <ul>
+              {candidates.slice(1, 4).map((candidate) => (
+                <li key={candidate.name}>
+                  <b>{candidate.name}</b>
+                  {candidate.missingClues.length
+                    ? `：缺少「${candidate.missingClues.slice(0, 2).join("」「")}」的对应证据`
+                    : `：线索也能对上，但被指认它的网页标题只有 ${candidate.titleHits ?? 0} 条（${candidates[0].name} 是 ${candidates[0].titleHits ?? 0} 条），没有它那么明确`}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {candidates.length > 1 && decision?.state !== "found" ? (
+          <div className="clue-explain">
+            <h3>还不能确定的原因</h3>
+            <ul>
+              {candidates.slice(0, 3).map((candidate) => (
+                <li key={candidate.name}>
+                  <b>{candidate.name}</b>
+                  {candidate.missingClues.length
+                    ? `：没有找到「${candidate.missingClues.slice(0, 2).join("」「")}」的对应证据`
+                    : "：线索都对上了，但还没有能排除其它候选的证据"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {decision?.askUser ? (
+          <div className="clue-ask">
+            <h3>需要你补一条线索</h3>
+            <p>{decision.askUser}</p>
+            {SHOWCASE ? (
+              <p className="clue-hint">只读展示：本机运行时可以回答，并会立刻发起真实检索。</p>
+            ) : (
+              <div className="clue-ask-form">
+                <input
+                  aria-label="补充线索"
+                  maxLength={120}
+                  placeholder="例如：现代城市、2016 年播出、主角姓秦…"
+                  value={answer}
+                  onChange={(event) => setAnswer(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void submitAnswer();
+                  }}
+                />
+                <button
+                  className="trace-btn trace-btn-primary"
+                  disabled={busy === "answer" || answer.trim().length < 2}
+                  onClick={() => void submitAnswer()}
+                >
+                  {busy === "answer" ? "正在检索…" : "按这条线索再查"}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {decision?.nextQueries?.length ? (
+          <div className="clue-next">
+            <h3>继续追查</h3>
+            {decision.nextQueries.map((item) => (
+              <div key={item.query} className="clue-next-row">
+                <div>
+                  <b>「{item.query}」</b>
+                  <span>{item.reason}</span>
+                </div>
+                {SHOWCASE ? (
+                  <span className="clue-hint">只读展示，不在公网发起新搜索</span>
+                ) : (
+                  <button
+                    className="trace-btn"
+                    disabled={Boolean(busy)}
+                    onClick={() => void continueSearch(item.query, item.reason)}
+                  >
+                    <Search size={13} /> {busy === item.query ? "检索中…" : "再搜一次"}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {autoState === "running" ? (
+          <p className="clue-hint">正在根据证据缺口主动补查，查询结果会写入本次调查…</p>
+        ) : null}
+        {decision?.openRelations?.length ? (
+          <div className="clue-open-relations">
+            <h3>与答案无关、但还没查清的关系</h3>
+            <ul>
+              {decision.openRelations.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {error ? <div className="trace-alert" role="alert">{error}</div> : null}
+
+        <div className="clue-sources">
+          <h3>这次用到的来源</h3>
+          <ul>
+            {(assessment?.candidates || [])
+              .slice(0, 2)
+              .flatMap((candidate) => candidate.pages.slice(0, 2))
+              .filter((page, index, list) => list.findIndex((other) => (other.title || other.url) === (page.title || page.url)) === index)
+              .map((page) => (
+                <li key={page.url}>
+                  <a href={page.url} target="_blank" rel="noreferrer noopener">
+                    {page.title || page.url}
+                  </a>
+                  <span>{page.site}</span>
+                </li>
+              ))}
+          </ul>
+          {assessment?.pageCount && assessment.pageCount > 4 ? (
+            <p className="clue-hint">
+              共 {assessment.pageCount} 条网页、{assessment.bodyAvailable} 份取得原文；其余在下方技术记录里。
+            </p>
+          ) : null}
+        </div>
+      </section>
+
       {/* 区域二：搜索过程 */}
       <section className="clue-timeline" aria-label="搜索过程">
         <h2>搜索过程</h2>
@@ -253,13 +417,15 @@ export function ClueCase({
               <li key={`relation-${index}`} data-done={found.length ? "true" : "false"}>
                 <span className="clue-step-dot" />
                 <div>
-                  <b>关系待确认 · 第 {index + 1} 轮</b>
+                  <b>{round.kind === "decisive_clue" ? "关键线索补证" : round.kind === "discovery" ? "主动拓展检索" : "候选关系核验"} · 第 {index + 1} 轮</b>
                   <p>{round.question}</p>
                   <p>
                     正在查询「{round.query}」
-                    {found.length
-                      ? ` · 找到能区分二者的资料：${found.join("；")}`
-                      : " · 这次没有查到能确认关系的资料，仍标为未确认"}
+                    {round.kind && round.kind !== "relationship"
+                      ? ` · 返回 ${round.resultCount ?? 0} 条；${round.stateBefore === round.stateAfter ? "目前结论未改变" : `判断从${round.stateBefore || "待确认"}变为${round.stateAfter || "待确认"}`}`
+                      : found.length
+                        ? ` · 找到关系证据：${found.join("；")}`
+                        : " · 本轮没有获得能确认关系的直接证据"}
                   </p>
                 </div>
               </li>
@@ -367,186 +533,6 @@ export function ClueCase({
           </ul>
         </section>
       ) : null}
-
-      {/* 区域四：最终结果 */}
-      <section className="clue-result" data-state={decision?.state || "insufficient"} aria-label="调查结果">
-        <h2>{decision ? stateCopy[decision.state].title : "调查进行中"}</h2>
-        <p className="clue-headline">{decision?.headline}</p>
-        {decision?.state === "found" && candidates[0] ? (
-          <div className="clue-answer">
-            <b>{candidates[0].name}</b>
-            <span>对上 {candidates[0].matchedClues}/{clues.length} 条线索</span>
-          </div>
-        ) : null}
-
-        {decision?.decisiveClues?.length ? (
-          <div className="clue-decisive">
-            <h3>用来定案的决定性线索</h3>
-            <ul>
-              {decision.decisiveClues.map((clue) => {
-                const hit = candidates[0]?.matches.find((match) => match.clue === clue && match.found);
-                return (
-                  <li key={clue} data-hit={hit ? "true" : "false"}>
-                    <b>{clue}</b>
-                    {hit ? <span>「{hit.sentence}」</span> : <span>还没有直接证据</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : null}
-
-        {candidates.length > 1 ? (
-          <div className="clue-explain">
-            <h3>其他候选缺少的关键证据</h3>
-            <ul>
-              {candidates.slice(1, 4).map((candidate) => {
-                const missing = candidate.matches.filter((match) => match.decisive && !match.found);
-                return (
-                  <li key={candidate.name}>
-                    <b>{candidate.name}</b>
-                    {missing.length
-                      ? `：${missing.map((match) => `「${match.clue}」`).join("、")} 没有直接证据`
-                      : "：决定性线索都能对上，仍无法排除"}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : null}
-
-        {decision?.state === "found" && decision.auxiliaryClues?.length ? (
-          <p className="clue-hint">
-            说明：{decision.auxiliaryClues.join("、")} 属于题材/地区类线索，网页里没有和片名出现在同一句，按整页内容判断，未单独取证。
-          </p>
-        ) : null}
-
-        {candidates.length > 1 && decision?.state === "found" ? (
-          <div className="clue-explain">
-            <h3>为什么不是其他候选</h3>
-            <ul>
-              {candidates.slice(1, 4).map((candidate) => (
-                <li key={candidate.name}>
-                  <b>{candidate.name}</b>
-                  {candidate.missingClues.length
-                    ? `：缺少「${candidate.missingClues.slice(0, 2).join("」「")}」的对应证据`
-                    : `：线索也能对上，但被指认它的网页标题只有 ${candidate.titleHits ?? 0} 条（${candidates[0].name} 是 ${candidates[0].titleHits ?? 0} 条），没有它那么明确`}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {candidates.length > 1 && decision?.state !== "found" ? (
-          <div className="clue-explain">
-            <h3>还不能确定的原因</h3>
-            <ul>
-              {candidates.slice(0, 3).map((candidate) => (
-                <li key={candidate.name}>
-                  <b>{candidate.name}</b>
-                  {candidate.missingClues.length
-                    ? `：没有找到「${candidate.missingClues.slice(0, 2).join("」「")}」的对应证据`
-                    : "：线索都对上了，但还没有能排除其它候选的证据"}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {decision?.askUser ? (
-          <div className="clue-ask">
-            <h3>需要你补一条线索</h3>
-            <p>{decision.askUser}</p>
-            {SHOWCASE ? (
-              <p className="clue-hint">只读展示：本机运行时可以回答，并会立刻发起真实检索。</p>
-            ) : (
-              <div className="clue-ask-form">
-                <input
-                  aria-label="补充线索"
-                  maxLength={120}
-                  placeholder="例如：现代城市、2016 年播出、主角姓秦…"
-                  value={answer}
-                  onChange={(event) => setAnswer(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void submitAnswer();
-                  }}
-                />
-                <button
-                  className="trace-btn trace-btn-primary"
-                  disabled={busy === "answer" || answer.trim().length < 2}
-                  onClick={() => void submitAnswer()}
-                >
-                  {busy === "answer" ? "正在检索…" : "按这条线索再查"}
-                </button>
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        {decision?.nextQueries?.length ? (
-          <div className="clue-next">
-            <h3>继续追查</h3>
-            {decision.nextQueries.map((item) => (
-              <div key={item.query} className="clue-next-row">
-                <div>
-                  <b>「{item.query}」</b>
-                  <span>{item.reason}</span>
-                </div>
-                {SHOWCASE ? (
-                  <span className="clue-hint">只读展示，不在公网发起新搜索</span>
-                ) : (
-                  <button
-                    className="trace-btn"
-                    disabled={Boolean(busy)}
-                    onClick={() => void continueSearch(item.query, item.reason)}
-                  >
-                    <Search size={13} /> {busy === item.query ? "检索中…" : "再搜一次"}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {autoState === "running" ? (
-          <p className="clue-hint">发现关系疑点，正在自动补查（{pendingCount} 个问题）…</p>
-        ) : null}
-        {decision?.openRelations?.length ? (
-          <div className="clue-open-relations">
-            <h3>与答案无关、但还没查清的关系</h3>
-            <ul>
-              {decision.openRelations.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {error ? <div className="trace-alert" role="alert">{error}</div> : null}
-
-        <div className="clue-sources">
-          <h3>这次用到的来源</h3>
-          <ul>
-            {(assessment?.candidates || [])
-              .slice(0, 2)
-              .flatMap((candidate) => candidate.pages.slice(0, 2))
-              .filter((page, index, list) => list.findIndex((other) => (other.title || other.url) === (page.title || page.url)) === index)
-              .map((page) => (
-                <li key={page.url}>
-                  <a href={page.url} target="_blank" rel="noreferrer noopener">
-                    {page.title || page.url}
-                  </a>
-                  <span>{page.site}</span>
-                </li>
-              ))}
-          </ul>
-          {assessment?.pageCount && assessment.pageCount > 4 ? (
-            <p className="clue-hint">
-              共 {assessment.pageCount} 条网页、{assessment.bodyAvailable} 份取得原文；其余在下方技术记录里。
-            </p>
-          ) : null}
-        </div>
-      </section>
 
       <details className="clue-details">
         <summary>调查记录与技术细节</summary>
