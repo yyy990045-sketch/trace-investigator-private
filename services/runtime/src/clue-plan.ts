@@ -26,6 +26,8 @@ export interface CluePlan {
   /** 模型原始返回（用于复查；不含用户隐私以外的额外内容） */
   raw?: string;
   fallbackReason?: string;
+  /** 系统从用户原话里读到的剧情关系（对象/动作/场景/事件/年份） */
+  story?: StoryRead;
 }
 
 const FILLERS = /^(我记得|以前|好像|大概|似乎|想不起|记不清|不确定|可能是|有一部|一部|我|看过|曾经|那个|一个|感觉|印象中|记得)/;
@@ -167,7 +169,7 @@ function clueTokens(question: string): string[] {
  * 中文分词会把外国人名切碎（布拉德·皮特 → 拉德），一旦切碎，系统就没法去核对
  * 「这个人到底演没演这部片」，记忆错误也就无法被发现。
  */
-const PERSON_SPAN = /([\u4e00-\u9fa5·]{2,10})(?:主演|演的|出演|饰演|饰)/g;
+const PERSON_SPAN = /([\u4e00-\u9fa5·]{2,10}?)(?:主演|演的|出演|饰演|饰)/g;
 const PERSON_AFTER = /主演(?:是|为|由)?([\u4e00-\u9fa5·]{2,10})/g;
 const NAME_LEAD = /^(好像|像是|似乎|应该是|可能是|由|是|主角|男主角|女主角|男主演|女主演|演员|记得|大概)/;
 
@@ -247,20 +249,27 @@ export function planByRule(question: string): CluePlan {
     .filter(
       (term) =>
         term.length >= 2 &&
+        !isYear(term) &&
         !people.some((name) => name.includes(term) || term.includes(name)),
     )
     .slice(0, 9)
     .join(" ")
     .slice(0, 100);
+  const story = readStory(question);
+  const relationQueries = domain === "screen" ? story.phrases : [];
   const queries = [
     base || question.slice(0, 90),
-    ...(people.length && plotBase && plotBase !== base ? [plotBase] : []),
+    // 只用剧情（去掉人名与年份）：用户把主演/年份记错时，这条才有机会命中
+    ...(plotBase && plotBase !== base ? [plotBase] : []),
+    // 按剧情关系重组的近义查询：动作+场景+事件，而不是分词碎片
+    ...relationQueries.filter((query) => query !== base && query !== plotBase),
     ...context.map((suffix) => `${base || question.slice(0, 80)} ${suffix}`),
   ]
     .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
     .filter((query) => query.length >= 2);
   return {
     goal: `查清用户给出的线索：${question.slice(0, 100)}`,
+    story,
     clues,
     queries: [...new Set(queries)].slice(0, 3),
     source: "rule",
@@ -375,3 +384,99 @@ export function clueKindLabel(kind: PlannedClue["kind"]) {
 }
 
 export { ROLE_WORDS };
+
+/**
+ * 剧情关系：对象 / 动作 / 场景 / 事件 / 年份。
+ *
+ * 只做「读懂这句话在讲什么」，不猜作品名。分词会把「重复同一天」拆成
+ * 「不停/同一/醒来/都在」，这些碎片对检索没用；按关系重新组合才是有意义的查询。
+ */
+const ACTION_WORDS: { pattern: RegExp; label: string; synonyms: string[] }[] = [
+  { pattern: /(重复|循环|轮回|重置|一直重复|再次醒来|反复)/, label: "重复经历", synonyms: ["时间循环", "循环"] },
+  { pattern: /(醒来|睡醒|睁眼)/, label: "反复醒来", synonyms: ["醒来", "每次醒来"] },
+  { pattern: /(穿越|回到过去|时空)/, label: "穿越", synonyms: ["穿越", "时空"] },
+  { pattern: /(听见|听到|听见心声|读心|看穿)/, label: "听见内心", synonyms: ["读心", "听见心声"] },
+  { pattern: /(破译|破解|解密|推演|推理|计算)/, label: "破译推演", synonyms: ["破译", "解密"] },
+  { pattern: /(调查|追查|侦破|查明|寻找真相)/, label: "调查真相", synonyms: ["调查", "真相"] },
+  { pattern: /(绑架|劫持|勒索)/, label: "绑架", synonyms: ["绑架"] },
+  { pattern: /(复仇|报复|报仇)/, label: "复仇", synonyms: ["复仇"] },
+  { pattern: /(爱上|喜欢上|爱着)/, label: "爱情线", synonyms: ["爱情", "爱上"] },
+  { pattern: /(失踪|消失|不见了)/, label: "失踪", synonyms: ["失踪"] },
+];
+
+const SCENE_WORDS: { pattern: RegExp; label: string; synonyms: string[] }[] = [
+  { pattern: /(火车|列车|车厢|铁路)/, label: "列车", synonyms: ["列车", "火车"] },
+  { pattern: /(游轮|轮船|船上|邮轮)/, label: "船上", synonyms: ["游轮", "轮船"] },
+  { pattern: /(医院|病房|手术)/, label: "医院", synonyms: ["医院"] },
+  { pattern: /(学校|校园|教室)/, label: "校园", synonyms: ["校园"] },
+  { pattern: /(孤岛|荒岛|岛上)/, label: "孤岛", synonyms: ["孤岛"] },
+  { pattern: /(太空|空间站|飞船)/, label: "太空", synonyms: ["太空", "空间站"] },
+  { pattern: /(法庭|审判|律师)/, label: "法庭", synonyms: ["法庭"] },
+  { pattern: /(公司|办公室|职场)/, label: "职场", synonyms: ["职场"] },
+  { pattern: /(警局|警察局| FBI |联邦调查局)/i, label: "警方", synonyms: ["警方", "警局"] },
+];
+
+const EVENT_WORDS: { pattern: RegExp; label: string; synonyms: string[] }[] = [
+  { pattern: /(爆炸|炸弹|爆破|引爆)/, label: "爆炸", synonyms: ["爆炸", "炸弹"] },
+  { pattern: /(凶杀|谋杀|杀人|命案)/, label: "命案", synonyms: ["命案", "谋杀"] },
+  { pattern: /(车祸|事故|坠机|空难|海难)/, label: "事故", synonyms: ["事故"] },
+  { pattern: /(间谍|特工|情报|卧底)/, label: "间谍情报", synonyms: ["间谍", "特工"] },
+  { pattern: /(密码|暗号|加密)/, label: "密码", synonyms: ["密码"] },
+  { pattern: /(数学|算法|推演|公式)/, label: "数学", synonyms: ["数学"] },
+  { pattern: /(庭审|判决|上诉)/, label: "庭审", synonyms: ["庭审"] },
+];
+
+const SUBJECT_WORDS: { pattern: RegExp; label: string }[] = [
+  { pattern: /男主角|男主|男一/, label: "男主角" },
+  { pattern: /女主角|女主|女一/, label: "女主角" },
+  { pattern: /一个男人|一名男子|男人/, label: "一个男人" },
+  { pattern: /一个女人|一名女子|女人|女孩/, label: "一个女人" },
+  { pattern: /警察|警探|刑警/, label: "警察" },
+  { pattern: /医生|法医/, label: "医生" },
+  { pattern: /律师/, label: "律师" },
+  { pattern: /学生|高中生|大学生/, label: "学生" },
+];
+
+export interface StoryRead {
+  subject: string[];
+  actions: string[];
+  scenes: string[];
+  events: string[];
+  years: string[];
+  /** 关系组合成的检索短语（不是作品名，只是检索假设） */
+  phrases: string[];
+}
+
+export function readStory(question: string): StoryRead {
+  const text = String(question || "");
+  const pick = (list: { pattern: RegExp; label: string; synonyms?: string[] }[]) =>
+    list.filter((item) => item.pattern.test(text));
+  const actions = pick(ACTION_WORDS);
+  const scenes = pick(SCENE_WORDS);
+  const events = pick(EVENT_WORDS);
+  const subjects = pick(SUBJECT_WORDS);
+  const years = [...new Set(text.match(/(19|20)\d{2}/g) || [])];
+  const core = [...events, ...scenes].map((item) => item.label);
+  const phrases = [
+    // 动作 + 场景 + 事件：最能描述剧情的一句检索式
+    [...actions.map((item) => item.synonyms?.[0] || item.label), ...scenes.map((item) => item.synonyms?.[0] || item.label), ...events.map((item) => item.synonyms?.[0] || item.label)]
+      .filter(Boolean)
+      .join(" "),
+    // 近义改写：换一组同义词，避免只靠一种说法
+    [...actions.map((item) => item.synonyms?.[1] || item.synonyms?.[0] || item.label), ...events.map((item) => item.synonyms?.[1] || item.label), ...scenes.map((item) => item.synonyms?.[1] || item.label)]
+      .filter(Boolean)
+      .join(" "),
+    // 事件 + 场景 + 作品类型
+    [...core, "电影"].join(" "),
+  ]
+    .map((item) => item.replace(/\s{2,}/g, " ").trim())
+    .filter((item) => item.length >= 4);
+  return {
+    subject: subjects.map((item) => item.label),
+    actions: actions.map((item) => item.label),
+    scenes: scenes.map((item) => item.label),
+    events: events.map((item) => item.label),
+    years,
+    phrases: [...new Set(phrases)],
+  };
+}

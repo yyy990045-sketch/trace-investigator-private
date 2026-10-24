@@ -260,6 +260,61 @@ export function ClueCase({
           </div>
         ) : null}
 
+        {/* 还无法排除其他候选时：先给最可能答案，再摊开各候选符合/缺少的情节。 */}
+        {decision?.bestGuess ? (
+          <div className="clue-answer clue-answer-partial">
+            <b>最可能：{decision.bestGuess}</b>
+            <span>尚未完全排除其他候选</span>
+          </div>
+        ) : null}
+
+        {decision?.comparison?.length ? (
+          <div className="clue-explain" aria-label="候选对照">
+            <h3>各候选符合哪些情节</h3>
+            <ul>
+              {decision.comparison.map((item) => (
+                <li key={item.name}>
+                  <b>{item.name}</b>
+                  <span>{`（${item.type}，${item.note}）`}</span>
+                  <div className="clue-hint">
+                    {item.matched.length ? `符合：${item.matched.join("、")}` : "符合：暂无可核对的直接情节"}
+                  </div>
+                  <div className="clue-hint">
+                    {item.missing.length ? `资料里还没核到：${item.missing.join("、")}` : "资料里没有缺失情节"}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="clue-hint">
+              要区分它们，还缺一条能对上其中一部的具体情节（人物做了什么、发生在哪里、结局是什么）。
+            </p>
+          </div>
+        ) : null}
+
+        {decision?.yearCheck ? (
+          <div className="clue-hint" data-year-check="true">
+            <b>年份核对：</b>
+            {decision.yearCheck.note}
+            {decision.yearCheck.candidateYears.length ? (
+              <ul>
+                {decision.yearCheck.candidateYears.map((item, index) => (
+                  <li key={`${item.year}-${index}`}>
+                    {item.year} 年 · {item.quote}
+                    {item.url ? (
+                      <>
+                        {" "}
+                        <a href={item.url} target="_blank" rel="noreferrer noopener">
+                          {item.site || "原始页面"}
+                        </a>
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
         {decision?.decisiveClues?.length ? (
           <div className="clue-decisive">
             <h3>用来定案的决定性线索</h3>

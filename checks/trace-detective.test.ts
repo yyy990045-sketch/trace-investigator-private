@@ -165,7 +165,7 @@ describe("侦探链路的通用判定（本轮修复回归）", () => {
     expect(decisive("男主角", "genre")).toBe(false);
   });
 
-  it("同一条来源同时对上多条线索即视为证据组合成立，单条关键词堆次数不算", () => {
+  it("同一句里出现多个相关词只算一段证据，不足以定案（V20）", () => {
     const page = { id: "p1", url: "https://example.com/a", site: "example", title: "小美人鱼", date: "", passage: "" } as any;
     const body = new Map([
       ["p1", { ok: true, text: "小美人鱼为了爱情用声音换了双腿。小美人鱼是经典动画作品。" } as any],
@@ -183,8 +183,8 @@ describe("侦探链路的通用判定（本轮修复回归）", () => {
       "screen_work",
       "美人鱼为了爱情用声音换了双腿",
     );
-    expect(decision.state).toBe("found");
-    expect(decision.headline).toContain("同一条来源");
+    // 三个词来自同一句：只证明「这句话提到这三件事」，不能算三段独立剧情。
+    expect(decision.state).not.toBe("found");
   });
 });
 
