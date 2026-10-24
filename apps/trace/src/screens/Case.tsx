@@ -338,17 +338,6 @@ export function Case() {
             </span>
           </div>
 
-          {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
-          {assessment?.verdict?.partialAnswer?.length ? (
-            <div className="case-now-counts" aria-label="已经找到但仍需核实的来源表述">
-              <p className="t-hint" style={{ marginBottom: 8 }}>目前找到的相关来源表述（仍需核实，不代表事实已经确认）</p>
-              <ul className="t-plain-list">
-                {assessment.verdict.partialAnswer.map((item: string, index: number) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
           {assessment?.lookup?.answer ? (
             <div className="case-now-lookup" aria-label="问题所问的数值及原始出处">
               <p className="t-hint">查到公开来源中与所问指标对应的记录</p>
@@ -392,6 +381,18 @@ export function Case() {
               ? `关于原始公告与完整事实的核验状态：${outcomeText[verdict.outcome] || "结论见下"}。来源数字可以引用，仍需区分报道引述和官方原始发布。`
               : evidenceWording(verdict.statement).replace(/查到的是：[\s\S]*?。/, "")}
           </p>
+
+          {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
+          {assessment?.verdict?.partialAnswer?.length ? (
+            <div className="case-now-counts" aria-label="已经找到但仍需核实的来源表述">
+              <p className="t-hint" style={{ marginBottom: 8 }}>目前找到的相关来源表述（仍需核实，不代表事实已经确认）</p>
+              <ul className="t-plain-list">
+                {assessment.verdict.partialAnswer.map((item: string, index: number) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {(() => {
             // 问句被改写成可核查说法时，把改写依据写在这里：用户要能看出系统改了什么、
             // 为什么改，而不是以为自己的原话被悄悄换掉了。
