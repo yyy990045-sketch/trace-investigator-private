@@ -463,20 +463,29 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         ...((baseBundle(run).searches || []) as { query?: string }[]).map((item) => String(item.query || "").trim()),
       ].filter(Boolean));
       let current = buildAssessment(run).assessment;
-      const claimText = String(
-        (current.facts?.[0] as any)?.fact?.text || run.input?.text || "",
-      );
-      const semantics = parseClaim(claimText);
-
-      /** 每一轮都用「刚重算过的评估」找缺口：第一轮的新资料会直接改变第二轮的查询。 */
+      /** 每一轮用最新所有事实，优先解决真正缺证据的部分；不能永远只追第一条断言。 */
       const askNext = (
         snapshot: typeof current,
-      ): { query: string; reason: string; question: string } | null => {
-        const fact = snapshot.facts?.[0];
+      ): { query: string; reason: string; question: string; factId: string | null } | null => {
+        const previous = followupsOf(store.run(run.id)!).filter((item) => typeof item.autoReason === "string");
+        const facts = snapshot.facts || [];
+        const open = facts.filter((item) =>
+          item.relation === "none" || item.relation === "mixed" || item.bodyBackedClusters === 0,
+        );
+        const fact = [...(open.length ? open : facts)]
+          .sort((a, b) =>
+            previous.filter((item) => item.factId === a.factId).length -
+            previous.filter((item) => item.factId === b.factId).length,
+          )[0];
+        if (!fact) return null;
+        const claimText = String(fact.fact || run.input?.text || "");
+        const semantics = parseClaim(claimText);
         const sources = ((fact as any)?.sources || []) as any[];
         const bodies = sources.filter((item) => item.bodyAvailable).length;
         const offered = (query: string, reason: string, question: string) =>
-          query.trim().length >= 3 && !tried.has(query.trim()) ? { query: query.trim().slice(0, 120), reason, question } : null;
+          query.trim().length >= 3 && !tried.has(query.trim())
+            ? { query: query.trim().slice(0, 120), reason, question, factId: fact.factId || null }
+            : null;
         // 1) 只有摘要：先把最强来源的原文取回来（有正文才谈得上核对）
         if (sources.length && bodies === 0) {
           const top = sources.find((item) => item.url);
@@ -550,7 +559,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         }
         const payload = {
           query: next.query,
-          factId: (current.facts?.[0] as any)?.factId || null,
+          factId: next.factId,
           requestedAt: attempt.requestedAt || now(),
           requestId: attempt.requestId || null,
           httpStatus: attempt.httpStatus || null,
