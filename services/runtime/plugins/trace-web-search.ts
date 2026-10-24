@@ -16,6 +16,7 @@ import {
   summarizeSearch,
   traceBundleSchema,
 } from "../adapters/trace/bundle.ts";
+import { guardReserveSearch } from "../src/public-guard.ts";
 
 const configSchema = {
   type: "object",
@@ -69,6 +70,17 @@ export default {
 
     const attempts = [];
     for (const [index, item] of plan.entries()) {
+      ctx.signal.throwIfAborted();
+      // 公网受控：每次真实检索前先占预算（单次调查上限 + 全站每日上限）。
+      // 超额直接抛出可理解错误，不静默跳过检索。
+      const budget = guardReserveSearch(ctx.runId);
+      if (budget && index === 0)
+        ctx.evidence("search.budget", {
+          usedInRun: budget.used,
+          runLimit: budget.runLimit,
+          dayUsed: budget.dayUsed,
+          dayLimit: budget.dayLimit,
+        });
       ctx.signal.throwIfAborted();
       const attempt = await searchPro(item.query, {
         signal: ctx.signal,

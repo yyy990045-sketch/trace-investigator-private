@@ -5,6 +5,7 @@
  * 它不产出任何产品内容，产品界面与验收档案里出现的来源永远来自真实元宝搜索响应。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { planFactQueries } from "../services/runtime/src/query-plan.ts";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -715,5 +716,29 @@ describe("三道锁定题：日期、数量、范围", () => {
     });
     expect(verdict.outcome).toBe("insufficient");
     expect(verdict.outcome).not.toBe("supported");
+  });
+});
+
+describe("检索式规划（规则扩展）", () => {
+  it("多组数值各自单独成检索式，原句保留在最前", () => {
+    const plan = planFactQueries(
+      "为什么2024年新能源汽车产量有1288.8万辆和1316.8万辆两种说法？",
+      ["为什么2024年新能源汽车产量有1288.8万辆和1316.8万辆两种说法？"],
+    );
+    expect(plan.source).toBe("rule");
+    expect(plan.queries[0]).toContain("新能源汽车产量");
+    expect(plan.queries.some((q) => q.includes("1288.8万辆"))).toBe(true);
+    expect(plan.queries.some((q) => q.includes("1316.8万辆"))).toBe(true);
+    expect(plan.queries.length).toBeLessThanOrEqual(3);
+  });
+  it("客户端给了多条检索式时不介入", () => {
+    const plan = planFactQueries("某说法", ["检索一", "检索二"]);
+    expect(plan.source).toBe("client");
+    expect(plan.queries).toEqual(["检索一", "检索二"]);
+  });
+  it("没有具体取值时补一条官方口径检索，且不重复原句", () => {
+    const plan = planFactQueries("全国氢能重卡加氢网络是不是已经全面建成？", ["全国氢能重卡加氢网络是不是已经全面建成？"]);
+    expect(plan.queries.length).toBe(2);
+    expect(new Set(plan.queries).size).toBe(2);
   });
 });

@@ -57,14 +57,17 @@ async function stop() {
 }
 process.on("SIGTERM", () => void stop());
 process.on("SIGINT", () => void stop());
+// 公网模式监听所有网卡（前面有反向代理与 TLS）；本机模式只监听环回地址。
+const publicRuntime = process.env.PLATFORM_PUBLIC === "1";
 await platform.app.listen({
-  host: "127.0.0.1",
+  host: publicRuntime ? "0.0.0.0" : "127.0.0.1",
   port: Number(process.env.PLATFORM_PORT || 4313),
 });
 console.log(
   JSON.stringify({
     service: "personal-capability-runtime",
-    url: `http://127.0.0.1:${process.env.PLATFORM_PORT || 4313}`,
+    url: `http://${publicRuntime ? "0.0.0.0" : "127.0.0.1"}:${process.env.PLATFORM_PORT || 4313}`,
+    publicMode: publicRuntime,
     pid: process.pid,
     dataDirectory: data,
     modelConfigured: modelConfiguration().available,

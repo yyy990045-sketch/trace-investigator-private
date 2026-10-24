@@ -1,0 +1,41 @@
+# TRACE 公网站点：静态前端 + /api 反向代理。
+#
+# 这里只监听明文 HTTP（:80），TLS 由前置的 Cloudflare Tunnel 终止：
+# 这台服务器在腾讯云且域名未备案，80/443 上的域名校验会被拦截，无法签发证书。
+{
+	admin off
+}
+
+http://:80 {
+	encode zstd gzip
+
+	# 前端只调用同源 /api，运行服务不直接暴露到公网。
+	# handle_path 会先去掉 /api 前缀，再转给 runtime:4313。
+	handle_path /api/* {
+		reverse_proxy runtime:4313
+	}
+
+	# 其余请求一律走单页应用：/cases/... 这类前端路由回落到 index.html。
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	@static path /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	log {
+		output stdout
+		format console
+	}
+}

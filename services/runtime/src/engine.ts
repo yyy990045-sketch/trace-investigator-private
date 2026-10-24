@@ -71,7 +71,7 @@ export class Engine {
       at = now();
     this.store.transaction(() => {
       this.store.exec(
-        "INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO runs(id,project_id,project_name,revision,plan,permissions,input,status,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         rid,
         pid,
         p.name,

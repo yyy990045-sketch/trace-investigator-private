@@ -1,0 +1,124 @@
+/**
+ * 事实核查的检索式规划（确定性规则，不调用模型）。
+ *
+ * 为什么需要：用户只写一句问题，如果原样当检索式，长句召回很差——
+ * 一条「为什么 2024 年新能源汽车产量有 1288.8 万辆和 1316.8 万辆两种说法？」
+ * 往往只换回几篇泛泛的新闻，两个数字各自的出处都拿不到。
+ *
+ * 这里只做一件事：从这句话里拆出「主体」和「关键取值」，组成几条更像真实
+ * 检索的查询。不改动任何判定逻辑，也不生成任何答案——只是让检索更有针对性。
+ *
+ * 客户端已经给出多条检索式时不介入（尊重人工拆解）。
+ */
+
+const QUESTION_WORDS = /^(为什么|为何|是不是|是否|请问|想查|查一下|求证)[\s，,]*/;
+const TAIL_PARTICLES = /[？?。！!]+$/;
+
+/** 数字 + 单位/量词：万辆、亿元、座、条、公里、% 等。 */
+const QUANTITY = /\d+(?:\.\d+)?\s*(?:万辆|亿辆|万台|亿|万元|亿元|万人|万|吨|公里|千米|座|条|个|项|家|倍|%|％)/g;
+/** 日期：2021年8月20日 / 2021-08-20 / 2021年。 */
+const DATE = /\d{4}\s*(?:年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?|[-/]\d{1,2}(?:[-/]\d{1,2})?)/g;
+
+function clean(text: string) {
+  return text
+    .replace(QUESTION_WORDS, "")
+    .replace(TAIL_PARTICLES, "")
+    .replace(/[，,]{2,}/g, "，")
+    .trim();
+}
+
+/** 去掉取值后剩下的「主体部分」，用于和单个取值组合成检索式。 */
+function subjectOf(text: string, values: string[]) {
+  let rest = text;
+  for (const value of values) rest = rest.replace(value, " ");
+  return rest
+    .replace(/(有|是|为|达到|共有|分别|和|与|、|及)/g, " ")
+    .replace(/两种说法|两种数据|两个数字|两种口径|不同说法/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
+export interface QueryPlan {
+  queries: string[];
+  source: "client" | "rule";
+  /** 规则扩展时说明依据，便于在页面上解释「为什么查这几条」 */
+  note: string;
+}
+
+export function planFactQueries(text: string, provided: string[]): QueryPlan {
+  const given = [...new Set(provided.map((q) => q.trim()).filter(Boolean))];
+  // 客户端给了多条，或给的那条不是原句本身：按人工/客户端的意图走。
+  if (given.length > 1 || (given.length === 1 && given[0] !== text.trim()))
+    return { queries: given.slice(0, 6), source: "client", note: "使用客户端给出的检索式" };
+
+  const claim = clean(text);
+  const quantities = [...new Set(claim.match(QUANTITY) || [])].map((v) => v.trim());
+  const dates = [...new Set(claim.match(DATE) || [])].map((v) => v.trim());
+  const values = [...quantities, ...dates];
+  const subject = values.length ? subjectOf(claim, values) : "";
+
+  const queries: string[] = [];
+  const push = (q: string) => {
+    const value = q.replace(/\s{2,}/g, " ").trim().slice(0, 120);
+    if (value.length >= 2 && !queries.includes(value) && queries.length < 3) queries.push(value);
+  };
+
+  // 原句永远排第一：先看有没有直接回应这句话材料的来源。
+  push(claim);
+
+  if (quantities.length >= 2 && subject) {
+    // 多组数字冲突：每个数字单独查，才可能拿到各自的出处。
+    for (const value of quantities.slice(0, 2)) push(`${subject} ${value}`);
+  } else if (values.length === 1) {
+    push(`${subject || claim} ${values[0]} 官方 公布`);
+  } else {
+    // 没有具体取值：用「官方/原文」把检索偏向一手材料。
+    push(`${claim} 官方 公布`);
+  }
+
+  return {
+    queries,
+    source: "rule",
+    note:
+      quantities.length >= 2
+        ? `原句含 ${quantities.length} 组数值，按每组数值分别检索，便于核对各自出处`
+        : values.length
+          ? "原句含具体取值/日期，补一条针对该取值的官方口径检索"
+          : "补一条指向官方/原文的检索，减少二手转述",
+  };
+}
+
+/**
+ * 把用户的一句问句改写成「可核查的说法」。
+ *
+ * 归属判断要求证据句能对上事实本身；问句（为什么…？/是不是…？）几乎不可能
+ * 在网页里逐字出现，于是所有来源都会被判成「无法确认」。这里只做改写，
+ * 不改变用户的问题，也不推断答案：
+ *  - 「A 有 X 和 Y 两种说法」→ 拆成两条：A 为 X、A 为 Y；
+ *  - 「…是不是…？」→ 去掉疑问词，留下可判断的陈述；
+ *  - 其余情况原样返回。
+ */
+export function deriveClaims(question: string): { claims: string[]; note: string } {
+  const text = question.trim().replace(/[？?]+$/, "");
+  const twoValues =
+    /^(?:为什么|为何)?\s*(.+?)\s*(?:有|是|为)\s*([\d.]+\s*[辆台万亿万元人吨公里座条个项家倍%％]+)\s*(?:和|与|、)\s*([\d.]+\s*[辆台万亿万元人吨公里座条个项家倍%％]+)\s*(?:两种|两个|俩|不同)?(?:说法|数据|数字|口径)?$/.exec(
+      text,
+    );
+  if (twoValues && twoValues[1].length >= 2) {
+    const subject = twoValues[1].replace(/^(为什么|为何)/, "").trim();
+    return {
+      claims: [`${subject}为${twoValues[2].trim()}`, `${subject}为${twoValues[3].trim()}`],
+      note: `原问题给了两组数值，已拆成两条可核查说法：分别核对 ${twoValues[2].trim()} 与 ${twoValues[3].trim()} 的出处`,
+    };
+  }
+  const interrogative = /^(.*?)(?:是不是|是否|会不会|有没有)(.+)$/.exec(text);
+  if (interrogative && interrogative[2].trim().length >= 2) {
+    const claim = (interrogative[1] + interrogative[2]).replace(/\s{2,}/g, " ").trim();
+    return {
+      claims: [claim],
+      note: "已把「是不是…」问句改写为可核查的陈述，逐字核对这句话是否成立",
+    };
+  }
+  return { claims: [question.trim()], note: "按原句核查" };
+}

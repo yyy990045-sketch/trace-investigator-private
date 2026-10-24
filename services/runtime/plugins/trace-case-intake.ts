@@ -16,6 +16,7 @@ import {
   traceInputSchema,
   emptyTraceConfig,
 } from "../adapters/trace/bundle.ts";
+import { deriveClaims, planFactQueries } from "../src/query-plan.ts";
 
 const MANUAL_NOTE =
   "事实与检索式由人工确认输入（模型未配置或未启用）。系统未执行 AI 事实拆解，界面不标注为 AI 已完成拆解。";
@@ -56,8 +57,31 @@ export default {
       );
     if (rawFacts.length > 6) throw new ExecutionError("TOO_MANY_FACTS", "一次最多核查 6 条事实。");
 
+    // 只提交一句问句时，先把问句改写成可核查的说法（问句几乎不可能在网页里逐字出现，
+    // 直接当事实会让所有来源都被判成「无法确认」）。改写依据随案件记录一起展示。
+    const originalFacts = rawFacts;
+    let claimRewrite: { note: string } | null = null;
+    let effectiveFacts = originalFacts;
+    if (originalFacts.length === 1) {
+      const single = String(originalFacts[0]?.text ?? "").trim();
+      const provided = (Array.isArray(originalFacts[0]?.queries) ? originalFacts[0].queries : [])
+        .map((q: unknown) => String(q ?? "").trim())
+        .filter(Boolean);
+      const derived = deriveClaims(single);
+      if (derived.claims.length > 1 || derived.claims[0] !== single) {
+        claimRewrite = { note: derived.note };
+        effectiveFacts = derived.claims.map((claim, index) => ({
+          id: `fact-${index + 1}`,
+          text: claim,
+          queries: [claim],
+        }));
+      } else if (provided.length) {
+        effectiveFacts = [{ ...originalFacts[0] }];
+      }
+    }
+
     const seen = new Set<string>();
-    const facts = rawFacts.map((fact: any, index: number) => {
+    const facts = effectiveFacts.map((fact: any, index: number) => {
       const text = String(fact?.text ?? "").trim();
       if (text.length < 2 || text.length > 400)
         throw new ExecutionError("FACT_INVALID", `第 ${index + 1} 条事实需要 2 到 400 字。`);
@@ -69,10 +93,14 @@ export default {
       if (!queries.length) throw new ExecutionError("QUERY_REQUIRED", `第 ${index + 1} 条事实没有检索式。`);
       if (queries.some((q: string) => q.length > 120))
         throw new ExecutionError("QUERY_TOO_LONG", "单条检索式最多 120 字。");
+      // 检索式太少时按规则补足（多组数值 → 每个数值单独查），
+      // 让「输入一句话」也能拿到各自的出处；不改判定逻辑。
+      const planned = planFactQueries(text, queries);
       return {
         id: String(fact?.id ?? "") || `fact-${index + 1}`,
         text,
-        queries: [...new Set(queries)].slice(0, 6),
+        queries: planned.queries.slice(0, 6),
+        queryPlan: { source: planned.source, note: planned.note },
         ...(fact?.timeScope ? { timeScope: String(fact.timeScope).slice(0, 60) } : {}),
         ...(fact?.subjectScope ? { subjectScope: String(fact.subjectScope).slice(0, 60) } : {}),
       };
@@ -96,6 +124,7 @@ export default {
         modeNote: MANUAL_NOTE,
         consent: { search: input.dataConsent === true, model: input.modelConsent === true },
         createdAt: new Date().toISOString(),
+        ...(claimRewrite ? { claimRewrite } : {}),
         ...(experienceHints.length ? { experienceHints } : {}),
       },
       search: emptySearchStatus(config),

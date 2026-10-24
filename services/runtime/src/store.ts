@@ -25,6 +25,25 @@ CREATE TABLE IF NOT EXISTS experiences(id TEXT PRIMARY KEY,title TEXT NOT NULL,k
 CREATE TABLE IF NOT EXISTS project_applications(project_id TEXT PRIMARY KEY REFERENCES projects(id),app_name TEXT NOT NULL,title TEXT NOT NULL,layout TEXT NOT NULL,port INTEGER NOT NULL,path TEXT NOT NULL,status TEXT NOT NULL,message TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS experience_usage(id TEXT PRIMARY KEY,experience_id TEXT NOT NULL REFERENCES experiences(id),run_id TEXT NOT NULL REFERENCES runs(id),project_id TEXT NOT NULL,matched INTEGER NOT NULL DEFAULT 0,shown INTEGER NOT NULL DEFAULT 0,decision TEXT,actual_judgment TEXT,correction_happened INTEGER NOT NULL DEFAULT 0,helped TEXT NOT NULL DEFAULT 'unknown',note TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(experience_id,run_id));
 `);
+    // 公网受控服务所需的会话、用量与搜索预算记录。全部附加表，不改动既有表结构。
+    this.db.exec(`CREATE TABLE IF NOT EXISTS web_sessions(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,ip TEXT NOT NULL,user_agent TEXT NOT NULL,created_at TEXT NOT NULL,last_seen_at TEXT NOT NULL,revoked INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS usage_daily(day TEXT NOT NULL,scope TEXT NOT NULL,scope_key TEXT NOT NULL,metric TEXT NOT NULL,count INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL,PRIMARY KEY(day,scope,scope_key,metric));
+CREATE TABLE IF NOT EXISTS search_usage(run_id TEXT PRIMARY KEY,count INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL);`);
+    // 归属字段：老库直接加列，不重建表。为空表示本机历史数据（公网不可见）。
+    for (const [table, column] of [
+      ["runs", "owner"],
+      ["projects", "owner"],
+    ] as const) {
+      const columns = new Set(
+        this.all(`PRAGMA table_info(${table})`).map((c: any) => c.name),
+      );
+      if (!columns.has(column))
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+    }
+    // 索引必须建在列存在之后（老库先加列再建索引）。
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_runs_owner ON runs(owner);CREATE INDEX IF NOT EXISTS idx_runs_created ON runs(created_at);",
+    );
     // 经验结构化字段：老库直接加列，不重建表（不新增另一套经验库）。
     const experienceColumns = new Set(
       this.all("PRAGMA table_info(experiences)").map((column: any) => column.name),
@@ -94,7 +113,7 @@ CREATE TABLE IF NOT EXISTS experience_usage(id TEXT PRIMARY KEY,experience_id TE
     const pid = id("project"),
       at = now();
     this.exec(
-      "INSERT INTO projects VALUES(?,?,?,?,?,?)",
+      "INSERT INTO projects(id,name,revision,data,created_at,updated_at) VALUES(?,?,?,?,?,?)",
       pid,
       data.name,
       1,

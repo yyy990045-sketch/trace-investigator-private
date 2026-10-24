@@ -404,7 +404,10 @@ export class RuntimeApiError extends Error {
     super(message);
   }
 }
-export function createRuntimeClient(base = "/api") {
+export function createRuntimeClient(
+  base = "/api",
+  options: { headers?: () => Record<string, string> } = {},
+) {
   const root = base.replace(/\/$/, "");
   async function request<T>(
     url: string,
@@ -418,6 +421,7 @@ export function createRuntimeClient(base = "/api") {
         headers: {
           "content-type": "application/json",
           "x-platform-client": "workbench-v1",
+          ...(options.headers?.() || {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
