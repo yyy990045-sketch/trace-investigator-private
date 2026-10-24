@@ -200,6 +200,7 @@ export function ClueCase({
 
       {/* 首屏：答案、依据与未解疑点，优先于搜索过程 */}
       <section className="t-verdict" data-state={decision?.state || "insufficient"} aria-label="调查结果">
+        <div className="t-verdict-main">
         <div className="t-verdict-head">
           <span className="t-status" data-tone={decision?.state || "insufficient"}>
             {decision
@@ -286,30 +287,14 @@ export function ClueCase({
           );
         })()}
 
-        {/* 最重要的一条实际依据：带原句与来源，不需要展开就能核对。 */}
-        {(() => {
-          const lead =
-            candidates.find((candidate) => candidate.name === (decision?.bestGuess || candidates[0]?.name)) ||
-            candidates[0];
-          const hit = lead?.matches.find((match) => match.found && match.sentence && match.url);
-          if (!hit) return null;
-          return (
-            <div className="t-evidence" style={{ marginTop: 18 }}>
-              <div className="t-evidence-item">
-                <p className="t-evidence-quote">{hit.sentence}</p>
-                <div className="t-evidence-meta">
-                  <span>{hit.site || "来源"}</span>
-                  <span>{hit.from === "body" ? "原文正文" : "搜索摘要"}</span>
-                  {hit.url ? (
-                    <a href={hit.url} target="_blank" rel="noreferrer noopener">
-                      打开原始页面
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        {/* 答案已确定，但有的情节并没有在资料里核到：必须单独列出来，不能默认成立。 */}
+        {decision?.state === "found" && decision.unverified?.length ? (
+          <div className="clue-hint" aria-label="尚未核实的情节">
+            <b>还没在资料里核到的情节：</b>
+            {decision.unverified.join("、")}（没查到不等于不存在，只是这次没有找到对应原文）
+          </div>
+        ) : null}
+
 
         {/* 答案已确定，但有的情节并没有在资料里核到：必须单独列出来，不能默认成立。 */}
         {decision?.state === "found" && decision.unverified?.length ? (
@@ -382,6 +367,99 @@ export function ClueCase({
             })()}
           </div>
         ) : null}
+
+        </div>
+
+        <div className="t-verdict-side">
+        {/*
+          关键依据：只在「真的能对应线索」的原句里挑，最多两条，同句不重复。
+          一句话能覆盖多条线索时优先；只写了上映/导演/主演这类信息的，明确标成「作品身份依据」，
+          不伪装成剧情证据。
+        */}
+        {(() => {
+          const lead =
+            candidates.find((candidate) => candidate.name === (decision?.bestGuess || candidates[0]?.name)) ||
+            candidates[0];
+          if (!lead) return null;
+          const IDENTITY = /(执导|导演|主演|出演|饰演|上映|首播|推出|出品|制片|改编自|获得|票房)/;
+          // 真正说明剧情的句子通常带这些动作/关系词；只有片名、年份、导演的句子不算。
+          const PLOT = /(讲述|剧情|故事|经历|为了|决定|遇见|遇到|救|帮助|寻找|对抗|长大|发现|成为朋友|结识|爱上|复仇|逃离|潜入|调查|追查)/;
+          const name = lead.name || "";
+          // 线索如果本身就在片名里（「龙」之于《驯龙高手》），句子里只出现片名不能算该线索的证据。
+          const outsideTitle = (sentence: string, clue: string) => {
+            if (!name || (!name.includes(clue) && !clue.includes(name))) return sentence.includes(clue);
+            const stripped = sentence.split(name).join(" ");
+            return stripped.includes(clue);
+          };
+          const bySentence = new Map<
+            string,
+            { sentence: string; url: string; site: string; from: string; clues: string[]; scope?: string }
+          >();
+          for (const match of lead.matches) {
+            if (!match.found || !match.sentence) continue;
+            const key = match.sentence.replace(/\s+/g, " ").trim().slice(0, 160);
+            const hit = bySentence.get(key) || {
+              sentence: key,
+              url: match.url || "",
+              site: match.site || "",
+              from: match.from,
+              clues: [],
+              scope: match.scope,
+            };
+            if (!hit.clues.includes(match.clue)) hit.clues.push(match.clue);
+            bySentence.set(key, hit);
+          }
+          const ranked = [...bySentence.values()]
+            .map((item) => {
+              // 只看「这个词在片名之外是否出现」，避免把书名号里的片名当成剧情证据。
+              const plotClues = item.clues.filter((clue) => outsideTitle(item.sentence, clue));
+              const identityOnly = IDENTITY.test(item.sentence) && !PLOT.test(item.sentence);
+              return { ...item, score: plotClues.length, identityOnly };
+            })
+            .map((item) => {
+              // 播放页、合集页的标题式摘要不是剧情证据，排序时压后。
+              const noisy = /(播放|一口气|全集|资源|下载|在线观看|第\s*\d+\s*集|完整版)/.test(item.sentence);
+              const bodyBonus = item.from === "body" ? 1 : 0;
+              return { ...item, weight: (item.identityOnly ? 0 : 10) + item.score * 2 + bodyBonus - (noisy ? 6 : 0) };
+            })
+            .sort((a, b) => b.weight - a.weight);
+          const picked = ranked.slice(0, 2);
+          if (!picked.length) return null;
+          return (
+            <div className="t-evidence" style={{ marginTop: 18 }} aria-label="关键依据">
+              {picked.map((item, index) => (
+                <div className="t-evidence-item" key={`${item.url}-${index}`}>
+                  <div className="t-evidence-tags">
+                    <span className="t-evidence-kind" data-kind={item.identityOnly ? "identity" : "plot"}>
+                      {item.identityOnly ? "作品身份依据" : "剧情依据"}
+                    </span>
+                    {item.clues.length ? (
+                      <span className="t-evidence-clues">对应线索：{item.clues.join("、")}</span>
+                    ) : null}
+                    {item.score === 0 ? (
+                      <span className="t-evidence-clues">这段只说明作品身份，不是剧情证据</span>
+                    ) : null}
+                  </div>
+                  <p className="t-evidence-quote">
+                    {item.sentence.length > 120 ? `${item.sentence.slice(0, 118)}…` : item.sentence}
+                  </p>
+                  <div className="t-evidence-meta">
+                    <span>{item.site || "来源"}</span>
+                    <span>{item.from === "body" ? "原文正文" : "搜索摘要"}</span>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer noopener">
+                        打开原始页面
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+
+        </div>
 
         <details className="t-disclose" aria-label="候选比较">
           <summary>候选比较：各自符合与缺少的情节</summary>

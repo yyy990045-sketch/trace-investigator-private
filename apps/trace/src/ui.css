@@ -1317,3 +1317,171 @@
   gap: 10px;
   margin-top: 12px;
 }
+
+/* 关键依据：类型标签 + 对应线索（影视页与核验页共用） */
+.trace-v2 .t-evidence-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.trace-v2 .t-evidence-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--t-brand-soft);
+  color: var(--t-brand-deep);
+}
+
+.trace-v2 .t-evidence-kind[data-kind="identity"] {
+  background: var(--t-surface-2);
+  color: var(--t-ink-3);
+  border: 1px solid var(--t-line);
+}
+
+.trace-v2 .t-evidence-clues {
+  font-size: 12.2px;
+  color: var(--t-ink-3);
+}
+
+/* 结果卡：桌面两栏（答案 | 依据），移动端单列 */
+.trace-v2 .t-verdict {
+  display: block;
+}
+
+.trace-v2 .t-verdict-main,
+.trace-v2 .t-verdict-side {
+  min-width: 0;
+}
+
+.trace-v2 .t-verdict-side {
+  margin-top: 20px;
+}
+
+@media (min-width: 1080px) {
+  /* 只有影视结果卡分了「答案 / 依据」两栏；公开核验页保持单列阅读节奏。 */
+  .trace-v2 .t-verdict:has(.t-verdict-main) {
+    display: grid;
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+    gap: clamp(24px, 3vw, 44px);
+    align-items: start;
+  }
+
+  .trace-v2 .t-verdict-side {
+    margin-top: 0;
+    padding-left: clamp(20px, 2.4vw, 32px);
+    border-left: 1px solid var(--t-line);
+  }
+
+  .trace-v2 .t-verdict > .t-disclose,
+  .trace-v2 .t-verdict > details {
+    grid-column: 1 / -1;
+  }
+}
+
+/* 移动端：标题与答案之间不留空档，首屏先看到答案 */
+@media (max-width: 720px) {
+  .trace-v2 .t-case-top-group .t-question {
+    margin-bottom: 10px;
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .trace-v2 .t-verdict {
+    margin-top: 12px;
+    padding: 16px 14px;
+  }
+
+  .trace-v2 .t-verdict-side {
+    margin-top: 14px;
+  }
+
+  .trace-v2 .t-answer-name {
+    margin-top: 8px;
+  }
+
+  .trace-v2 .t-facts {
+    margin-top: 14px;
+    padding-top: 14px;
+    gap: 8px;
+  }
+
+  .trace-v2 .t-evidence-item {
+    padding: 12px 14px;
+  }
+
+  .trace-v2 .t-evidence-quote {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+}
+
+/* 公开核验页：一句话答案 + 依据面板，避免一整张超长白卡 */
+.trace-v2 .t-answer-lead {
+  font-size: 19px;
+  font-weight: 620;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+  color: var(--t-ink);
+  margin: 6px 0 0;
+}
+
+.trace-v2 .case-now-counts[aria-label="已经找到但仍需核实的来源表述"] {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: var(--r-md);
+  background: var(--t-surface-2);
+  border: 1px solid var(--t-line);
+}
+
+@media (max-width: 720px) {
+  .trace-v2 .t-answer-lead {
+    font-size: 17px;
+  }
+
+  .trace-v2 .case-now-counts[aria-label="已经找到但仍需核实的来源表述"] {
+    padding: 12px 14px;
+  }
+}
+
+/* 关键来源：可点击的来源行 */
+.trace-v2 .t-key-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.trace-v2 .t-key-sources a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--t-line);
+  background: var(--t-surface);
+  color: var(--t-brand-deep);
+  font-size: 12.8px;
+  text-decoration: none;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-v2 .t-key-sources a:hover {
+  border-color: var(--t-brand);
+}
+
+.trace-v2 .t-key-sources a em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--t-ink-3);
+}

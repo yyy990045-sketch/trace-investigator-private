@@ -100,6 +100,9 @@ export function Archive() {
       </div>
     );
 
+  // 查询型问题已经拿到带来源的数值时，档案的第一视觉应当是「找到了什么」，
+  // 而不是规则判断的词；规则判断仍然保留，只是退到同一张卡的次一级说明里。
+  const lookupAnswer = assessment?.lookup?.answer;
   const tone = relationTone(verdict.outcome === "supported" ? "supports" : verdict.outcome === "contradicted" ? "contradicts" : "unclear");
   const allSources = [...new Map(facts.flatMap((fact) => fact.sources).map((source) => [source.pageId, source])).values()];
   const keyEvidence = allSources
@@ -140,9 +143,45 @@ export function Archive() {
 
       <section className="trace-verdict t-verdict" data-outcome={verdict.outcome}>
         <div className="trace-verdict-head">
-          <h2>{outcomeText[verdict.outcome]}</h2>
+          {lookupAnswer ? (
+            <span className="t-status" data-tone="partial">已找到来源数值</span>
+          ) : (
+            <h2>{outcomeText[verdict.outcome]}</h2>
+          )}
           <Tag tone={tone}>规则判断 · 把握程度 {verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}</Tag>
         </div>
+
+        {lookupAnswer ? (
+          <div className="t-lookup-block">
+            <p className="t-value">{lookupAnswer.value}</p>
+            <div className="t-evidence" style={{ marginTop: 14 }}>
+              <div className="t-evidence-item">
+                <p className="t-evidence-quote">{lookupAnswer.quote}</p>
+                <div className="t-evidence-meta">
+                  <span>{lookupAnswer.site || "公开网页"}</span>
+                  {lookupAnswer.date ? <span>发布于 {lookupAnswer.date.slice(0, 10)}</span> : null}
+                  <span>{lookupAnswer.from === "body" ? "原文正文" : "只有搜索摘要，未取得正文"}</span>
+                  <span>{lookupAnswer.profile?.label || "来源身份未确认"}</span>
+                  {lookupAnswer.url ? (
+                    <a href={lookupAnswer.url} target="_blank" rel="noreferrer noopener">
+                      打开原始页面
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <p className="t-hint" style={{ marginTop: 10 }}>
+              数据所属年份：{lookupAnswer.dataYear || "来源未写明"}
+              {lookupAnswer.yearBasis === "stated" ? "（原句写明）" : "（按来源发布时间推断，仍需核对）"}
+              {lookupAnswer.period ? ` · 统计期间：${lookupAnswer.period}` : ""}
+              {lookupAnswer.scope ? ` · 统计范围：${lookupAnswer.scope}` : ""}
+            </p>
+            <p className="t-limits">
+              这个数字来自公开来源页面；主管部门原始发布与统计口径尚未完成独立核验，
+              因此规则判断仍是「{outcomeText[verdict.outcome]}」，档案同时保留这一判断。
+            </p>
+          </div>
+        ) : null}
         {!showCurrent && files.length ? (
           <button type="button" className="trace-btn" onClick={() => {
             const target = document.getElementById("trace-downloads");
@@ -152,8 +191,18 @@ export function Archive() {
             <Download size={14} /> 下载{shown ? `第 ${shown.revision} 版` : "调查"}档案
           </button>
         ) : null}
-        <p className="t-answer-line">{evidenceWording(verdict.statement)}</p>
-        <p className="trace-hint">来源簇数量不代表已经证明相互独立。已识别同源的材料合并；没有发现重复的材料仍需追溯原始出处。</p>
+        <details className="t-disclose" aria-label="完整判断说明">
+          <summary>完整判断说明（后端原始结论，未做改动）</summary>
+          <div className="t-disclose-body">
+            <p className="t-answer-line">{evidenceWording(verdict.statement)}</p>
+            <ul className="trace-notes">
+              {verdict.reasons.map((reason, index) => (
+                <li key={index}>{evidenceWording(reason)}</li>
+              ))}
+            </ul>
+          </div>
+        </details>
+        <p className="trace-hint" style={{ marginTop: 12 }}>来源簇数量不代表已经证明相互独立。已识别同源的材料合并；没有发现重复的材料仍需追溯原始出处。</p>
         <div className="trace-counts">
           <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
             未检测到重复 <b>{verdict.counts.independentSources}</b>
@@ -173,11 +222,6 @@ export function Archive() {
             </span>
           ) : null}
         </div>
-        <ul className="trace-notes">
-          {verdict.reasons.map((reason, index) => (
-            <li key={index}>{evidenceWording(reason)}</li>
-          ))}
-        </ul>
       </section>
 
       <details className="t-disclose" aria-label="执行分工">

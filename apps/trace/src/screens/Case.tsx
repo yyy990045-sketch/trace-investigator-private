@@ -133,6 +133,18 @@ export function Case() {
   const contradictionCount = facts.reduce((sum, fact) => sum + fact.contradicts, 0);
   const supportCount = facts.reduce((sum, fact) => sum + fact.supports, 0);
   /** 有相关来源，但它们都是摘要/未通过独立性核对，因此结论只能停在「证据不足」。 */
+  // 首屏「关键来源」：直接取这次真正拿到正文/摘要的支持性来源，点得开才算数。
+  const keySources = [
+    ...new Map(
+      facts
+        .flatMap((fact) => fact.sources || [])
+        .filter((source) => (source.relation === "supports" || source.relation === "contradicts") && source.url)
+        .map((source) => [source.url, source]),
+    ).values(),
+  ]
+    .sort((a, b) => Number(b.bodyAvailable) - Number(a.bodyAvailable) || (b.relevance || 0) - (a.relevance || 0))
+    .slice(0, 3);
+
   const weakOpposition =
     verdict?.outcome === "insufficient" && supportCount + contradictionCount > 0;
   /** 两个以上机构各自给出数字：这是「口径对照」而不是「谁错了」。 */
@@ -376,10 +388,21 @@ export function Case() {
             </div>
           ) : null}
 
-          <p className="case-now-text t-answer-line">
+          {/*
+            第一层：一句直接回答。只根据后端给出的结论状态组织措辞，不新增任何事实判断；
+            完整判断原文原样保留在下方「完整判断说明」里，不清洗、不删改。
+          */}
+          <p className="case-now-text t-answer-lead">
             {assessment?.lookup?.answer
-              ? `关于原始公告与完整事实的核验状态：${outcomeText[verdict.outcome] || "结论见下"}。来源数字可以引用，仍需区分报道引述和官方原始发布。`
-              : evidenceWording(verdict.statement).replace(/查到的是：[\s\S]*?。/, "")}
+              ? "已经找到对应数值的来源记录；它是否等同主管部门原始发布，还没有核实。"
+              : {
+                  supported: "现有公开来源支持这个说法。",
+                  contradicted: "现有公开来源与这个说法相反。",
+                  disputed: "不同来源对这个说法给出不一致的表述。",
+                  outdated: "相关内容存在，但时效不满足当前结论。",
+                  partial: "只查到一部分材料，还不能给出确定答案。",
+                  insufficient: "目前的材料不足以判断这句话是真是假。",
+                }[verdict.outcome] || "这次调查还没有形成可展示的结论。"}
           </p>
 
           {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
@@ -515,6 +538,33 @@ export function Case() {
             </div>
               </div>
             </details>
+          ) : null}
+          <details className="t-disclose" aria-label="完整判断说明">
+            <summary>完整判断说明（后端原始结论，未做改动）</summary>
+            <div className="t-disclose-body">
+              <p className="t-hint" style={{ lineHeight: 1.85 }}>
+                {evidenceWording(verdict.statement)}
+              </p>
+              {verdict.reasons?.length ? (
+                <ul className="trace-notes">
+                  {verdict.reasons.map((reason: string, index: number) => (
+                    <li key={index}>{evidenceWording(reason)}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </details>
+
+          {keySources.length ? (
+            <div className="t-key-sources" aria-label="关键来源">
+              <span className="t-hint">关键来源：</span>
+              {keySources.map((source) => (
+                <a key={source.url} href={source.url} target="_blank" rel="noreferrer noopener">
+                  {source.site || source.url}
+                  <em>{source.bodyAvailable ? "原文" : "摘要"}</em>
+                </a>
+              ))}
+            </div>
           ) : null}
           <div className="case-now-actions">
             <a className="trace-btn trace-btn-ghost" href={archiveHref(run.id)}>
