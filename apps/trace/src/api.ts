@@ -885,6 +885,16 @@ export interface ClueAssessmentView {
     askUser: string | null;
     auxiliaryClues?: string[];
     decisiveClues?: string[];
+    /** 还无法排除其他候选时给出的最可能答案 */
+    bestGuess?: string;
+    /** 候选对照：各自符合/缺少的情节 */
+    comparison?: { name: string; matched: string[]; missing: string[]; type: string; note: string }[];
+    /** 用户记的年份 vs 资料年份 */
+    yearCheck?: {
+      userYears: string[];
+      candidateYears: { year: string; quote: string; url: string; site: string }[];
+      note: string;
+    };
     /** 用户记忆与资料冲突的线索（附原文证据） */
     conflicts?: {
       clue: string;

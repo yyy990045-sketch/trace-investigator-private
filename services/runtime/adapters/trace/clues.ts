@@ -124,8 +124,10 @@ export interface Candidate {
   conflictClues?: string[];
   /** 类型证据票数（电影/电视剧/动画/小说），来自真实句子 */
   typeVotes?: Partial<Record<WorkType, number>>;
-  /** 归类后的作品类型 */
+  /** 归类后的作品类型（票数最多者） */
   type?: WorkType;
+  /** 该候选出现过的全部类型（小说改编电影时两者都算） */
+  types?: WorkType[];
   /** 类型是否与用户说法矛盾 */
   typeConflict?: boolean;
   /** 只有全部线索命中且明显领先时才算 confirmed */
@@ -156,6 +158,22 @@ export interface ClueDecision {
     /** explicit=有明确否定表述；absent=只是资料名单里没出现 */
     strength: "explicit" | "absent";
   }[];
+  /** 还无法排除其他候选时，先给出「最可能的答案」 */
+  bestGuess?: string;
+  /** 最可能答案之外，同样能解释描述的其他候选（含各自符合/缺少的情节） */
+  comparison?: {
+    name: string;
+    matched: string[];
+    missing: string[];
+    type: string;
+    note: string;
+  }[];
+  /** 用户记的年份 vs 资料里的上映/首播年份 */
+  yearCheck?: {
+    userYears: string[];
+    candidateYears: { year: string; quote: string; url: string; site: string }[];
+    note: string;
+  };
   /** 类型矛盾：用户说电影，候选却是电视剧等 */
   typeConflict?: { userType: WorkType; candidateType: WorkType; candidate: string; note: string };
 }
@@ -308,8 +326,10 @@ export function extractCandidates(
     candidate.sites = new Set(candidate.pages.map((page) => page.site)).size;
     candidate.titleHits = pages.filter((page) => page.title.includes(candidate.name)).length;
     const votes = candidate.typeVotes || {};
-    const best = (Object.entries(votes) as [WorkType, number][]).sort((a, b) => b[1] - a[1])[0];
+    const ranked = (Object.entries(votes) as [WorkType, number][]).sort((a, b) => b[1] - a[1]);
+    const best = ranked[0];
     candidate.type = best ? best[0] : "other";
+    candidate.types = ranked.length ? ranked.map(([type]) => type) : ["other"];
     candidates.push(candidate);
   }
   // 作品上下文：名字附近出现「电影/电视剧/上映/主演/导演/豆瓣…」才像一部作品，
@@ -612,10 +632,14 @@ export function personClueTexts(question: string, clues: ClueItem[]): Set<string
       if (at < 0) continue;
       // 只看紧贴在人名前面的那几个字：「主演是X」「由X主演」「主角好像是X」。
       // 放宽成「前面 12 字里出现过主演」会把「主演A，剧情讲密码」里的「密码」也算成人名。
-      const prefix = question.slice(Math.max(0, at - 6), at);
+      // 人名必须长得像人名：纯中文（可含·）、2-6 字、不含数字或量词。
+      if (!/^[\u4e00-\u9fa5·]{2,6}$/.test(term)) continue;
+      if (/(年|月|日|部|集|次|个|时间|时候|上映|左右)/.test(term)) continue;
+      const prefix = question.slice(Math.max(0, at - 10), at);
       const suffix = question.slice(at + term.length, at + term.length + 4);
+      // 只认明确的「谁演的/谁主演」句式；裸的「男主角」后面跟任何词都不是人名。
       const framed =
-        /(主演|演员|出演|领衔|主角|男主|女主|由|是|好像|像是|似乎|应该|可能)\s*$/.test(prefix) ||
+        /(主演是|主演为|演员是|演员表有|由|饰演|扮演|主角是|主角叫|主角好像|男主角是|女主角是|男主是|女主是|叫做|名叫)\s*$/.test(prefix) ||
         /^(主演|演的|出演|饰演|饰)/.test(suffix);
       if (framed) {
         found.add(clue.text);
@@ -836,7 +860,9 @@ export function evaluateCandidates(
   for (const item of classified) {
     const candidateType = (item.type || "other") as WorkType;
     if (userType === "other" || candidateType === "other") continue;
-    if (typeCompatible(userType, candidateType)) continue;
+    const types = (item.types || [candidateType]) as WorkType[];
+    // 一部作品可以同时是小说与电影（改编）；只要有一种类型对得上，就不算类型矛盾。
+    if (types.some((type) => type !== "other" && typeCompatible(userType, type))) continue;
     item.typeConflict = true;
     item.score -= 8;
   }
@@ -940,6 +966,16 @@ export function evaluateCandidates(
     }
   // 两条以上不同类型的线索出现在同一条来源里，已经足以说明这段材料讲的就是这件事；
   // 单条线索命中再多也只是关键词巧合，所以门槛不按次数、按线索种类。
+  // 强证据 = 决定性线索命中 或 同句直接命中的具体情节；泛词只算弱证据。
+  const strongMatches = best.matches.filter(
+    (match) => match.found && (match.decisive || (match.scope === "sentence" && match.relation === "direct")),
+  );
+  const strongHits = strongMatches.length;
+  // 同一句里出现三个相关词，只证明「这句话提到这三件事」，不能算三段独立剧情。
+  const strongSentences = new Set(
+    strongMatches.map((match) => `${match.url}::${match.sentence}`),
+  ).size;
+  const genericHits = best.matchedClues - strongHits;
   const coOccurrence = [...bySource.entries()].some(
     ([key, set]) => set.size >= 2 && (bySourceConcrete.get(key) || 0) >= 2,
   );
@@ -963,14 +999,16 @@ export function evaluateCandidates(
     (coverage >= 0.5 &&
       lead >= 1 &&
       foundSources.size >= 2 &&
-      explicitConflicts.length === 0);
+      explicitConflicts.length === 0) ||
+    // 两段以上不同句子分别印证剧情（哪怕覆盖的线索条数不到一半）
+    (strongSentences >= 2 && lead >= 1 && explicitConflicts.length === 0);
   // 作品上下文与证据广度：只有一条线索命中、或名字只是被顺带提到的，不能算答案。
   // 「像一部作品」的证据：附近有作品类字样，或它本身就是标题里点到 / 书名号里的名字。
   const workSignal =
     ((best as Candidate & { workSignals?: number }).workSignals || 0) > 0 ||
     (best.titleHits || 0) > 0 ||
     best.quoted === true;
-  const breadthGate = best.matchedClues >= 2 && (foundSources.size >= 2 || coOccurrence);
+  const breadthGate = best.matchedClues >= 2 && strongSentences >= 2;
   const typeGate = !(userType !== "other" && best.typeConflict) && workSignal && breadthGate;
   const typeConflictInfo =
     userType !== "other" && best.typeConflict
@@ -983,7 +1021,55 @@ export function evaluateCandidates(
           },
         }
       : {};
-  if (!decisiveMissing.length && (decisiveHit > 0 || coOccurrence) && enough && !tie && typeGate)
+  // 竞争者：同类型、同句直接命中 ≥2 条情节，且差距不超过一条——它同样能解释用户的描述。
+  const directHits = (candidate: Candidate) =>
+    candidate.matches.filter((match) => match.found && match.scope === "sentence").length;
+  const competitor = comparableRunners.find(
+    (candidate) => directHits(candidate) >= 2 && best.matchedClues - candidate.matchedClues <= 1,
+  );
+  const comparison = competitor
+    ? [best, competitor].map((candidate) => ({
+        name: candidate.name,
+        matched: candidate.matches.filter((match) => match.found).map((match) => match.clue),
+        missing: candidate.missingClues,
+        type: typeLabel[(candidate.type || "other") as WorkType],
+        note:
+          directHits(candidate) >= 2
+            ? `同句直接命中 ${directHits(candidate)} 条情节`
+            : `只命中 ${directHits(candidate)} 条情节`,
+      }))
+    : undefined;
+  const userYears = [...new Set(question.match(/(19|20)\d{2}/g) || [])];
+  const years = releaseYears(best.name, pages, bodies);
+  const yearCheck =
+    userYears.length && best
+      ? {
+          userYears,
+          candidateYears: years.map((item) => ({
+            year: item.year,
+            quote: item.quote,
+            url: item.url,
+            site: item.site,
+          })),
+          note: years.length
+            ? years.some((item) => userYears.includes(item.year))
+              ? `资料里《${best.name}》的年份包含你说过的 ${userYears.join("、")}，年份不矛盾`
+              : `资料里《${best.name}》是 ${years.map((item) => item.year).join(" / ")} 年上映或首播，与你说过的 ${userYears.join("、")} 不同（可能是你看的时间，也可能是记错了）`
+            : "现有资料没有写清这部作品的年份，不能据此说年份记错",
+        }
+      : undefined;
+
+  // 「解释得足够全」：覆盖过半情节，或至少两条决定性线索命中。
+  const explainsEnough = coverage >= 0.6 || decisiveHit >= 2;
+  if (
+    !decisiveMissing.length &&
+    (decisiveHit > 0 || coOccurrence) &&
+    enough &&
+    explainsEnough &&
+    !tie &&
+    typeGate &&
+    !competitor
+  )
     return {
       candidates,
       relations,
@@ -992,6 +1078,7 @@ export function evaluateCandidates(
       decision: {
         state: "found",
         ...conflictFields,
+        ...(yearCheck ? { yearCheck } : {}),
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
         headline: decisiveOf(best).length
           ? `决定性线索全部对上：${best.name}${conflictNote ? "；" + conflictNote : ""}`
@@ -1008,6 +1095,77 @@ export function evaluateCandidates(
     const clue = clues.find((item) => item.text === text);
     return clue ? clue.terms : [text];
   }))].slice(0, 3);
+
+  // 有强证据但还没解释到足够多情节：给「最可能答案」，把差异和待查点摊开，
+  // 不为了得到 found 而降低标准。
+  if (!explainsEnough && strongSentences >= 2 && !best.typeConflict) {
+    const rivals = candidates
+      .slice(1, 3)
+      .filter(
+        (candidate) =>
+          directHits(candidate) >= 1 &&
+          !candidate.typeConflict &&
+          // 影视问题里不拿小说/来源不明条目当「需要排除的竞争作品」
+          (userType === "other" || ["film", "tv", "anime"].includes(String(candidate.type))),
+      )
+      .map((candidate) => ({
+        name: candidate.name,
+        matched: candidate.matches.filter((match) => match.found).map((match) => match.clue),
+        missing: candidate.missingClues,
+        type: typeLabel[(candidate.type || "other") as WorkType],
+        note: `同句直接命中 ${directHits(candidate)} 条情节`,
+      }));
+    return {
+      candidates,
+      relations,
+      graph,
+      pending,
+      decision: {
+        state: "ambiguous",
+        ...conflictFields,
+        ...(yearCheck ? { yearCheck } : {}),
+        bestGuess: best.name,
+        ...(rivals.length ? { comparison: [best, candidates.find((c) => c.name === rivals[0].name)!].map((candidate) => ({
+          name: candidate.name,
+          matched: candidate.matches.filter((match) => match.found).map((match) => match.clue),
+          missing: candidate.missingClues,
+          type: typeLabel[(candidate.type || "other") as WorkType],
+          note: `同句直接命中 ${directHits(candidate)} 条情节`,
+        })) } : {}),
+        decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
+        headline: `最可能是「${best.name}」，但还有 ${best.missingClues.length} 条情节没在资料里核到${rivals.length ? `；「${rivals[0].name}」也需要排除` : ""}`,
+        nextQueries: best.missingClues.slice(0, 2).map((clue) => ({
+          query: `${best.name} ${clue}`.trim(),
+          reason: `核对《${best.name}》是否真的包含「${clue}」`,
+        })),
+        askUser: `还记得《${best.name}》里更具体的一幕吗？比如主角做过什么、发生在哪里。`,
+      },
+    };
+  }
+
+  if (competitor) {
+    return {
+      candidates,
+      relations,
+      graph,
+      pending,
+      decision: {
+        state: "ambiguous",
+        ...conflictFields,
+        ...typeConflictInfo,
+        ...(comparison ? { comparison } : {}),
+        ...(yearCheck ? { yearCheck } : {}),
+        bestGuess: best.name,
+        decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
+        headline: `两个候选都能解释你的描述：「${best.name}」与「${competitor.name}」；还缺一条能区分它们的情节`,
+        nextQueries: [best, competitor].map((candidate) => ({
+          query: `${candidate.name} ${candidate.missingClues[0] || "剧情"}`.trim(),
+          reason: `核对《${candidate.name}》能否解释「${candidate.missingClues[0] || "剩余情节"}」`,
+        })),
+        askUser: `还记得这两部作品里哪一部的具体场景吗？比如「${best.name}」或「${competitor.name}」里主角做过的事。`,
+      },
+    };
+  }
 
   if (tie || (runnerUp && best.matchedClues - runnerUp.matchedClues <= 0)) {
     const nextQueries = candidates.slice(0, 2).map((candidate) => ({
@@ -1139,6 +1297,42 @@ export function extractVariants(
     const text = body?.ok ? String(body.text || "") : "";
     const source = text || String(page.passage || "");
     for (const sentence of source.split(/[。！？\n]/)) consider(sentence, page, text ? "body" : "excerpt");
+  }
+  return [...found.values()].sort((a, b) => a.year.localeCompare(b.year));
+}
+
+/**
+ * 候选作品的上映/首播年份：只从「上映/首播/公映/播出」这类表述旁边取，
+ * 不拿用户说的观看时间当发行时间。
+ */
+export function releaseYears(
+  name: string,
+  pages: PageLike[],
+  bodies: Map<string, BodyLike>,
+): { year: string; quote: string; url: string; site: string; kind: string }[] {
+  const key = normalized(name);
+  const found = new Map<string, { year: string; quote: string; url: string; site: string; kind: string }>();
+  const PATTERN = /(?:上映|首播|公映|播出|发行|开播)[^。；]{0,12}?((?:19|20)\d{2})|((?:19|20)\d{2})\s*年[^。；]{0,8}?(?:上映|首播|公映|播出|发行)/;
+  for (const page of pages) {
+    const body = bodies.get(page.id);
+    const text = [page.title, page.passage, body?.ok ? body.text.slice(0, 8000) : ""].join("\n");
+    if (!key || !normalized(text).includes(key)) continue;
+    for (const sentence of text.split(/[。！？\n]/)) {
+      if (!normalized(sentence).includes(key)) continue;
+      const hit = PATTERN.exec(sentence);
+      if (!hit) continue;
+      const year = hit[1] || hit[2];
+      if (!year) continue;
+      const kind = /首播|播出|开播/.test(sentence) ? "tv" : "film";
+      if (found.has(year)) continue;
+      found.set(year, {
+        year,
+        quote: sentence.trim().slice(0, 140),
+        url: page.url || "",
+        site: page.site || "",
+        kind,
+      });
+    }
   }
   return [...found.values()].sort((a, b) => a.year.localeCompare(b.year));
 }
