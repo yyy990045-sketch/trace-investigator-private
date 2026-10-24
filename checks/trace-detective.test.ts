@@ -33,6 +33,23 @@ describe("侦探赛道：查询类型与调查决策", () => {
     expect(plan.clues.length).toBeGreaterThan(0);
   });
 
+  it("规则规划提取短线索，保留八分钟等关键时间而不截断整句", () => {
+    const question = "我记得一部电影主角在火车里每次只有八分钟反复调查爆炸但我忘记了片名";
+    const plan = planByRule(question);
+    const terms = plan.clues.map((item) => item.text);
+    expect(terms).toContain("八分钟");
+    expect(terms).toContain("火车");
+    expect(plan.queries[0]).toMatch(/火车|爆炸/);
+    expect(terms.every((term) => term.length <= 20)).toBe(true);
+  });
+
+  it("不会把陌生长描述当成完整匹配短语导致找不到网页", () => {
+    const question = "之前看过一部香港警匪电影男主角是卧底最后发生了一场天台上的对决";
+    const plan = planByRule(question);
+    expect(plan.clues.some((item) => /卧底|天台|对决/.test(item.text))).toBe(true);
+    expect(plan.queries.every((query) => !query.includes("之前看过一部香港警匪电影男主角是卧底最后发生了一场天台上的对决"))).toBe(true);
+  });
+
   it("没有标点的长中文问题不再被整个丢弃", () => {
     const plan = planByRule("我记得有一部电影主角在列车里不断重复八分钟调查爆炸但我忘记这部作品的片名了");
     expect(plan.clues.length).toBeGreaterThan(0);
