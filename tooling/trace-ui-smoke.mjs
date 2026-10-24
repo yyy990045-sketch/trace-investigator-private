@@ -28,10 +28,13 @@ try {
   for (const example of [
     { label: "找线索", id: "run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb", answer: "法医秦明" },
     { label: "按剧情找电影", id: "run_1413b04d-4b42-4806-9060-da6b40d1a432", answer: "源代码" },
-    { label: "排除翻拍和续作", id: "run_1b4e678d-eb31-4e39-b467-a4ed80db4db0", answer: "无间道" },
+    { label: "查真假", id: "run_8f812ae8-42f3-48d1-a353-84942f770e95", answer: "氢能" },
   ]) {
     await page.goto(base + "/#/", { waitUntil: "networkidle" });
-    const trigger = page.locator(".clue-example").filter({ hasText: example.label }).first();
+    const trigger = page
+      .locator(".t-example, .clue-example")
+      .filter({ hasText: example.label })
+      .first();
     if (!(await trigger.count())) throw new Error("首页缺少真实侦探入口：" + example.label);
     await trigger.click();
     await page.waitForURL((url) => url.hash.includes(example.id), { timeout: 15000 });

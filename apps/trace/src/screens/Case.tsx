@@ -296,7 +296,7 @@ export function Case() {
                 ? "等待你确认"
                 : "进行中"}
         </span>
-        <p className="t-question">{claimText}</p>
+        <h1 className="t-question">{claimText}</h1>
         <p className="t-hint">
           立案 {formatTime(run.createdAt)}
           {search ? ` · 已检索 ${search.totalQueries + followups.length} 次` : ""}
