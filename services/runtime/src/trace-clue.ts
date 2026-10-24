@@ -17,6 +17,7 @@ import { guardReserveSearch } from "./public-guard.ts";
 import {
   detectTargetKind,
   evaluateCandidates,
+  personClueTexts,
   extractCandidates,
   extractVariants,
   type BodyLike,
@@ -33,6 +34,8 @@ export interface ClueAssessment {
   mode: "clue";
   targetKind: "screen_work" | "book" | "person" | "other" | "unknown";
   clues: ClueItem[];
+  /** 用户点名的人物类线索（主演/演员） */
+  personClues?: string[];
   /** 同名不同版本（动画/真人/不同年份），带年份、形态与原句 */
   variants?: {
     label: string;
@@ -148,6 +151,7 @@ export function clueAssessment(store: Store, runId: string): ClueAssessment {
     mode: "clue",
     targetKind,
     clues,
+    personClues: [...personClueTexts(String(bundle.case?.question || ""), clues)],
     variants,
     ...(variants.length && wantedForm
       ? {

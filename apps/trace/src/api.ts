@@ -868,6 +868,7 @@ export interface ClueRelationView {
 }
 
 export interface ClueAssessmentView {
+  conflicts?: { clue: string; candidate: string; quote: string; url: string; site: string; from: "body" | "excerpt" }[];
   /** 同名不同版本（动画/真人/不同年份），带年份、形态与原句 */
   variants?: { label: string; year: string; form: string; quote: string; url: string; site: string; from: "body" | "excerpt" }[];
   /** 同名版本与用户说法的对应说明 */
@@ -884,6 +885,15 @@ export interface ClueAssessmentView {
     askUser: string | null;
     auxiliaryClues?: string[];
     decisiveClues?: string[];
+    /** 用户记忆与资料冲突的线索（附原文证据） */
+    conflicts?: {
+      clue: string;
+      candidate: string;
+      quote: string;
+      url: string;
+      site: string;
+      from: "body" | "excerpt";
+    }[];
     /** 与答案无关但仍未查清的关系疑点 */
     openRelations?: string[];
   };
