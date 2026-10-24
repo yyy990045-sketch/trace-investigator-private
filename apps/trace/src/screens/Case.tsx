@@ -388,6 +388,8 @@ export function Case() {
         </p>
       ) : null}
 
+      <div className="t-shell">
+        <div className="t-main">
       {verdict ? (
         <section className="case-now t-verdict" data-outcome={verdict.outcome}>
           <div className="case-now-head">
@@ -705,32 +707,7 @@ export function Case() {
         </section>
       ) : null}
 
-      <details className="t-disclose" aria-label="事实分水岭与条件拆分">
-        <summary>事实分水岭：只改一个条件，结论会怎么变</summary>
-        <div className="t-disclose-body">
-          {compareId && compareQuery.data && assessment?.verdict ? (
-            <Watershed
-              historical={false}
-              left={{
-                label: "原始调查",
-                claim: digestOf(compareQuery.data).claim,
-                digest: digestOf(compareQuery.data),
-              }}
-              right={{ label: "改条件后重新调查", claim: claimText, digest: digestOf(run) }}
-            />
-          ) : null}
-          {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
-        </div>
-      </details>
 
-      <details className="t-disclose" aria-label="调查过程">
-        <summary>这次调查是怎么走过来的（真实步骤与补查记录）</summary>
-        <div className="t-disclose-body">
-          <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
-          <InvestigationRoles run={run} />
-          <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
-        </div>
-      </details>
 
       {revisions && revisions.revisions.length ? (
         <section className="trace-versions" data-dirty={pendingVersion ? "true" : "false"}>
@@ -1031,6 +1008,38 @@ export function Case() {
           <span className="trace-hint">结论不满意时，可以换检索式继续查，记录不会丢。</span>
         </div>
       )}
+
+        </div>
+
+        <aside className="t-aside" aria-label="调查过程与统计">
+        <details className="t-disclose" aria-label="事实分水岭与条件拆分">
+          <summary>事实分水岭：只改一个条件，结论会怎么变</summary>
+          <div className="t-disclose-body">
+            {compareId && compareQuery.data && assessment?.verdict ? (
+              <Watershed
+                historical={false}
+                left={{
+                  label: "原始调查",
+                  claim: digestOf(compareQuery.data).claim,
+                  digest: digestOf(compareQuery.data),
+                }}
+                right={{ label: "改条件后重新调查", claim: claimText, digest: digestOf(run) }}
+              />
+            ) : null}
+            {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
+          </div>
+        </details>
+
+        <details className="t-disclose" aria-label="调查过程">
+          <summary>这次调查是怎么走过来的（真实步骤与补查记录）</summary>
+          <div className="t-disclose-body">
+            <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
+            <InvestigationRoles run={run} />
+            <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
+          </div>
+        </details>
+        </aside>
+      </div>
 
       <ModelReview run={run} />
 
