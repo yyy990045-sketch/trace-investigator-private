@@ -112,6 +112,16 @@ export function deriveClaims(question: string): { claims: string[]; note: string
       note: `原问题给了两组数值，已拆成两条可核查说法：分别核对 ${twoValues[2].trim()} 与 ${twoValues[3].trim()} 的出处`,
     };
   }
+  // 「网传 X，是真的吗？」「有人说 X，可信吗？」：把传言本身当作待核查的说法，
+  // 去掉「网传/有人说」和结尾的疑问，否则检索式和核验对象都会是整句问句。
+  const rumor = /^(?:网传|网上的说法是|听说|据说|有人说|有报道称|传言)?[，,、]?(.+?)[，,]?\s*(?:这是真的吗|是真的吗|是真的么|可信吗|靠谱吗|属实吗|是不是真的|到底是不是真的|真的假的|吗)$/.exec(text);
+  if (rumor && rumor[1].trim().length >= 4) {
+    const claim = rumor[1].trim().replace(/[，,]?\s*(这个说法|这个结论|这种说法|这一说法)$/, "").trim();
+    return {
+      claims: [claim],
+      note: "这是传言/疑问式的说法：已去掉「网传/有人说」和疑问结尾，把中间的断言作为待核查对象",
+    };
+  }
   const interrogative = /^(.*?)(?:是不是|是否|会不会|有没有)(.+)$/.exec(text);
   if (interrogative && interrogative[2].trim().length >= 2) {
     const claim = (interrogative[1] + interrogative[2]).replace(/\s{2,}/g, " ").trim();
