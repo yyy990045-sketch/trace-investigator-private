@@ -722,6 +722,79 @@ describe("三道锁定题：日期、数量、范围", () => {
   });
 });
 
+describe("问句与否定词判定", () => {
+  it("「未来」里的「未」不算否定，不能据此判反证", async () => {
+    const { assessFact, clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const fact = { id: "fact-1", text: "《狮子王》里辛巴的父亲是木法沙", queries: ["辛巴的父亲是谁"] };
+    const pages = [
+      {
+        id: "a",
+        url: "https://example.com/lion.html",
+        site: "示例媒体",
+        title: "《狮子王》三十周年",
+        date: "2024-11-12",
+        passage: "辛巴的父亲木法沙备受敬仰；辛巴出生时被高高举起，成为狮群未来的领袖。",
+        score: 0.9,
+      },
+    ];
+    const bodies = new Map(pages.map((p) => [p.id, { ok: true, text: pages[0].passage, reprintMarkers: [] as string[] }]));
+    const assessment = assessFact({
+      fact,
+      pages,
+      bodies,
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    // 关键：不能因为「未来」里的「未」把正面叙述判成相反说法。
+    expect(assessment.relation).not.toBe("contradicts");
+  });
+
+  it("求值型问句不判真假：结论是证据不足，并说明该怎么问", async () => {
+    const { assessFact, aggregateCase, clusterSources, isEvaluativeQuestion } = await import(
+      "../services/runtime/adapters/trace/analyze.ts"
+    );
+    const question = "《狮子王》里辛巴的父亲叫什么名字？";
+    expect(isEvaluativeQuestion(question)).toBe(true);
+    // 陈述句不能被当成问句
+    expect(isEvaluativeQuestion("《狮子王》里辛巴的父亲是木法沙")).toBe(false);
+    // 日期/数值类问题各有核验路径，不能被实体型问句规则挡掉
+    expect(isEvaluativeQuestion("《个人信息保护法》是什么时候开始施行的？")).toBe(false);
+    expect(isEvaluativeQuestion("2024年新能源汽车产量是多少？")).toBe(false);
+
+    const pages = [
+      {
+        id: "a",
+        url: "https://example.com/lion2.html",
+        site: "示例媒体",
+        title: "《狮子王》角色介绍",
+        date: "2024-11-12",
+        passage: "辛巴的父亲木法沙从未缺席；未来的狮王在成长中失去了父亲。",
+        score: 0.9,
+      },
+    ];
+    const bodies = new Map(pages.map((p) => [p.id, { ok: false, text: "", reprintMarkers: [] as string[] }]));
+    const assessment = assessFact({
+      fact: { id: "fact-1", text: question, queries: [question] },
+      pages,
+      bodies,
+      clusterOf: clusterSources(pages),
+      duplicatePages: new Set<string>(),
+    });
+    expect(assessment.relation).not.toBe("contradicts");
+    const verdict = aggregateCase({
+      facts: [assessment],
+      searchSummary: { total: 1, failed: 0, empty: 0 },
+      pageCount: pages.length,
+      bodyCount: 0,
+      independentSourceCount: 1,
+      searchedOk: true,
+    });
+    expect(verdict.outcome).toBe("insufficient");
+    expect(verdict.headline).toContain("求值型问句");
+    expect(verdict.reasons.join(" ")).toContain("改写成陈述句");
+  });
+});
+
 describe("检索式规划（规则扩展）", () => {
   it("多组数值各自单独成检索式，原句保留在最前", () => {
     const plan = planFactQueries(

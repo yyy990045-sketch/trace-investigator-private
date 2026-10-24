@@ -446,6 +446,28 @@ function hitMinute(key: string, perMinute: number) {
 const SESSION_COOKIE = "trace_session";
 
 /**
+ * 会话 Cookie 的安全属性。
+ *
+ * `Secure` 只在 HTTPS 下有意义：明文 HTTP 站点写 Secure Cookie 会被浏览器**直接丢弃**，
+ * 于是档案下载这类普通链接跳转（带不了自定义请求头）就只剩「没有会话」。
+ * 因此这里按实际协议决定，而不是无条件写死 Secure。
+ */
+function cookieSecure(req: FastifyRequest) {
+  const forced = String(process.env.PLATFORM_COOKIE_SECURE ?? "").trim();
+  if (forced) return /^(1|true|yes|on)$/i.test(forced);
+  if (trustsProxy()) {
+    const proto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+    if (proto === "https") return true;
+  }
+  return req.protocol === "https";
+}
+
+function sessionCookieHeader(token: string, req: FastifyRequest) {
+  const secure = cookieSecure(req) ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly${secure}; SameSite=Lax; Max-Age=2592000`;
+}
+
+/**
  * 会话令牌来源：请求头优先，其次 HttpOnly Cookie。
  * 档案下载是普通链接跳转，带不了自定义头，所以必须支持 Cookie。
  */
@@ -460,9 +482,44 @@ function tokenFromRequest(req: FastifyRequest) {
   return "";
 }
 
+/**
+ * 是否信任反向代理转发的地址。
+ *
+ * 默认**不信任**：直连时 X-Forwarded-For 完全由客户端决定，任何匿名用户都能
+ * 随便写一个 IP 绕过「每 IP 每日上限」。只有在受控部署（Caddy/Cloudflare 在前面）
+ * 时，才用 PLATFORM_TRUST_PROXY=1 明确开启。
+ */
+function trustsProxy() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.PLATFORM_TRUST_PROXY || ""));
+}
+
 function clientIp(req: FastifyRequest) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  return (forwarded || req.ip || "0.0.0.0").slice(0, 64);
+  if (trustsProxy()) {
+    const cf = String(req.headers["cf-connecting-ip"] || "").trim();
+    if (cf) return cf.slice(0, 64);
+    // 代理会在末尾追加它看到的对端地址，客户端自己伪造的项只能出现在前面。
+    const hops = String(req.headers["x-forwarded-for"] || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (hops.length) return hops[hops.length - 1].slice(0, 64);
+  }
+  const socket = (req as unknown as { socket?: { remoteAddress?: string } }).socket?.remoteAddress;
+  return String(req.ip || socket || "0.0.0.0").slice(0, 64);
+}
+
+/**
+ * 只读公开案例：交付材料里给评委的三个已存调查，允许任何人按 ID 打开查看。
+ *
+ * 只放开 GET，且只放开列在这里的运行；写入、列表、其它运行仍然要求会话归属。
+ */
+function demoRunIds() {
+  return new Set(
+    String(process.env.PLATFORM_DEMO_RUNS || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
 }
 
 const PUBLIC_PATHS = [
@@ -498,20 +555,23 @@ export function installPublicGuard(
     hitMinute("session:" + session.id, limits().requestsPerMinute);
     (req as unknown as { traceSession: TraceSession }).traceSession = session;
 
-    const runMatch = /^\/v1\/runs\/([^/]+)/.exec(path);
-    if (runMatch) {
-      const owner = store.get("SELECT owner FROM runs WHERE id=?", runMatch[1])?.owner as
-        | string
+    // 运行/项目必须属于当前会话。没有归属（owner 为空）的历史数据同样不能匿名读取：
+    // 「谁的都不是」不等于「大家的」。
+    const runRow = /^\/v1\/runs\/([^/]+)/.exec(path);
+    if (runRow) {
+      const row = store.get("SELECT owner FROM runs WHERE id=?", runRow[1]) as
+        | { owner?: string | null }
         | undefined;
-      if (owner && owner !== session.id)
+      const readonlyDemo = req.method === "GET" && demoRunIds().has(runRow[1]);
+      if (row && row.owner !== session.id && !readonlyDemo)
         throw new ExecutionError("RUN_NOT_FOUND", "任务不存在。");
     }
-    const projectMatch = /^\/v1\/projects\/([^/]+)/.exec(path);
-    if (projectMatch) {
-      const owner = store.get("SELECT owner FROM projects WHERE id=?", projectMatch[1])?.owner as
-        | string
+    const projectRow = /^\/v1\/projects\/([^/]+)/.exec(path);
+    if (projectRow) {
+      const row = store.get("SELECT owner FROM projects WHERE id=?", projectRow[1]) as
+        | { owner?: string | null }
         | undefined;
-      if (owner && owner !== session.id)
+      if (row && row.owner !== session.id)
         throw new ExecutionError("PROJECT_NOT_FOUND", "项目不存在。");
     }
   });
@@ -547,7 +607,7 @@ export function installPublicGuard(
     // 同时写一份 HttpOnly Cookie：档案下载这类链接跳转不会带自定义请求头。
     reply.header(
       "set-cookie",
-      `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
+      sessionCookieHeader(token, req),
     );
     return { token, sessionId: session.id, quota, limits: limits() };
   });
@@ -562,7 +622,7 @@ export function installPublicGuard(
       reply.header("cache-control", "no-store");
       reply.header(
         "set-cookie",
-        `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
+        sessionCookieHeader(token, req),
       );
     }
     return { sessionId: session.id, quota: guard.quotaOf(session) };

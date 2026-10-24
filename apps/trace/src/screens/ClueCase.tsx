@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Check, CircleDashed, Link2, Search, X } from "lucide-react";
+import { ArrowRight, Check, CircleDashed, Download, Link2, Search, X } from "lucide-react";
 import {
   SHOWCASE,
   client,
@@ -15,6 +15,7 @@ import {
 } from "../api";
 import type { RunRecord } from "@personal/capability-sdk";
 import { BackLink, formatTime } from "../components";
+import { clueReportUrl } from "../api";
 import { needsDetectiveFollowup } from "../clue-followup-policy";
 
 const clueKindName: Record<ClueItemView["kind"], string> = {
@@ -1017,12 +1018,24 @@ export function ClueCase({
         </div>
       </details>
 
-      {/* 返回入口：影视页此前只有顶部品牌可点，这里补上和核验页一致的出口。 */}
+      {/* 结束调查：保存/打开这次调查的记录，然后回到入口。 */}
       <footer className="t-page-foot">
         <BackLink />
         <a className="t-btn t-btn-quiet" href="#t-clue-process">
           查看调查过程
         </a>
+        {run.status === "completed" ? (
+          <>
+            <a className="t-btn" href={clueReportUrl(runId)} target="_blank" rel="noreferrer noopener">
+              <Download size={14} /> 打开调查记录
+            </a>
+            <a className="t-btn t-btn-quiet" href={clueReportUrl(runId, "json")} download>
+              下载 JSON
+            </a>
+          </>
+        ) : (
+          <span className="t-hint">调查结束后可保存记录。</span>
+        )}
       </footer>
     </main>
   );

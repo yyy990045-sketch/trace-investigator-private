@@ -1,0 +1,65 @@
+{
+  "question": "网传从 2026 年起，全国所有快递都不再送货上门了，是真的吗？",
+  "runId": "run_52b0d1fd-59d2-4290-a552-aea04563941f",
+  "status": "completed",
+  "before": {
+    "state": "insufficient",
+    "headline": "目前的材料不足以判断这句话是真是假。",
+    "verdict": "当前规则结论\n证据不足\n调查已完成\n\n目前的材料不足以判断这句话是真是假。\n\n还不能确定：找到相关表述（支持 0 条、相反 1 条），但都没有同时满足范围一致与独立性要求，因此不能据此下结论；其中 1 条只覆盖局部范围。\n\n核查对象：这是传言/疑问式的说法：已去掉「网传/有人说」和疑问结尾，把中间的断言作为待核查对象\n\n这次确实取得了 3 份网页正文（不是「没有任何原文」），它们各自能说明的是：\n\n新浪财经正文取到了，但正文里没有出现与该说法直接相关的句子。\n中工网正文取到了，但正文里没有出现与该说法直接相关的句子。\n重庆日报网正文取到了，但正文里没有出现与该说法直接相关的句子。\n\n但这 3 份正文里都没有能直接支撑该说法的句子，1 条相反表述也仍然只有摘要，因此还不足以证明「网传从 2026 年起，全国所有快递都不再送货上门了，是真的吗？」。\n\n来源统计与核对口径\n完整判断说明（后端原始结论，未做改动）\n关键来源：\n今日头条\n摘要\n打开调查档案\n已交付第 1 版，档案按版本冻结",
+    "links": [
+      "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml",
+      "https://www.workercn.cn/papers/grrb/2026/07/29/5/news-4.html",
+      "https://epaper.cqrb.cn/cqrb/2026-02/05/009/content_rb_356460.htm",
+      "https://www.toutiao.com/a7682426457884230173",
+      "https://www.toutiao.com/a7682426457884230173",
+      "https://www.toutiao.com/a7682426457884230173",
+      "https://www.toutiao.com/article/7666279882971791918",
+      "https://www.toutiao.com/article/7666279882971791918",
+      "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml",
+      "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml"
+    ]
+  },
+  "followup": {
+    "clicked": "追加检索：检索并重算",
+    "status": "completed",
+    "after": {
+      "state": "insufficient",
+      "headline": "目前的材料不足以判断这句话是真是假。",
+      "verdict": "当前规则结论\n证据不足\n调查已完成\n\n目前的材料不足以判断这句话是真是假。\n\n还不能确定：找到相关表述（支持 0 条、相反 1 条），但都没有同时满足范围一致与独立性要求，因此不能据此下结论；其中 1 条只覆盖局部范围。\n\n核查对象：这是传言/疑问式的说法：已去掉「网传/有人说」和疑问结尾，把中间的断言作为待核查对象\n\n这次确实取得了 4 份网页正文（不是「没有任何原文」），它们各自能说明的是：\n\n新浪财经正文取到了，但正文里没有出现与该说法直接相关的句子。\n中工网正文取到了，但正文里没有出现与该说法直接相关的句子。\n重庆日报网正文取到了，但正文里没有出现与该说法直接相关的句子。\n鸡东县人民政府网正文取到了，但正文里没有出现与该说法直接相关的句子。\n\n但这 4 份正文里都没有能直接支撑该说法的句子，1 条相反表述也仍然只有摘要，因此还不足以证明「网传从 2026 年起，全国所有快递都不再送货上门了，是真的吗？」。\n\n来源统计与核对口径\n完整判断说明（后端原始结论，未做改动）\n关键来源：\n今日头条\n摘要\n打开调查档案\n已交付第 1 版，档案按版本冻结",
+      "links": [
+        "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml",
+        "https://www.workercn.cn/papers/grrb/2026/07/29/5/news-4.html",
+        "https://epaper.cqrb.cn/cqrb/2026-02/05/009/content_rb_356460.htm",
+        "https://jidong.gov.cn/jdx/111a6c547ed74c9abfefe5189c3588bf/202610/c06_378522.shtml",
+        "https://www.toutiao.com/a7682426457884230173",
+        "https://www.toutiao.com/a7682426457884230173",
+        "https://www.toutiao.com/a7682426457884230173",
+        "https://www.toutiao.com/article/7666279882971791918",
+        "https://www.toutiao.com/article/7666279882971791918",
+        "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml"
+      ]
+    }
+  },
+  "afterReload": {
+    "state": "insufficient",
+    "headline": "目前的材料不足以判断这句话是真是假。",
+    "verdict": "当前规则结论\n证据不足\n调查已完成\n\n目前的材料不足以判断这句话是真是假。\n\n还不能确定：找到相关表述（支持 0 条、相反 1 条），但都没有同时满足范围一致与独立性要求，因此不能据此下结论；其中 1 条只覆盖局部范围。\n\n核查对象：这是传言/疑问式的说法：已去掉「网传/有人说」和疑问结尾，把中间的断言作为待核查对象\n\n这次确实取得了 4 份网页正文（不是「没有任何原文」），它们各自能说明的是：\n\n新浪财经正文取到了，但正文里没有出现与该说法直接相关的句子。\n中工网正文取到了，但正文里没有出现与该说法直接相关的句子。\n重庆日报网正文取到了，但正文里没有出现与该说法直接相关的句子。\n鸡东县人民政府网正文取到了，但正文里没有出现与该说法直接相关的句子。\n\n但这 4 份正文里都没有能直接支撑该说法的句子，1 条相反表述也仍然只有摘要，因此还不足以证明「网传从 2026 年起，全国所有快递都不再送货上门了，是真的吗？」。\n\n来源统计与核对口径\n完整判断说明（后端原始结论，未做改动）\n关键来源：\n今日头条\n摘要\n打开调查档案\n已交付第 1 版，档案按版本冻结",
+    "links": [
+      "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml",
+      "https://www.workercn.cn/papers/grrb/2026/07/29/5/news-4.html",
+      "https://epaper.cqrb.cn/cqrb/2026-02/05/009/content_rb_356460.htm",
+      "https://jidong.gov.cn/jdx/111a6c547ed74c9abfefe5189c3588bf/202610/c06_378522.shtml",
+      "https://www.toutiao.com/a7682426457884230173",
+      "https://www.toutiao.com/a7682426457884230173",
+      "https://www.toutiao.com/a7682426457884230173",
+      "https://www.toutiao.com/article/7666279882971791918",
+      "https://www.toutiao.com/article/7666279882971791918",
+      "https://finance.sina.com.cn/wm/2026-06-16/doc-inicqnrs9537868.shtml"
+    ]
+  },
+  "archiveLink": 4,
+  "mobile": {
+    "overflow": true
+  },
+  "errors": []
+}

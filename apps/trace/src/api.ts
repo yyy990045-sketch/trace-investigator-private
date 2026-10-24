@@ -621,6 +621,15 @@ export interface FollowupRecord {
 
 const runtimeBase = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
 
+/**
+ * 线索调查的结果导出地址（当前状态快照）。
+ * 走同源 /api，浏览器会带上会话 Cookie，和页面上的结论同源。
+ */
+export function clueReportUrl(runId: string, format: "md" | "json" = "md") {
+  const base = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
+  return `${base}/v1/runs/${encodeURIComponent(runId)}/report.${format}`;
+}
+
 async function traceRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   let response: Response;
   try {

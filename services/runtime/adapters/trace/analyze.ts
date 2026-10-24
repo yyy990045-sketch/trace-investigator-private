@@ -218,7 +218,23 @@ export function fragments(text: string): string[] {
   return [...out];
 }
 
-const NEGATIONS = ["不是", "并非", "并没有", "没有", "尚未", "未", "否认", "驳斥", "不实", "谣言", "错误", "质疑", "辟谣", "从未", "不属于"];
+const NEGATIONS = ["不是", "并非", "并没有", "没有", "尚未", "否认", "驳斥", "不实", "谣言", "错误", "质疑", "辟谣", "从未", "不属于"];
+
+/**
+ * 单字「未」只在确实否定动词时才算否定。
+ *
+ * 「未来的领袖」「未成年」「未知」里的「未」不是否定；把它当否定会把一句
+ * 正面叙述判成反证。线上实测：《狮子王》来源写着「被高高举起成为狮群未来的
+ * 领袖」，被「未」命中，整条调查被判成「存在反证」。
+ */
+// `(?=.)`：窗口正好截在「未」字后面时无法判断，不能当成否定。
+const BARE_WEI = /未(?![来知成年满免必曾婚育央])(?=.)/;
+
+function negationHit(text: string) {
+  const word = NEGATIONS.find((n) => text.includes(n));
+  if (word) return word;
+  return BARE_WEI.test(text) ? "未" : null;
+}
 
 function negationNear(text: string, needles: string[]) {
   const normalized = text.normalize("NFKC");
@@ -226,10 +242,31 @@ function negationNear(text: string, needles: string[]) {
     const index = normalized.indexOf(term);
     if (index < 0) continue;
     const window = normalized.slice(Math.max(0, index - 24), index + term.length + 24);
-    const hit = NEGATIONS.find((n) => window.includes(n));
+    const hit = negationHit(window);
     if (hit) return hit;
   }
   return null;
+}
+
+/**
+ * 求值型问句：问的是「具体取值」（谁/什么/哪一年/叫什么/多少）。
+ *
+ * 这类问题不能当成「可核查说法」来判断真假：没有任何来源会逐字写
+ * 「某人叫什么名字」这句话，于是关键词命中加上任何否定词都会被误判成
+ * 「存在反证」。系统在这里如实说清：只把它当作相关问题，不下真伪结论。
+ */
+/**
+ * 只拦「答案是一个实体名称」的问句：这类问题没有任何断言可核对，命中关键词
+ * 再加上任意否定词就会被误判成反证。日期、数值、因果类问题各有自己的核验
+ * 路径（日期角色、数量绑定、因果表述），不能被这里一并挡掉。
+ */
+const EVALUATIVE_WORDS =
+  /(叫什么|叫啥|叫什么名字|是谁|是哪位|是什么(?!时候|时间|日期|年份|原因)|是哪个|在哪里|在哪)/;
+
+export function isEvaluativeQuestion(text: string): boolean {
+  const value = text.trim();
+  if (!/[？?]\s*$/.test(value)) return false;
+  return EVALUATIVE_WORDS.test(value.replace(/[？?]\s*$/, ""));
 }
 
 const UP_WORDS = /超过|逾|以上|至少|不低于|突破|多于|高于/;
@@ -950,8 +987,32 @@ export interface AssessOptions {
   grouping?: SourceGrouping;
 }
 
-/** 单条来源对单条事实的关系判定；每个判断都带可复查的理由。 */
+/**
+ * 单条来源对单条事实的关系判定；每个判断都带可复查的理由。
+ *
+ * 求值型问句（「…叫什么名字？」）在这里统一降级为「相关」：问句不是断言，
+ * 既不能被证实，也不能被判成存在反证。
+ */
 export function assessSource(
+  page: AnalysablePage,
+  options: AssessOptions,
+): SourceAssessment {
+  const result = assessSourceOnce(page, options);
+  if (!isEvaluativeQuestion(options.fact.text)) return result;
+  return {
+    ...result,
+    relation: "unclear",
+    semantic: undefined,
+    reasons: [
+      "这个问题问的是具体取值（问句），不是可核查的说法：来源没有逐字断言相反内容，不能判成反证；同样不能据此认为问句已被证实。",
+      ...result.reasons.filter((r) => !/否定表述|相反说法|反证/.test(r)),
+    ],
+  };
+}
+
+/** 单条来源对单条事实的关系判定；每个判断都带可复查的理由。 */
+/** 单条来源的原始判定；问句降级由下方 assessSource 统一处理。 */
+function assessSourceOnce(
   page: AnalysablePage,
   options: AssessOptions,
 ): SourceAssessment {
@@ -1537,6 +1598,23 @@ export function aggregateCase(input: {
   const mixed = facts.filter((f) => f.relation === "mixed");
   const none = facts.filter((f) => f.relation === "none");
   const bodyBackedTotal = facts.reduce((n, f) => n + f.bodyBackedClusters, 0);
+
+  // 求值型问句（问谁/什么/哪一年/叫什么）没有可核查的断言：既不能说
+  // 「已核实」，更不能说「存在反证」。如实说明需要怎么问，不替用户定答案。
+  const evaluative = facts.filter((fact) => isEvaluativeQuestion(fact.fact));
+  if (evaluative.length && evaluative.length === facts.length) {
+    reasons.push(
+      `问题「${evaluative[0].fact}」问的是具体取值，属于问句而不是可核查的说法：系统不会把问句当成断言去判真假。` +
+        "要得到真伪结论，请改写成陈述句再查（例如「…是…」「…在 2021 年施行」）；下列来源只作为相关材料，不构成结论。",
+    );
+    return {
+      outcome: "insufficient",
+      headline: "这是求值型问句，不能据此下真伪结论。",
+      confidence: "low",
+      reasons,
+      counts,
+    };
+  }
 
   if (mixed.length) {
     const numericSources = mixed.flatMap((fact) => fact.sources.filter((source) => source.relation === "supports" || source.relation === "contradicts").flatMap((source) => source.quantityEvidence || []))
