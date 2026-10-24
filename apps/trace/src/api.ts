@@ -834,6 +834,16 @@ export interface CandidateMatchView {
 
 export interface CandidateView {
   name: string;
+  /** 作品身份事实（类型/年份/导演/主演），都绑定来源与原句 */
+  identity?: {
+    types?: { value: string; quote: string; url: string; site: string }[];
+    years?: { value: string; quote: string; url: string; site: string }[];
+    directors?: { value: string; quote: string; url: string; site: string }[];
+    cast?: { value: string; quote: string; url: string; site: string }[];
+    conflicts?: string[];
+  };
+  type?: string;
+  types?: string[];
   entity?: ClueRelationView["entity"];
   quoted: boolean;
   mentions: number;

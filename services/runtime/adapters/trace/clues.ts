@@ -128,6 +128,10 @@ export interface Candidate {
   type?: WorkType;
   /** 该候选出现过的全部类型（小说改编电影时两者都算） */
   types?: WorkType[];
+  /** 身份事实：类型/年份/导演/主演，都绑定到来源与原句 */
+  identity?: WorkIdentity;
+  /** 是否有足够的作品身份依据（够才进入正式影视候选） */
+  identityOk?: boolean;
   /** 类型是否与用户说法矛盾 */
   typeConflict?: boolean;
   /** 只有全部线索命中且明显领先时才算 confirmed */
@@ -283,24 +287,6 @@ export function extractCandidates(
         note: "",
       };
       if (quotedNames.has(name)) existing.quoted = true;
-      // 类型证据：同名作品可能同时是电影和电视剧，取最多票的那个，并保留原句。
-      // 类型优先看「和这个名字同一句」的表述，其次才看标题/正文的泛称；
-      // 否则《暗算》会因为有小说原著页面而被判成小说。
-      const nearName = (() => {
-        const at = normalized(text).indexOf(normalized(name));
-        if (at < 0) return "";
-        const plain = text;
-        const ratio = plain.length / Math.max(1, normalized(text).length);
-        const center = Math.round(at * ratio);
-        return plain.slice(Math.max(0, center - 60), center + 90);
-      })();
-      const typeHit =
-        TYPE_PATTERNS.find((item) => item.pattern.test(nearName)) ||
-        TYPE_PATTERNS.find((item) => item.pattern.test(page.title));
-      if (typeHit) {
-        existing.typeVotes = existing.typeVotes || {};
-        existing.typeVotes[typeHit.type] = (existing.typeVotes[typeHit.type] || 0) + 1;
-      }
       if (!existing.pages.some((item) => item.url === page.url)) {
         existing.mentions += 1;
         existing.pages.push({ url: page.url, site: page.site, title: page.title, date: page.date });
@@ -311,6 +297,9 @@ export function extractCandidates(
 
   const candidates: Candidate[] = [];
   for (const candidate of byName.values()) {
+    // 身份事实：类型/年份/导演/主演，都必须是「同一小句里点了这个名字」的陈述。
+    const identity = identityFacts(candidate.name, pages, bodies);
+    candidate.identity = identity;
     const inTitle = pages.some((page) => page.title.includes(candidate.name));
     // 第一阶段是「尽量发现」：名字只被提到一次，只要它和关键剧情出现在同一句里，
     // 也先收进候选（很多作品是在「类似作品」段落里被提到的）。
@@ -325,11 +314,17 @@ export function extractCandidates(
     if (candidate.mentions < 2 && !inTitle && !plotRelated) continue;
     candidate.sites = new Set(candidate.pages.map((page) => page.site)).size;
     candidate.titleHits = pages.filter((page) => page.title.includes(candidate.name)).length;
-    const votes = candidate.typeVotes || {};
-    const ranked = (Object.entries(votes) as [WorkType, number][]).sort((a, b) => b[1] - a[1]);
-    const best = ranked[0];
-    candidate.type = best ? best[0] : "other";
-    candidate.types = ranked.length ? ranked.map(([type]) => type) : ["other"];
+    const identityTypes = (candidate.identity?.types || []).map((item) => item.value as WorkType);
+    const uniqueTypes = [...new Set(identityTypes)].filter((type) => type !== "other");
+    candidate.type = uniqueTypes[0] || "other";
+    candidate.types = uniqueTypes.length ? uniqueTypes : ["other"];
+    // 有身份依据（类型/年份/导演/主演或书名号）才算正式影视候选；其余只能当资料。
+    candidate.identityOk =
+      uniqueTypes.length > 0 ||
+      (candidate.identity?.years.length || 0) > 0 ||
+      (candidate.identity?.directors.length || 0) > 0 ||
+      (candidate.identity?.cast.length || 0) > 0 ||
+      candidate.quoted;
     candidates.push(candidate);
   }
   // 作品上下文：名字附近出现「电影/电视剧/上映/主演/导演/豆瓣…」才像一部作品，
@@ -350,6 +345,9 @@ export function extractCandidates(
 
   // 不是作品名的东西不要当候选：疑问句标题、角色名（含用户给的线索词）、明显是句子片段。
   const workLike = candidates.filter((item) => {
+    // 没有身份依据（类型/年份/导演/主演，且不是书名号里的名字）的对象不进正式候选，
+    // 歌曲、文章、评论标题就停在这里，只作为资料。
+    if (!item.identityOk) return false;
     if (!item.quoted && ((item as Candidate & { workSignals?: number }).workSignals || 0) === 0) return false;
     if (/(首个|可以|我们|怎样|多少|揭秘|真相|最新|回应|公布)/.test(item.name)) return false;
     if (/[？?]|哪|怎么|多少|为什么|如何/.test(item.name)) return false;
@@ -861,15 +859,30 @@ export function evaluateCandidates(
     const candidateType = (item.type || "other") as WorkType;
     if (userType === "other" || candidateType === "other") continue;
     const types = (item.types || [candidateType]) as WorkType[];
-    // 一部作品可以同时是小说与电影（改编）；只要有一种类型对得上，就不算类型矛盾。
-    if (types.some((type) => type !== "other" && typeCompatible(userType, type))) continue;
+    // 一部作品可以同时是小说与电影（改编）；只要有一种类型对得上，就以对得上的那个为准，
+    // 不再算类型矛盾（否则《解密》会一直被标成「小说」）。
+    const compatibleType = types.find((type) => type !== "other" && typeCompatible(userType, type));
+    if (compatibleType) {
+      item.type = compatibleType;
+      continue;
+    }
     item.typeConflict = true;
     item.score -= 8;
   }
+  const screenQuestion = ["film", "tv", "anime"].includes(userType);
   const candidates = classified
     .filter((item) => !isRelation(item, targetKind))
+    // 影视问题里，歌曲/文章/评论/来源不明的条目不能进入候选排名（仍可作为资料）。
+    .filter(
+      (item) =>
+        !screenQuestion ||
+        (item.types || [item.type || "other"]).some((type) =>
+          ["film", "tv", "anime"].includes(String(type)),
+        ),
+    )
     .sort(
       (a, b) =>
+        Number(Boolean(b.identityOk)) - Number(Boolean(a.identityOk)) ||
         b.matchedClues - a.matchedClues ||
         Number(Boolean(a.typeConflict)) - Number(Boolean(b.typeConflict)) ||
         b.score - a.score,
@@ -1024,9 +1037,10 @@ export function evaluateCandidates(
   // 竞争者：同类型、同句直接命中 ≥2 条情节，且差距不超过一条——它同样能解释用户的描述。
   const directHits = (candidate: Candidate) =>
     candidate.matches.filter((match) => match.found && match.scope === "sentence").length;
-  const competitor = comparableRunners.find(
-    (candidate) => directHits(candidate) >= 2 && best.matchedClues - candidate.matchedClues <= 1,
-  );
+  const competitor = candidates
+    .slice(1)
+    .filter((candidate) => (userType === "other" || ["film", "tv", "anime"].includes(String(candidate.type))))
+    .find((candidate) => directHits(candidate) >= 2 && best.matchedClues - candidate.matchedClues <= 1);
   const comparison = competitor
     ? [best, competitor].map((candidate) => ({
         name: candidate.name,
@@ -1040,7 +1054,13 @@ export function evaluateCandidates(
       }))
     : undefined;
   const userYears = [...new Set(question.match(/(19|20)\d{2}/g) || [])];
-  const years = releaseYears(best.name, pages, bodies);
+  const identityYears = (best.identity?.years || []).map((item) => ({
+    year: item.value,
+    quote: item.quote,
+    url: item.url,
+    site: item.site,
+  }));
+  const years = identityYears.length ? identityYears : releaseYears(best.name, pages, bodies);
   const yearCheck =
     userYears.length && best
       ? {
@@ -1103,8 +1123,7 @@ export function evaluateCandidates(
       .slice(1, 3)
       .filter(
         (candidate) =>
-          directHits(candidate) >= 1 &&
-          !candidate.typeConflict &&
+          directHits(candidate) >= 2 &&
           // 影视问题里不拿小说/来源不明条目当「需要排除的竞争作品」
           (userType === "other" || ["film", "tv", "anime"].includes(String(candidate.type))),
       )
@@ -1335,4 +1354,101 @@ export function releaseYears(
     }
   }
   return [...found.values()].sort((a, b) => a.year.localeCompare(b.year));
+}
+
+/**
+ * 作品身份事实：类型 / 年份 / 导演 / 主演。
+ *
+ * 关键约束：只接受「同一小句里点了这个名字」的陈述。
+ * 一篇文章里同时提到好几部作品时，泛泛出现的「电影」「上映」不能算到当前候选头上——
+ * 这正是《源代码》被误标成电视剧、年份被张冠李戴的原因。
+ */
+export interface IdentityFact {
+  value: string;
+  quote: string;
+  url: string;
+  site: string;
+  from: "body" | "excerpt";
+}
+
+export interface WorkIdentity {
+  types: IdentityFact[];
+  years: IdentityFact[];
+  directors: IdentityFact[];
+  cast: IdentityFact[];
+  /** 同一属性出现互相冲突的取值（例如既是电影又是电视剧、年份有两个） */
+  conflicts: string[];
+}
+
+const CLAUSE_SPLIT = /[，,；;。！？!?\n]/;
+
+/** 名字所在的那一小句（属性词必须落在同一小句里才算这条作品的）。 */
+function clauseWith(sentence: string, name: string): string {
+  const key = normalized(name);
+  if (!key) return "";
+  // 先按标点切成小句，再找包含名字的那一句；确保「《A》是电影，《B》是电视剧」不会串。
+  let offset = 0;
+  for (const clause of sentence.split(CLAUSE_SPLIT)) {
+    const at = normalized(clause).indexOf(key);
+    if (at >= 0) return clause;
+    offset += clause.length;
+  }
+  return "";
+}
+
+export function identityFacts(
+  name: string,
+  pages: PageLike[],
+  bodies: Map<string, BodyLike>,
+): WorkIdentity {
+  const types = new Map<string, IdentityFact>();
+  const years = new Map<string, IdentityFact>();
+  const directors = new Map<string, IdentityFact>();
+  const cast = new Map<string, IdentityFact>();
+  const push = (target: Map<string, IdentityFact>, key: string, fact: IdentityFact) => {
+    if (!key.trim()) return;
+    if (!target.has(key)) target.set(key, fact);
+  };
+  for (const page of pages) {
+    const body = bodies.get(page.id);
+    const blocks: { from: "body" | "excerpt"; text: string }[] = [
+      ...(body?.ok ? [{ from: "body" as const, text: body.text.slice(0, 12_000) }] : []),
+      { from: "excerpt" as const, text: [page.title, page.passage].join("\n") },
+    ];
+    for (const block of blocks) {
+      for (const sentence of block.text.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).filter(Boolean)) {
+        if (!normalized(sentence).includes(normalized(name))) continue;
+        const clause = clauseWith(sentence, name);
+        if (!clause) continue;
+        // 名字必须紧挨着这句陈述（同小句），并且这句确实在讲这部作品。
+        const { attribution } = attributeSentence(sentence, name, []);
+        if (attribution === "listed" || attribution === "comparison") continue;
+        // 同一小句里出现两个以上书名号，说明这句话在并列谈论多部作品，
+        // 里面的「开播」「电影」不能直接算到当前候选头上。
+        const quotedInClause = [...clause.matchAll(/《([^》]{2,24})》/g)].map((match) => normalized(match[1]));
+        if (quotedInClause.length >= 2) continue;
+        const base = { quote: clause.trim().slice(0, 140), url: page.url || "", site: page.site || "", from: block.from };
+        const typeHit = TYPE_PATTERNS.find((item) => item.pattern.test(clause));
+        if (typeHit) push(types, typeHit.type, { value: typeHit.type, ...base });
+        const yearHit = /((?:19|20)\d{2})\s*年?/.exec(clause);
+        if (yearHit && /(上映|首播|公映|播出|发行|开播|片|剧|电影|电视剧)/.test(clause))
+          push(years, yearHit[1], { value: yearHit[1], ...base });
+        const directorHit = /(导演|执导)[:：]?\s*([\u4e00-\u9fa5·]{2,10})/.exec(clause);
+        if (directorHit) push(directors, directorHit[2], { value: directorHit[2], ...base });
+        const castHit = /主演[:：]?\s*([\u4e00-\u9fa5·]{2,10})/.exec(clause);
+        if (castHit) push(cast, castHit[1], { value: castHit[1], ...base });
+      }
+    }
+  }
+  const conflicts: string[] = [];
+  const typeValues = [...types.keys()].filter((type) => type !== "other");
+  if (typeValues.length > 1) conflicts.push(`类型有两种说法：${typeValues.map((type) => typeLabel[type as WorkType]).join(" / ")}`);
+  if (years.size > 1) conflicts.push(`年份有两种说法：${[...years.keys()].join(" / ")}`);
+  return {
+    types: [...types.values()],
+    years: [...years.values()],
+    directors: [...directors.values()],
+    cast: [...cast.values()],
+    conflicts,
+  };
 }

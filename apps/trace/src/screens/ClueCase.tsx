@@ -268,6 +268,38 @@ export function ClueCase({
           </div>
         ) : null}
 
+        {/* 作品身份：类型 / 年份 / 导演 / 主演，都带来源，第一屏就能核对。 */}
+        {candidates[0]?.identity ? (
+          <div className="clue-hint" aria-label="作品身份">
+            <b>作品身份：</b>
+            {[
+              (candidates[0].identity.types || []).map((item: any) => (item.value === "tv" ? "电视剧" : item.value === "film" ? "电影" : item.value === "anime" ? "动画" : item.value === "book" ? "小说/原著" : "类型未知")),
+              (candidates[0].identity.years || []).map((item: any) => `${item.value} 年`),
+              (candidates[0].identity.directors || []).map((item: any) => `导演 ${item.value}`),
+              (candidates[0].identity.cast || []).slice(0, 3).map((item: any) => `主演 ${item.value}`),
+            ].flat().filter(Boolean).join(" · ") || "现有资料没有写清类型、年份或演职员"}
+            {(candidates[0].identity.conflicts || []).length ? (
+              <span data-identity-conflict="true">
+                {" "}（{(candidates[0].identity?.conflicts || []).join("；")}）
+              </span>
+            ) : null}
+            {(() => {
+              const evidence = [
+                ...(candidates[0].identity.types || []),
+                ...(candidates[0].identity.years || []),
+              ].find((item: any) => item.url);
+              return evidence ? (
+                <>
+                  {" "}
+                  <a href={evidence.url} target="_blank" rel="noreferrer noopener">
+                    {evidence.site || "来源"}
+                  </a>
+                </>
+              ) : null;
+            })()}
+          </div>
+        ) : null}
+
         {decision?.comparison?.length ? (
           <div className="clue-explain" aria-label="候选对照">
             <h3>各候选符合哪些情节</h3>
