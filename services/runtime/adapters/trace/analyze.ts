@@ -67,7 +67,7 @@ export interface QuantityEvidence {
   from: "body" | "excerpt";
   relation: "supports" | "contradicts" | "unclear";
   /** 语义层判定（主体/行为/型号/限定/因果），只有带谓词的说法才会给出 */
-  semantic?: { verdict: string; reason: string; sentence: string };
+  semantic?: { verdict: string; reason: string; sentence: string; fromTitle?: boolean };
   /** 来源身份：谁发的、能发布什么 */
   profile?: SourceProfile;
   /** 来源自身的取值方式：至少/至多/恰好。用于把「超过 120 万辆」和「120 万辆」区分开 */
@@ -86,7 +86,7 @@ export interface SourceAssessment {
   excerpt: string;
   relation: Relation;
   /** 语义层判定（主体/行为/型号/限定/因果），只有带谓词的说法才会给出 */
-  semantic?: { verdict: string; reason: string; sentence: string };
+  semantic?: { verdict: string; reason: string; sentence: string; fromTitle?: boolean };
   relevance: number;
   reasons: string[];
   /** 原文是否可访问；false 表示只有搜索摘要 */
@@ -1070,11 +1070,17 @@ export function assessSource(
   // 而不是靠关键词覆盖率。法律日期、统计数字这类没有谓词的说法继续走原规则。
   const claimSemantics: ClaimSemantics = parseClaim(options.fact.text);
   if (claimSemantics.predicate) {
-    const pool = [body?.ok ? body.text : "", page.passage, page.title].filter(Boolean).join("。");
+    // 标题只是索引信息，不是「一句原始表述」：正文和摘要都没有时才退回到标题。
+    // 否则页面标题（「暑运服务台 | 充电宝禁止登机怎么办」）会被当成证据句显示给用户。
+    const prose = [body?.ok ? body.text : "", page.passage].filter(Boolean).join("。");
+    // 标题只是索引信息：没有任何正文/摘要时才退回标题，并标记出来——
+    // 这样判定仍然保守，但页面标题不会被当成「原句」展示给用户。
+    const pool = prose || page.title;
     const sentences = pool
       .split(/[。！？!?\n]/)
       .map((item) => item.trim())
-      .filter((item) => item.length >= 6);
+      // 搜索摘要里常带播放器文字（「不支持的音频/视频格式 请试试刷新 重播」），不是表述内容。
+      .filter((item) => item.length >= 6 && !/不支持的音频|点击按住可拖动|进入全屏|请试试刷新/.test(item));
     const rank: Record<string, number> = {
       direct_support: 4,
       direct_refute: 3,
@@ -1083,13 +1089,20 @@ export function assessSource(
       unrelated: 0,
     };
     let best: { verdict: SentenceVerdict; sentence: string } | null = null;
+    let bestScore = -1;
     const supports: string[] = [];
     const refutes: string[] = [];
     for (const sentence of sentences) {
       const verdict = compareSentence(claimSemantics, sentence);
       if (verdict.verdict === "direct_support") supports.push(sentence);
       if (verdict.verdict === "direct_refute") refutes.push(sentence);
-      if (!best || rank[verdict.verdict] > rank[best.verdict.verdict]) best = { verdict, sentence };
+      // 同一档里优先选真正写出该行为的句子：「禁止携带…充电宝」比一句顺带提到的
+      // 「同时…严禁放入行李托运」更能解释判定结果。
+      const score = rank[verdict.verdict] * 10 + (sentence.includes(claimSemantics.predicate) ? 1 : 0);
+      if (!best || score > bestScore) {
+        best = { verdict, sentence };
+        bestScore = score;
+      }
     }
     // 同一页面既有支持也有反驳：不能因为支持分高就直接算支持，要如实标成冲突。
     if (supports.length && refutes.length && best) {
@@ -1101,6 +1114,15 @@ export function assessSource(
         },
         sentence: supports[0],
       };
+    }
+    if (best && !prose) {
+      // 只有标题、没有正文或摘要原句：标题不能当作证据句，最多算相关。
+      if (best.verdict.verdict === "direct_support" || best.verdict.verdict === "direct_refute") {
+        best = {
+          verdict: { verdict: "partial", reason: "只在页面标题里出现相关字样，没有正文或摘要原句，不能算作依据", sufficient: false },
+          sentence: best.sentence,
+        };
+      }
     }
     if (best) {
       // 因果类说法：媒体把同一句话再讲一遍不算证据，必须有研究/数据/官方表述支撑。
@@ -1114,7 +1136,12 @@ export function assessSource(
           sentence: best.sentence,
         };
       }
-      semantic = { verdict: best.verdict.verdict, reason: best.verdict.reason, sentence: best.sentence.slice(0, 160) };
+      semantic = {
+        verdict: best.verdict.verdict,
+        reason: best.verdict.reason,
+        sentence: best.sentence.slice(0, 160),
+        ...(prose ? {} : { fromTitle: true }),
+      };
       relation =
         best.verdict.verdict === "direct_support"
           ? "supports"
@@ -1500,6 +1527,11 @@ export function aggregateCase(input: {
       counts,
     };
 
+  // 只支持说法中一部分条件的来源（有条件限制、时间不一致、只覆盖局部范围）。
+  // 这类来源不能让用户以为「已经拿到可直接引用的表述」，必须在结论句里说清。
+  const conditionSources = facts
+    .flatMap((fact) => fact.sources)
+    .filter((source) => source.semantic?.verdict === "partial" && source.semantic.sentence && !source.semantic.fromTitle);
   const supported = facts.filter((f) => f.relation === "supports");
   const contradicted = facts.filter((f) => f.relation === "contradicts");
   const mixed = facts.filter((f) => f.relation === "mixed");
@@ -1576,16 +1608,25 @@ export function aggregateCase(input: {
     }
     // 已经有支持性表述时，不能只丢一句「证据不足」：把已查清的部分先答给用户。
     const supportedFacts = facts.filter((fact) => fact.sources.some((source) => source.relation === "supports"));
-    const partialAnswer = supportedFacts
-      .map((fact) => fact.sources.find((source) => source.relation === "supports"))
-      .filter(Boolean)
-      .map((source) =>
-        `${source!.site || "来源"}：${(source!.semantic?.sentence || source!.bodyExcerpt || source!.excerpt || "").slice(0, 120)}`,
-      );
+    // 只支持一部分（例如「有条件限制」「只是相关」）的官方原句，也是用户已经查清的部分：
+    // 这些句子必须显式给出来，否则用户只会看到「证据不足」，等于把查到的条件限制丢掉了。
+    const partialAnswer = [
+      ...conditionSources
+        .slice(0, 2)
+        .map((source) => `${source.site || "来源"}：${source.semantic!.sentence.slice(0, 140)}`),
+      ...supportedFacts
+        .map((fact) => fact.sources.find((source) => source.relation === "supports"))
+        .filter(Boolean)
+        .map((source) =>
+          `${source!.site || "来源"}：${(source!.semantic?.sentence || source!.bodyExcerpt || source!.excerpt || "").slice(0, 120)}`,
+        ),
+    ];
     if (partialAnswer.length)
       return {
         outcome: "partial",
-        headline: "已查到相关依据，但还不足以给出确定结论。",
+        headline: conditionSources.length
+          ? "来源只支持说法中的部分条件，不能按原说法成立。"
+          : "已查到相关依据，但还不足以给出确定结论。",
         confidence: "low",
         reasons: [
           ...reasons,
@@ -1605,18 +1646,31 @@ export function aggregateCase(input: {
   if (supported.length && bodyBackedTotal === 0) {
     reasons.push("支持性来源只有搜索摘要，没有取得任何原文正文，按规则不作为确定结论的依据。");
     const supportedFacts = facts.filter((fact) => fact.sources.some((source) => source.relation === "supports"));
+    const conditional = conditionSources.length > 0;
     return {
       outcome: "partial",
-      headline: "已查到支持性表述，但只有搜索摘要、缺少原文依据。",
+      headline: conditional
+        ? "来源只支持说法中的部分条件（有条件限制或时间不一致），不能按原说法成立。"
+        : "已查到支持性表述，但只有搜索摘要、缺少原文依据。",
       confidence: "low",
-      reasons,
+      reasons: conditional
+        ? [
+            ...reasons,
+            `其中 ${conditionSources.length} 条来源只支持说法里的一部分条件，例如：${conditionSources[0].semantic!.reason}`,
+          ]
+        : reasons,
       counts,
-      partialAnswer: supportedFacts
-        .map((fact) => fact.sources.find((source) => source.relation === "supports"))
-        .filter(Boolean)
-        .map((source) =>
-          `${source!.site || "来源"}：${(source!.semantic?.sentence || source!.excerpt || "").slice(0, 120)}`,
-        ),
+      partialAnswer: [
+        ...conditionSources
+          .slice(0, 2)
+          .map((source) => `${source.site || "来源"}：${source.semantic!.sentence.slice(0, 140)}`),
+        ...supportedFacts
+          .map((fact) => fact.sources.find((source) => source.relation === "supports"))
+          .filter(Boolean)
+          .map((source) =>
+            `${source!.site || "来源"}：${(source!.semantic?.sentence || source!.excerpt || "").slice(0, 120)}`,
+          ),
+      ],
     };
   }
   const minClusters = Math.min(...supported.map((f) => f.independentClusters));
@@ -1680,6 +1734,10 @@ export function buildStatement(claim: string, verdict: CaseAssessment) {
     return `就「${claim}」而言，现有来源时效或原文依据不足，不能视为当前有效结论。${suffix}`;
   if (verdict.outcome === "partial") {
     const got = (verdict.partialAnswer || []).slice(0, 2).join("；");
+    // 来源只覆盖说法里的一部分条件时，不能说成「已经拿到可直接引用的表述」——
+    // 用户会以为整句说法已经被证实，这正是「部分限制被放大成全面限制」的来源。
+    if (verdict.headline.includes("部分条件"))
+      return `关于「${claim}」：现有来源只支持说法中的一部分，不能按原说法成立。${got ? `查到的是：${got}。` : ""}结论停在「有条件限制」，还需要官方原始页面才能定案。`;
     return `关于「${claim}」：已经查到可直接引用的表述${got ? `——${got}` : ""}；但还缺少能把它定案的依据（官方原始页面或研究原文），所以只回答到这里，不把它当成已确认的事实。`;
   }
   return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;

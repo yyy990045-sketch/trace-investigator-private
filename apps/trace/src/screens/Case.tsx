@@ -34,7 +34,6 @@ import { ExperienceReuse } from "../ExperienceReuse";
 import { ClueCase } from "./ClueCase";
 import { ModelReview } from "../ModelReview";
 import { evidenceWording } from "../presentation";
-import { sourceTier, tierNote } from "../source-tier";
 
 export function Case() {
   const { runId = "" } = useParams();
@@ -374,12 +373,26 @@ export function Case() {
               <p>{assessment.lookup.answer.quote}</p>
               <p className="trace-hint">
                 来源：{assessment.lookup.answer.site || "公开网页"}
-                {assessment.lookup.answer.date ? ` · ${assessment.lookup.answer.date.slice(0, 10)}` : ""}
-                · {assessment.lookup.answer.from === "body" ? "原文正文" : "搜索摘要"}
+                {assessment.lookup.answer.date ? ` · 发布于 ${assessment.lookup.answer.date.slice(0, 10)}` : ""}
+                · {assessment.lookup.answer.from === "body" ? "已取得原文正文" : "只有搜索摘要，未取得正文"}
                 {" · "}
-                {sourceTier(assessment.lookup.answer.url, assessment.lookup.answer.site).label}
-                {`（${tierNote([sourceTier(assessment.lookup.answer.url, assessment.lookup.answer.site).tier])}）`}
+                {assessment.lookup.answer.profile?.label || "来源身份未确认"}
               </p>
+              {assessment.lookup.answer.profile?.authority ? (
+                <p className="trace-hint">
+                  这份资料能证明：{assessment.lookup.answer.profile.authority}
+                </p>
+              ) : null}
+              {assessment.lookup.answer.dataYear ? (
+                <p className="trace-hint">
+                  数据所属年份：{assessment.lookup.answer.dataYear}
+                  {assessment.lookup.answer.yearBasis === "stated"
+                    ? "（原句写明）"
+                    : "（原句未写年份，只能按发布日期推断，仍需核对）"}
+                  {assessment.lookup.answer.period ? ` · 统计期间：${assessment.lookup.answer.period}` : ""}
+                  {assessment.lookup.answer.scope ? ` · 统计范围：${assessment.lookup.answer.scope}` : ""}
+                </p>
+              ) : null}
               <a href={assessment.lookup.answer.url} target="_blank" rel="noreferrer noopener">
                 查看对应的原始来源
               </a>

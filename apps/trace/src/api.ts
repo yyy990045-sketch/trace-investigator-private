@@ -497,6 +497,13 @@ export interface TraceBundleView {
         date: string;
         from: "body" | "excerpt";
         authoritative: boolean;
+        /** 数值所属年份与年份依据（原句写明 / 只能按发布日期推断） */
+        dataYear?: string;
+        yearBasis?: "stated" | "publish_date";
+        period?: string;
+        scope?: string;
+        /** 发布机构身份（后端 sourceProfile：政府/期刊/厂商/媒体…） */
+        profile?: { kind: string; label: string; authority: string };
       };
       items: {
         quote: string;

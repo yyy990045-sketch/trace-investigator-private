@@ -17,7 +17,7 @@ import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
-import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion } from "./lookup-answer.ts";
+import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion, lookupStatement } from "./lookup-answer.ts";
 import { parseClaim } from "../adapters/trace/claim-semantics.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { renderArchive } from "../adapters/trace/archive.ts";
@@ -185,7 +185,28 @@ export function buildAssessment(
     searchedOk: true,
   });
   // 与首版档案同一句结论，避免不同版本之间结论文本不可比对。
-  const verdict = { ...aggregated, statement: buildStatement(claim, aggregated) };
+  // 查询型问题已经拿到带来源的数值时，结论句必须把数值写出来，而不是只说「证据不足」。
+  const lookupBlock = (() => {
+    if (!isLookupQuestion(claim)) return {};
+    const evidence = collectLookupEvidence(pages, bodies);
+    if (!evidence.length) return {};
+    const answer = findSourcedLookupAnswer(claim, evidence);
+    return {
+      answer,
+      block: {
+        note: "以下是从已取得材料中摘出的、与本问题相关的原始表述（含数字或日期）；它们不构成本次结论，来源与时间以页面为准。",
+        items: evidence,
+        ...(answer ? { answer } : {}),
+      },
+    };
+  })() as { answer?: ReturnType<typeof findSourcedLookupAnswer> | null; block?: Record<string, unknown> };
+  const verdict = {
+    ...aggregated,
+    statement:
+      lookupBlock.answer && aggregated.outcome !== "supported" && aggregated.outcome !== "contradicted"
+        ? lookupStatement(lookupBlock.answer)
+        : buildStatement(claim, aggregated),
+  };
   const assessment = {
     facts: assessments,
     verdict,
@@ -203,19 +224,7 @@ export function buildAssessment(
     corrections,
     // 查询型问题的「直接答案」也在这里重算：补查后、刷新后都必须还在，
     // 且与首次核验用同一个收集函数，避免两条路径给出不同数字。
-    ...(() => {
-      if (!isLookupQuestion(claim)) return {};
-      const evidence = collectLookupEvidence(pages, bodies);
-      const answer = findSourcedLookupAnswer(claim, evidence);
-      if (!evidence.length) return {};
-      return {
-        lookup: {
-          note: "以下是从已取得材料中摘出的、与本问题相关的原始表述（含数字或日期）；它们不构成本次结论，来源与时间以页面为准。",
-          items: evidence,
-          ...(answer ? { answer } : {}),
-        },
-      };
-    })(),
+    ...(lookupBlock.block ? { lookup: lookupBlock.block } : {}),
     unconfirmedPages: [...grouping.unconfirmed],
     clusterBasis: Object.fromEntries(grouping.clusterBasis),
     keySentenceSources,
@@ -531,7 +540,21 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
           );
           if (choice) return choice;
         }
-        // 4) 官方原始资料缺失：只在还没有官方来源时补查
+        // 4) 条件/时间对不上：来源只支持说法里的部分条件时，下一步去核对生效时间与适用条件，
+        //    而不是继续堆同类新闻（「部分限制」被放进全面限制的结论里，正是因为没核对条件）。
+        const conditional = sources.find((item) =>
+          /时间|生效|发布|范围|个别|局部|部分情形|有条件|例外/.test(String(item.semantic?.reason || "")),
+        );
+        if (conditional) {
+          const year = semantics.time[0] || "";
+          const choice = offered(
+            [claimText.slice(0, 30), year, "生效时间 适用条件 例外"].filter(Boolean).join(" "),
+            `来源只支持说法中的部分条件：${String(conditional.semantic?.reason || "").slice(0, 60)}`,
+            "这条规定什么时候生效、适用条件和例外是什么？",
+          );
+          if (choice) return choice;
+        }
+        // 5) 官方原始资料缺失：只在还没有官方来源时补查
         const hasOfficial = sources.some((item) => /\.gov|gov\.cn|官方/.test(String(item.url || "") + String(item.site || "")));
         if (!hasOfficial) {
           const choice = offered(

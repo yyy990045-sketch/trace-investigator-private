@@ -47,6 +47,12 @@ const MODALITY = {
 const PREDICATES: { key: string; pattern: RegExp; synonyms: RegExp }[] = [
   { key: "停产", pattern: /(停产|停止生产|终止生产|停产停售|不再生产|停止制造)/, synonyms: /(停产|停止生产|终止生产|不再生产|停产停售|退市)/ },
   { key: "停售", pattern: /(停售|停止销售|下架|不再销售)/, synonyms: /(停售|停止销售|下架|不再销售)/ },
+  // 禁令类说法：「全面禁止」和「禁止不符合条件的情形」不是一回事。
+  {
+    key: "禁止携带",
+    pattern: /(全面禁止|一律禁止|禁止(?:旅客)?携带|严禁携带|禁运|禁带|不得携带|不允许携带|限制携带|禁止)/,
+    synonyms: /(禁止|严禁|禁运|禁带|不得|不允许|不准|限制携带|限制)/,
+  },
   { key: "延长寿命", pattern: /(延长寿命|长寿|活得更久|降低死亡率|延寿|更有益健康)/, synonyms: /(延长寿命|降低死亡率|寿命(更长|延长)|延寿|死亡率(下降|更低|降低)|更低.{0,2}死亡率|活得更久|长寿|更有益)/ },
   { key: "缩短寿命", pattern: /(缩短寿命|减寿|死亡率上升|增加死亡风险)/, synonyms: /(缩短寿命|减寿|死亡率上升|死亡风险增加)/ },
   { key: "发布", pattern: /(发布|推出|上市|开售)/, synonyms: /(发布|推出|上市|开售)/ },
@@ -61,7 +67,17 @@ const CORRELATION = /(相关|关联|有关联|有关|伴随|同时出现|倾向�
 /** 预测/计划语气：不能当作已发生。 */
 const FUTURE = /(计划|预计|将于|拟|即将|未来|有望|可能会|明年|下月)/;
 /** 明确否定。 */
-const DENY = /(并非|不是|否认|辟谣|不实|谣言|没有发生|并未|未曾|未正式|尚未)/;
+const DENY = /(并非|不是|否认|辟谣|不实|谣言|没有发生|并未|未曾|未正式|尚未|不能|不会|并没有|未再)/;
+
+/** 「全面/一律」这类加宽词：来源必须有同等范围，才谈得上支持整句说法。 */
+const WIDEN = /(全面|一律|所有|全部|任何|一概|全行业|统一|彻底|全体)/;
+/** 分情况、有例外的限制条件：说明这条禁令不是无差别的。 */
+const BAN_CONDITION =
+  /(没有3C|未标注|标识不清|不清晰|不符合|不合规|超标|超过\s*\d+\s*(?:Wh|wh|毫安|mAh)|额定能量|100Wh|符合(?:要求|规定|条件)|有3C|仅限|除外|除[^，。]{0,12}外|部分|个别|特定|每名旅客限|限带|限量|托运|备用电池|锂电池)/;
+/** 明确允许携带：与「全面禁止」不是一回事。 */
+const BAN_ALLOWANCE = /(可以携带|允许携带|仍可携带|可携带|允许随身携带|可随身携带|可以带上|可以随身带着)/;
+/** 对禁令本身的否认：「并未全面禁止」。 */
+const BAN_DENIAL = /(并未|没有|不存在|否认|不实|谣言|从未)[^。；]{0,12}(?:全面|一律|整体|统一)?[^。；]{0,4}(?:禁止|禁运|禁带)/;
 
 function clean(text: string) {
   return String(text || "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -107,11 +123,16 @@ export function parseClaim(text: string): ClaimSemantics {
   const subjectSource = value
     .replace(/(网上说|网传|有人说|听说|据说|据报道|传言|是真的吗|有科学依据吗|吗|？|\?)/g, "")
     .replace(predicatePattern, " ")
-    .replace(/(已经|已|正式|计划|预计|可能|会|能|可以|全部|部分|系列)/g, " ")
+    // 「从2026年起」「自2025年6月28日起」是时间限定，不是主体。
+    .replace(/(?:从|自|在)?(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?)?\s*(?:起|开始|以后|之后)?/g, " ")
+    .replace(/(已经|已|正式|计划|预计|可能|会|能|可以|全部|部分|系列|全面|一律|所有|任何|一概)/g, " ")
     .replace(/(每天|每日|经常|常常|长期|大量|经常性|有人|网上|据说)/g, " ")
     .trim();
   const subject = models[0] || subjectSource.split(/[，,。；;、\s]/).filter(Boolean)[0] || "";
-  const object = /([\u4e00-\u9fa5]{2,8})(寿命|销量|价格|产能|库存|业绩|死亡率)/.exec(value)?.[0] || "";
+  // 禁令说的是「带什么」：携带充电宝登机 → 对象是充电宝。
+  const banObject = /携带([\u4e00-\u9fa5]{2,6})(?:登机|乘机|上飞机|乘车|上车|进站|出境|入境|入站)/.exec(value)?.[1] || "";
+  const object =
+    /([\u4e00-\u9fa5]{2,8})(寿命|销量|价格|产能|库存|业绩|死亡率)/.exec(value)?.[0] || banObject;
   return {
     text: value,
     subject,
@@ -132,12 +153,70 @@ export interface SentenceVerdict {
 }
 
 /**
+ * 禁令类说法单独判断：核心是分清「全面禁止」和「有条件限制」。
+ *
+ * 官方公告常常在同一页里既写禁止（禁止携带没有 3C 标识的充电宝）
+ * 又写允许（符合要求的仍可携带）。这两种句子放在一起是**同一条规定的不同侧面**，
+ * 不是两个来源互相矛盾，所以这里一律给 partial，绝不产出 direct_refute。
+ */
+function compareBanClaim(claim: ClaimSemantics, text: string): SentenceVerdict | null {
+  if (claim.predicate !== "禁止携带") return null;
+  const object = claim.object;
+  if (object && !text.includes(object)) {
+    return { verdict: "unrelated", reason: `来源没有提到「${object}」`, sufficient: false };
+  }
+  const ban = /(禁止|严禁|禁运|禁带|不得|不允许|不准|限制)/.test(text);
+  const allowance = BAN_ALLOWANCE.test(text);
+  const condition = BAN_CONDITION.exec(text);
+  const widen = WIDEN.test(claim.text);
+  const timeNote =
+    claim.time.length && !claim.time.some((item) => text.includes(item.replace(/\s/g, "")))
+      ? `；来源写明的生效或发布时间也不是说法里的 ${claim.time.join("、")}`
+      : "";
+  if (BAN_DENIAL.test(text)) {
+    return { verdict: "direct_refute", reason: "来源明确否认存在「全面禁止」这类规定", sufficient: true };
+  }
+  if (allowance && !ban) {
+    return {
+      verdict: "partial",
+      reason: `来源说明符合要求的${object || "物品"}仍可携带，不是全面禁止${timeNote}`,
+      sufficient: false,
+    };
+  }
+  if (ban && (condition || allowance)) {
+    return {
+      verdict: "partial",
+      reason: `来源禁止的是有条件的部分情形（${condition?.[0] || "限定条件"}），符合要求的${object || "物品"}仍可携带，不能说明${widen ? "「全面禁止」" : "不存在例外"}${timeNote}`,
+      sufficient: false,
+    };
+  }
+  if (ban && widen && claim.subject && !text.includes(claim.subject)) {
+    return {
+      verdict: "partial",
+      reason: `来源只涉及个别承运人或局部范围（${text.slice(0, 14)}…），不能说明「${claim.subject}」全部如此${timeNote}`,
+      sufficient: false,
+    };
+  }
+  if (!ban) {
+    return { verdict: "related_only", reason: `提到了「${object || "该物品"}」，但说的不是携带禁令`, sufficient: false };
+  }
+  if (timeNote) {
+    return { verdict: "partial", reason: `禁令本身对得上，但时间对不上${timeNote}`, sufficient: false };
+  }
+  return { verdict: "direct_support", reason: `同一主体、同一禁止事项（${object || "该物品"}）`, sufficient: true };
+}
+
+/**
  * 比较一句真实原句和待核查说法。
  * 返回的每一档都带理由，页面上要能解释「为什么这句只能算相关」。
  */
 export function compareSentence(claim: ClaimSemantics, sentence: string): SentenceVerdict {
   const text = clean(sentence);
   if (!text) return { verdict: "unrelated", reason: "空句子", sufficient: false };
+
+  // 0) 禁令类说法先按「全面禁止 vs 有条件限制」判断。
+  const banVerdict = compareBanClaim(claim, text);
+  if (banVerdict) return banVerdict;
 
   // 1) 行为必须对得上：说法要「停产」，来源只说「发布」不算。
   const predicateHit = PREDICATES.find((item) => item.key === claim.predicate);
@@ -211,7 +290,10 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
   // "研究并不是说 X" 只说明研究本身不足以证明 X。
   const deny = DENY.exec(text);
   if (deny) {
-    const epistemic = /(不能证明|无法证明|尚无证据|没有证据|缺乏证据|没有证明|未能证明|尚未证实|未证实|并不意味着|不代表|不能说明|无法说明|并不是说|不能得出|不能确定|不等于|无法确定)/.test(text);
+    const epistemic =
+      /(不能证明|无法证明|尚无证据|没有证据|缺乏证据|没有证明|未能证明|尚未证实|未证实|并不意味着|不代表|不能说明|无法说明|并不是说|不能得出|不能确定|不等于|无法确定|研究|结论)/.test(
+        text,
+      ) && !/(证实|证明|确认)[^。；]{0,6}(并不能|不能|未|没有)/.test(text);
     if (epistemic) {
       return {
         verdict: "partial",
