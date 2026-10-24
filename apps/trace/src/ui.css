@@ -1712,3 +1712,39 @@
     overflow: hidden;
   }
 }
+
+/* 折叠标题：标题文字可换行，右侧「展开/收起」保持整行不被逐字挤压 */
+.trace-v2 .t-disclose > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  line-height: 1.55;
+}
+
+.trace-v2 .t-disclose > summary::after {
+  justify-self: end;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* 首屏「还不能确定」一行 */
+.trace-v2 .t-answer-gap {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--t-ink-2);
+}
+
+.trace-v2 .t-answer-gap b {
+  color: var(--t-ink-3);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+@media (max-width: 720px) {
+  .trace-v2 .t-disclose > summary {
+    font-size: 14px;
+    gap: 8px;
+  }
+}

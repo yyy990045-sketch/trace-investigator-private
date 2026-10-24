@@ -293,20 +293,11 @@ export function ClueCase({
 
         {/* 答案已确定，但有的情节并没有在资料里核到：必须单独列出来，不能默认成立。 */}
         {decision?.state === "found" && decision.unverified?.length ? (
-          <div className="clue-hint" aria-label="尚未核实的情节">
-            <b>还没在资料里核到的情节：</b>
-            {decision.unverified.join("、")}（没查到不等于不存在，只是这次没有找到对应原文）
-          </div>
+          <p className="t-hint" aria-label="尚未核实的情节">
+            「待核实」的 {decision.unverified.length} 条情节没有找到对应原文——没查到不等于不存在，只是这次资料里没有。
+          </p>
         ) : null}
 
-
-        {/* 答案已确定，但有的情节并没有在资料里核到：必须单独列出来，不能默认成立。 */}
-        {decision?.state === "found" && decision.unverified?.length ? (
-          <div className="clue-hint" aria-label="尚未核实的情节">
-            <b>还没在资料里核到的情节：</b>
-            {decision.unverified.join("、")}（没查到不等于不存在，只是这次没有找到对应原文）
-          </div>
-        ) : null}
 
         {/* 用户记忆与资料冲突：有原文依据才展示，且不改写用户原话。 */}
         {decision?.conflicts?.length ? (
@@ -355,10 +346,29 @@ export function ClueCase({
                     ? "小说/原著"
                     : "类型未知";
           const types = (identity.types || []).map((item: any) => typeLabel(item.value));
+          // 身份字段只展示「确实像这个字段」的值：后端从原句里抽词，偶尔会带出
+          // 「第一部」「执导」这类不是人名的片段；对不上角色含义就不展示，不做任何猜测性修正。
+          const looksLikeYear = (value: string) => /^(19|20)\d{2}\s*年?$/.test(String(value).trim());
+          const looksLikePerson = (value: string) => {
+            const text = String(value).trim();
+            if (text.length < 2 || text.length > 10) return false;
+            if (/第[一二三四五六七八九十百零\d]+\s*[部季集章回]|系列|合集|上部|下部|版|导演|主演|出演|编剧|制片|出品|上映|首播|电影|电视剧|动画|纪录片|原著|小说/.test(text))
+              return false;
+            return /^[\u4e00-\u9fa5·A-Za-z][\u4e00-\u9fa5·A-Za-z.\s]*$/.test(text);
+          };
           const rows = [
-            { label: "年份", values: (identity.years || []).map((item: any) => `${item.value} 年`) },
-            { label: "导演", values: (identity.directors || []).map((item: any) => item.value) },
-            { label: "主演", values: (identity.cast || []).slice(0, 3).map((item: any) => item.value) },
+            {
+              label: "年份",
+              values: [...new Set((identity.years || []).map((item: any) => String(item.value)).filter(looksLikeYear))],
+            },
+            {
+              label: "导演",
+              values: [...new Set((identity.directors || []).map((item: any) => String(item.value)).filter(looksLikePerson))],
+            },
+            {
+              label: "主演",
+              values: [...new Set((identity.cast || []).map((item: any) => String(item.value)).filter(looksLikePerson))].slice(0, 3),
+            },
           ].filter((row) => row.values.length);
           const evidence = [...(identity.types || []), ...(identity.years || [])].find((item: any) => item.url);
           const empty = !types.length && !rows.length;
@@ -391,7 +401,7 @@ export function ClueCase({
                   {rows.map((row) => (
                     <div className="t-identity-row" key={row.label}>
                       <dt>{row.label}</dt>
-                      <dd>{row.values.join("、")}</dd>
+                      <dd>{row.label === "年份" ? row.values.map((value: string) => `${value.replace(/年$/, "")} 年`).join("、") : row.values.join("、")}</dd>
                     </div>
                   ))}
                 </dl>
@@ -465,15 +475,16 @@ export function ClueCase({
             );
           // 近重复合并：同一段内容（前 40 字相同）只留一条。
           const seen = new Set<string>();
-          const picked = ranked
-            .filter((item) => {
-              const fingerprint = item.sentence.slice(0, 40);
-              if (seen.has(fingerprint)) return false;
-              seen.add(fingerprint);
-              return true;
-            })
-            .slice(0, 2);
-          if (!picked.length) return null;
+          const deduped = ranked.filter((item) => {
+            const fingerprint = item.sentence.slice(0, 40);
+            if (seen.has(fingerprint)) return false;
+            seen.add(fingerprint);
+            return true;
+          });
+          // 播放页/合集页摘要不进入核心依据，单独放到次级来源；核心依据最多两条。
+          const picked = deduped.filter((item) => item.tier !== 3).slice(0, 2);
+          const secondary = deduped.filter((item) => item.tier === 3).slice(0, 2);
+          if (!picked.length && !secondary.length) return null;
           const clip = (item: { sentence: string; noisy: boolean }) => {
             if (!item.noisy) return item.sentence.length > 120 ? `${item.sentence.slice(0, 118)}…` : item.sentence;
             const hit = NOISE.exec(item.sentence);
@@ -481,39 +492,54 @@ export function ClueCase({
             if (head.length >= 12) return `${head}…（节选）`;
             return item.sentence.length > 120 ? `${item.sentence.slice(0, 118)}…` : item.sentence;
           };
+          const renderItem = (item: typeof ranked[number], index: number) => (
+            <div className="t-evidence-item" key={`${item.url}-${index}`}>
+              <div className="t-evidence-tags">
+                <span
+                  className="t-evidence-kind"
+                  data-kind={item.tier === 3 ? "excerpt" : item.identityOnly ? "identity" : "plot"}
+                >
+                  {item.tier === 3 ? "页面摘要（非剧情原句）" : item.identityOnly ? "作品身份依据" : "剧情依据"}
+                </span>
+                {item.clues.length && item.tier !== 3 ? (
+                  <span className="t-evidence-clues">对应线索：{item.clues.join("、")}</span>
+                ) : null}
+                {item.tier !== 3 && item.score === 0 ? (
+                  <span className="t-evidence-clues">这段只说明作品身份，不是剧情证据</span>
+                ) : null}
+                {item.tier === 3 ? (
+                  <span className="t-evidence-clues">这条来源只有播放页/合集页摘要，没有可用原句</span>
+                ) : null}
+              </div>
+              <p className="t-evidence-quote">{clip(item)}</p>
+              <div className="t-evidence-meta">
+                <span>{item.site || "来源"}</span>
+                <span>{item.from === "body" ? "原文正文" : "搜索摘要"}</span>
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noreferrer noopener">
+                    打开原始页面
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
           return (
-            <div className="t-evidence" style={{ marginTop: 18 }} aria-label="关键依据">
-              {picked.map((item, index) => (
-                <div className="t-evidence-item" key={`${item.url}-${index}`}>
-                  <div className="t-evidence-tags">
-                    <span
-                      className="t-evidence-kind"
-                      data-kind={item.tier === 3 ? "excerpt" : item.identityOnly ? "identity" : "plot"}
-                    >
-                      {item.tier === 3 ? "页面摘要（非剧情原句）" : item.identityOnly ? "作品身份依据" : "剧情依据"}
-                    </span>
-                    {item.clues.length && item.tier !== 3 ? (
-                      <span className="t-evidence-clues">对应线索：{item.clues.join("、")}</span>
-                    ) : null}
-                    {item.tier !== 3 && item.score === 0 ? (
-                      <span className="t-evidence-clues">这段只说明作品身份，不是剧情证据</span>
-                    ) : null}
-                    {item.tier === 3 ? (
-                      <span className="t-evidence-clues">这条来源只有播放页/合集页摘要，没有可用原句</span>
-                    ) : null}
+            <div className="t-evidence-block" style={{ marginTop: 18 }} aria-label="关键依据">
+              {picked.length ? (
+                <div className="t-evidence">{picked.map(renderItem)}</div>
+              ) : (
+                <p className="t-hint" data-evidence-missing="true">
+                  这次没有取得能直接说明剧情的原句：下面只有页面摘要，不能当作剧情证据。
+                </p>
+              )}
+              {secondary.length ? (
+                <details className="t-disclose" aria-label="次级来源摘要">
+                  <summary>次级来源：{secondary.length} 条页面摘要（非剧情原句）</summary>
+                  <div className="t-disclose-body">
+                    <div className="t-evidence">{secondary.map(renderItem)}</div>
                   </div>
-                  <p className="t-evidence-quote">{clip(item)}</p>
-                  <div className="t-evidence-meta">
-                    <span>{item.site || "来源"}</span>
-                    <span>{item.from === "body" ? "原文正文" : "搜索摘要"}</span>
-                    {item.url ? (
-                      <a href={item.url} target="_blank" rel="noreferrer noopener">
-                        打开原始页面
-                      </a>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                </details>
+              ) : null}
             </div>
           );
         })()}

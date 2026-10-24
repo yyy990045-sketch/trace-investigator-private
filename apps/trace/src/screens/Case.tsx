@@ -392,18 +392,44 @@ export function Case() {
             第一层：一句直接回答。只根据后端给出的结论状态组织措辞，不新增任何事实判断；
             完整判断原文原样保留在下方「完整判断说明」里，不清洗、不删改。
           */}
-          <p className="case-now-text t-answer-lead">
-            {assessment?.lookup?.answer
+          {(() => {
+            // 首屏回答优先说「后端证据真正支持到了什么」，再说明还缺什么；
+            // 措辞全部由结构化字段（partialAnswer / reasons / openQuestions）拼出，不写死任何具体问题。
+            const partialItems = assessment?.verdict?.partialAnswer || [];
+            const lead = assessment?.lookup?.answer
               ? "已经找到对应数值的来源记录；它是否等同主管部门原始发布，还没有核实。"
-              : {
-                  supported: "现有公开来源支持这个说法。",
-                  contradicted: "现有公开来源与这个说法相反。",
-                  disputed: "不同来源对这个说法给出不一致的表述。",
-                  outdated: "相关内容存在，但时效不满足当前结论。",
-                  partial: "只查到一部分材料，还不能给出确定答案。",
-                  insufficient: "目前的材料不足以判断这句话是真是假。",
-                }[verdict.outcome] || "这次调查还没有形成可展示的结论。"}
-          </p>
+              : partialItems.length
+                ? "已经查到与问题直接相关的来源表述，但它们只支持这句话的一部分。"
+                : {
+                    supported: "现有公开来源支持这个说法。",
+                    contradicted: "现有公开来源与这个说法相反。",
+                    disputed: "不同来源对这个说法给出不一致的表述。",
+                    outdated: "相关内容存在，但时效不满足当前结论。",
+                    partial: "只查到一部分材料，还不能给出确定答案。",
+                    insufficient: "目前的材料不足以判断这句话是真是假。",
+                  }[verdict.outcome] || "这次调查还没有形成可展示的结论。";
+            // 「还不能确定」用后端自己给出的理由（例如「来源只给出相关性，没有证明因果」），
+            // 前端只做展示，不额外推断。
+            // 优先用后端明确讲清「相关性 vs 因果」「只覆盖部分条件」的那条理由，
+            // 其次才是「只有摘要」这类过程性理由。
+            const reasons = (verdict.reasons || []) as string[];
+            const gap =
+              reasons.find((reason) => /相关|因果|只支持|条件|范围|口径/.test(reason)) ||
+              reasons.find((reason) => /只|没有|尚未|还没|不足以|不能/.test(reason)) ||
+              (assessment?.openQuestions || [])[0] ||
+              "";
+            return (
+              <>
+                <p className="case-now-text t-answer-lead">{lead}</p>
+                {gap ? (
+                  <p className="t-hint t-answer-gap">
+                    <b>还不能确定：</b>
+                    {evidenceWording(String(gap)).slice(0, 160)}
+                  </p>
+                ) : null}
+              </>
+            );
+          })()}
 
           {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
           {assessment?.verdict?.partialAnswer?.length ? (
