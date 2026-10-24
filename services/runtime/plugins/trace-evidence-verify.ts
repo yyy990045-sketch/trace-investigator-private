@@ -9,7 +9,7 @@
  *    否则明确输出证据不足，并列出还缺什么证据。
  */
 import { type CapabilityDefinition } from "../src/contracts.ts";
-import { findSourcedLookupAnswer } from "../src/lookup-answer.ts";
+import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion } from "../src/lookup-answer.ts";
 import {
   aggregateCase,
   assessFact,
@@ -158,43 +158,9 @@ export default {
     // 但用户真正要的是「官方到底怎么说」。这里只把材料里真实出现的、
     // 带数字或日期的句子按来源权威度列出来，并明确标注「这不是结论」。
     const claimText = String(input.case?.claim || input.case?.question || "");
-    const lookupQuestion = /多少|几多|是多少|公布|发布了吗|什么时候|哪一天|几月几号|日期/.test(claimText);
-    const authoritative =
-      /(gov\.cn|stats\.gov\.cn|mofcom\.gov\.cn|mct\.gov\.cn|pbc\.gov\.cn|nbs\.gov|people\.com\.cn|news\.cn|xinhuanet\.com|cctv\.com|chinanews\.com\.cn)/;
-    const lookup = lookupQuestion
-      ? (() => {
-          const seen = new Set<string>();
-          const hits: { quote: string; url: string; site: string; date: string; from: "body" | "excerpt"; authoritative: boolean }[] = [];
-          for (const page of pages) {
-            const body = bodies.get(page.id);
-            const text = body?.ok ? String(body.text || "") : "";
-            const source = text || String(page.passage || "");
-            for (const sentence of source.split(/[。！？\n]/)) {
-              const line = sentence.trim();
-              if (line.length < 12 || line.length > 160) continue;
-              // 必须真的带数值或日期，否则不是「查到的数据」。
-              if (!/(\d+(?:\.\d+)?\s*(?:亿|万|万人次|万人|%|％|元)|\d{4}\s*年|\d{1,2}\s*月\s*\d{1,2}\s*日)/.test(line)) continue;
-              const key = line.slice(0, 30);
-              if (seen.has(key)) continue;
-              seen.add(key);
-              hits.push({
-                quote: line,
-                url: page.url || "",
-                site: page.site || "",
-                date: page.date || "",
-                from: text ? "body" : "excerpt",
-                authoritative: authoritative.test(page.url || ""),
-              });
-              if (hits.length >= 12) break;
-            }
-            if (hits.length >= 12) break;
-          }
-          return hits
-            .sort((a, b) => Number(b.authoritative) - Number(a.authoritative))
-            .slice(0, 3);
-        })()
-      : [];
-
+    const lookupQuestion = isLookupQuestion(claimText);
+    // 与 buildAssessment 用同一个收集函数：两条读取路径不能给出不同的直接答案。
+    const lookup = lookupQuestion ? collectLookupEvidence(pages, bodies) : [];
     const sourcedLookupAnswer = lookupQuestion ? findSourcedLookupAnswer(claimText, lookup) : null;
 
     return {

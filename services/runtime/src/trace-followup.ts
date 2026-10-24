@@ -17,6 +17,7 @@ import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
+import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion } from "./lookup-answer.ts";
 import { parseClaim } from "../adapters/trace/claim-semantics.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { renderArchive } from "../adapters/trace/archive.ts";
@@ -200,6 +201,21 @@ export function buildAssessment(
     correctionCount: corrections.length,
     pageCount: pages.length,
     corrections,
+    // 查询型问题的「直接答案」也在这里重算：补查后、刷新后都必须还在，
+    // 且与首次核验用同一个收集函数，避免两条路径给出不同数字。
+    ...(() => {
+      if (!isLookupQuestion(claim)) return {};
+      const evidence = collectLookupEvidence(pages, bodies);
+      const answer = findSourcedLookupAnswer(claim, evidence);
+      if (!evidence.length) return {};
+      return {
+        lookup: {
+          note: "以下是从已取得材料中摘出的、与本问题相关的原始表述（含数字或日期）；它们不构成本次结论，来源与时间以页面为准。",
+          items: evidence,
+          ...(answer ? { answer } : {}),
+        },
+      };
+    })(),
     unconfirmedPages: [...grouping.unconfirmed],
     clusterBasis: Object.fromEntries(grouping.clusterBasis),
     keySentenceSources,
