@@ -456,11 +456,16 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       }[] = [];
       const tried = new Set<string>();
       let current = buildAssessment(run).assessment;
-      const fact = current.facts?.[0];
-      const claimText = String((fact as any)?.fact?.text || run.input?.text || "");
+      const claimText = String(
+        (current.facts?.[0] as any)?.fact?.text || run.input?.text || "",
+      );
       const semantics = parseClaim(claimText);
 
-      const askNext = (): { query: string; reason: string; question: string } | null => {
+      /** 每一轮都用「刚重算过的评估」找缺口：第一轮的新资料会直接改变第二轮的查询。 */
+      const askNext = (
+        snapshot: typeof current,
+      ): { query: string; reason: string; question: string } | null => {
+        const fact = snapshot.facts?.[0];
         const sources = ((fact as any)?.sources || []) as any[];
         const bodies = sources.filter((item) => item.bodyAvailable).length;
         const offered = (query: string, reason: string, question: string) =>
@@ -508,7 +513,9 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       };
 
       for (let index = 0; index < budget; index++) {
-        const next = askNext();
+        // 用最新评估决定下一步（不再用循环外拿到的旧事实）
+        current = buildAssessment(store.run(run.id)!).assessment;
+        const next = askNext(current);
         if (!next) break;
         tried.add(next.query);
         const liveRun = store.run(run.id)!;
@@ -537,7 +544,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         }
         const payload = {
           query: next.query,
-          factId: (fact as any)?.factId || null,
+          factId: (current.facts?.[0] as any)?.factId || null,
           requestedAt: attempt.requestedAt || now(),
           requestId: attempt.requestId || null,
           httpStatus: attempt.httpStatus || null,
@@ -658,14 +665,22 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
   // ── 读取当前评估 / 版本历史 ────────────────────────────────────
   app.get<{ Params: { id: string } }>("/v1/runs/:id/trace/assessment", async (req) => {
     const run = traceRun(store, req.params.id);
-    const latest = [...run.evidence].reverse().find((item) => item.kind === REASSESS_KIND);
-    if (latest)
-      return { source: "reassessment", at: latest.createdAt, assessment: (latest.data as any).assessment };
+    // 唯一当前结论：每次读取都用同一套 buildAssessment 现算（包含首次核验、追加检索、
+    // 人工修正与重算）。以前这里优先返回「冻结的核验快照」，导致补查后
+    // /trace/auto 已给出新结论、刷新页面又回到旧结论。
+    const { assessment } = buildAssessment(run);
     const verify = run.steps.find((step) => step.capabilityId === "trace.evidence.verify");
+    const latest = [...run.evidence].reverse().find((item) => item.kind === REASSESS_KIND);
+    const followups = followupsOf(run);
     return {
-      source: "verify-step",
-      at: verify?.finishedAt || null,
-      assessment: (verify?.output as any)?.assessment || null,
+      source: "live",
+      at: now(),
+      assessment,
+      // 保留可追溯的时间点：首次核验、最后一次重算、追加检索次数
+      verifySnapshotAt: verify?.finishedAt || null,
+      reassessmentAt: latest?.createdAt || null,
+      followupCount: followups.length,
+      correctionCount: correctionsOf(run).length,
     };
   });
 
