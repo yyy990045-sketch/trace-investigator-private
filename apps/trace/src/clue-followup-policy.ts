@@ -11,7 +11,7 @@ export interface DetectiveGapState {
   } | null;
   pendingCount: number;
   candidates: {
-    matches: { decisive: boolean; found: boolean }[];
+    matches: { decisive?: boolean; found: boolean }[];
   }[];
   followupCount: number;
 }
