@@ -110,7 +110,7 @@
 
 .trace-v2 .product-header .wordmark small {
   display: block;
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--t-ink-3);
   line-height: 1.3;
 }
@@ -153,7 +153,7 @@
   padding: 8px 12px;
   border-radius: 999px;
   color: var(--t-ink-2);
-  font-size: 14px;
+  font-size: 13.5px;
   text-decoration: none;
 }
 
@@ -211,7 +211,7 @@
 .trace-v2 .t-identity b {
   color: var(--t-ink-3);
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 /* 3. 通用组件 ------------------------------------------------------------- */
@@ -219,21 +219,21 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--t-brand);
 }
 
 .trace-v2 .t-lede {
-  font-size: 16.5px;
+  font-size: 15px;
   line-height: 1.75;
   color: var(--t-ink-2);
   margin: 0;
 }
 
 .trace-v2 .t-hint {
-  font-size: 12.8px;
+  font-size: 13.5px;
   line-height: 1.7;
   color: var(--t-ink-3);
   margin: 0;
@@ -250,7 +250,7 @@
   border: 1px solid var(--t-line-strong);
   background: var(--t-surface);
   color: var(--t-ink);
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -295,7 +295,7 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -343,7 +343,7 @@
 }
 
 .trace-v2 .t-section-head h2 {
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 650;
 }
 
@@ -362,7 +362,7 @@
   gap: 12px;
   padding: 14px 18px;
   cursor: pointer;
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 550;
   color: var(--t-ink);
   list-style: none;
@@ -374,7 +374,7 @@
 
 .trace-v2 .t-disclose > summary::after {
   content: "展开";
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--t-ink-3);
   font-weight: 400;
 }
@@ -395,7 +395,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 12.8px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
 }
 
@@ -419,7 +419,7 @@
 }
 
 .trace-v2 .t-hero-main h1 {
-  font-size: clamp(34px, 4.4vw, 52px);
+  font-size: 28px;
   font-weight: 680;
   line-height: 1.16;
   letter-spacing: -0.02em;
@@ -453,7 +453,7 @@
   resize: none;
   background: transparent;
   font-family: inherit;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.65;
   color: var(--t-ink);
   padding: 12px 14px 4px;
@@ -501,14 +501,14 @@
 
 .trace-v2 .t-example b {
   display: block;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--t-ink);
 }
 
 .trace-v2 .t-example span {
   display: block;
-  font-size: 12.8px;
+  font-size: 13.5px;
   line-height: 1.6;
   color: var(--t-ink-3);
   margin-top: 4px;
@@ -518,7 +518,7 @@
   display: inline-block;
   margin-top: 8px;
   font-style: normal;
-  font-size: 11.5px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--t-brand);
   background: var(--t-brand-soft);
@@ -542,7 +542,7 @@
 }
 
 .trace-v2 .t-feature-q {
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 550;
   line-height: 1.6;
   margin: 10px 0 8px;
@@ -564,7 +564,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--t-ink-3);
 }
 
@@ -578,12 +578,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  font-size: 12.8px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
 }
 
 .trace-v2 .t-question {
-  font-size: clamp(19px, 2.4vw, 24px);
+  font-size: 28px;
   font-weight: 550;
   line-height: 1.55;
   margin: 10px 0 0;
@@ -608,7 +608,7 @@
 }
 
 .trace-v2 .t-answer-name {
-  font-size: clamp(30px, 4vw, 44px);
+  font-size: 28px;
   font-weight: 680;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -622,19 +622,19 @@
 
 .trace-v2 .t-answer-name[data-state="insufficient"] {
   color: var(--t-ink-2);
-  font-size: clamp(24px, 3vw, 32px);
+  font-size: 28px;
 }
 
 .trace-v2 .t-answer-line {
   margin: 10px 0 0;
-  font-size: 15.5px;
+  font-size: 15px;
   line-height: 1.7;
   color: var(--t-ink-2);
   max-width: 44em;
 }
 
 .trace-v2 .t-value {
-  font-size: clamp(34px, 4.6vw, 52px);
+  font-size: 28px;
   font-weight: 680;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -644,7 +644,7 @@
 }
 
 .trace-v2 .t-value small {
-  font-size: 0.42em;
+  font-size: 11px;
   font-weight: 600;
   color: var(--t-ink-2);
   margin-left: 8px;
@@ -664,12 +664,12 @@
   grid-template-columns: 78px minmax(0, 1fr);
   gap: 12px;
   align-items: start;
-  font-size: 14.2px;
+  font-size: 13.5px;
   line-height: 1.7;
 }
 
 .trace-v2 .t-fact > dt {
-  font-size: 12.8px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
   padding-top: 2px;
 }
@@ -691,7 +691,7 @@
   align-items: center;
   padding: 3px 10px;
   border-radius: 999px;
-  font-size: 12.8px;
+  font-size: 13.5px;
   background: var(--t-surface-2);
   border: 1px solid var(--t-line);
   color: var(--t-ink-2);
@@ -730,7 +730,7 @@
 
 .trace-v2 .t-evidence-quote {
   margin: 0;
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.75;
   color: var(--t-ink);
 }
@@ -753,7 +753,7 @@
   align-items: center;
   gap: 10px;
   margin-top: 10px;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--t-ink-3);
 }
 
@@ -803,12 +803,12 @@
 }
 
 .trace-v2 .t-candidate-name {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 620;
 }
 
 .trace-v2 .t-candidate-meta {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--t-ink-3);
 }
 
@@ -823,7 +823,7 @@
 .trace-v2 .t-timeline li {
   position: relative;
   padding: 0 0 16px 16px;
-  font-size: 13.8px;
+  font-size: 13.5px;
   line-height: 1.7;
   color: var(--t-ink-2);
 }
@@ -855,7 +855,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
 }
 
@@ -872,7 +872,7 @@
 }
 
 .trace-v2 .t-report-title {
-  font-size: clamp(22px, 3vw, 30px);
+  font-size: 28px;
   font-weight: 650;
   line-height: 1.45;
   margin: 10px 0 0;
@@ -912,7 +912,7 @@
   }
 
   .trace-v2 .t-hero-main h1 {
-    font-size: 30px;
+    font-size: 28px;
     margin-top: 10px;
   }
 
@@ -926,7 +926,7 @@
 
   .trace-v2 .t-composer textarea {
     min-height: 96px;
-    font-size: 16px; /* iOS 不缩放 */
+    font-size: 15px; /* iOS 不缩放 */
   }
 
   .trace-v2 .t-composer-foot {
@@ -985,7 +985,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 10px;
-  font-size: 13.8px;
+  font-size: 13.5px;
 }
 
 .trace-v2 .t-plain-list a {
@@ -1030,7 +1030,7 @@
 .trace-v2 .clue-open-relations h3,
 .trace-v2 .clue-next h3,
 .trace-v2 .clue-ask h3 {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 620;
   color: var(--t-ink);
   margin: 0 0 8px;
@@ -1042,13 +1042,13 @@
 .trace-v2 .clue-sources ul {
   margin: 0;
   padding-left: 18px;
-  font-size: 13.8px;
+  font-size: 13.5px;
   line-height: 1.75;
   color: var(--t-ink-2);
 }
 
 .trace-v2 .clue-hint {
-  font-size: 12.8px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
   line-height: 1.7;
 }
@@ -1071,7 +1071,7 @@
 }
 
 .trace-v2 .clue-candidate-card h3 {
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 620;
   margin: 0 0 4px;
 }
@@ -1085,7 +1085,7 @@
 }
 
 .trace-v2 .clue-candidate-card li {
-  font-size: 13.4px;
+  font-size: 13.5px;
   line-height: 1.7;
   color: var(--t-ink-2);
 }
@@ -1104,7 +1104,7 @@
 }
 
 .trace-v2 .clue-section-head h2 {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 /* 公开核验页 */
@@ -1134,7 +1134,7 @@
 }
 
 .trace-v2 .case-now-label {
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
 }
 
@@ -1143,7 +1143,7 @@
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   background: var(--t-unknown-soft);
   color: var(--t-unknown);
@@ -1168,12 +1168,12 @@
 
 .trace-v2 .case-now-state {
   margin-left: auto;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--t-ink-3);
 }
 
 .trace-v2 .case-now-text {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.78;
   color: var(--t-ink);
   margin: 14px 0 0;
@@ -1183,7 +1183,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 18px;
-  font-size: 12.8px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
   margin-top: 14px;
 }
@@ -1199,14 +1199,14 @@
   border-radius: var(--r-md);
   background: var(--t-surface-2);
   border: 1px solid var(--t-line);
-  font-size: 13.6px;
+  font-size: 13.5px;
   line-height: 1.75;
   color: var(--t-ink-2);
 }
 
 .trace-v2 .trace-hint,
 .trace-v2 .trace-lede {
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.7;
   color: var(--t-ink-3);
 }
@@ -1217,7 +1217,7 @@
   padding: 0;
   display: grid;
   gap: 10px;
-  font-size: 13.4px;
+  font-size: 13.5px;
   line-height: 1.7;
   color: var(--t-ink-2);
 }
@@ -1242,7 +1242,7 @@
 
 /* 档案页 */
 .trace-v2 .t-report-head h1 {
-  font-size: clamp(20px, 2.6vw, 26px);
+  font-size: 28px;
   font-weight: 620;
   line-height: 1.5;
   margin: 8px 0 0;
@@ -1266,7 +1266,7 @@
 }
 
 .trace-v2 .trace-verdict-head h2 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 650;
   margin: 0;
 }
@@ -1281,7 +1281,7 @@
   flex-wrap: wrap;
   gap: 8px 18px;
   margin-top: 16px;
-  font-size: 12.8px;
+  font-size: 13.5px;
   color: var(--t-ink-3);
 }
 
@@ -1293,7 +1293,7 @@
 .trace-v2 .trace-notes {
   margin: 14px 0 0;
   padding-left: 18px;
-  font-size: 13.4px;
+  font-size: 13.5px;
   line-height: 1.75;
   color: var(--t-ink-2);
 }
@@ -1306,7 +1306,7 @@
 }
 
 .trace-v2 .trace-block h2 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 620;
   margin: 0 0 10px;
 }
@@ -1332,7 +1332,7 @@
   align-items: center;
   padding: 2px 9px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
   background: var(--t-brand-soft);
@@ -1346,7 +1346,7 @@
 }
 
 .trace-v2 .t-evidence-clues {
-  font-size: 12.2px;
+  font-size: 12px;
   color: var(--t-ink-3);
 }
 
@@ -1389,7 +1389,7 @@
 @media (max-width: 720px) {
   .trace-v2 .t-case-top-group .t-question {
     margin-bottom: 10px;
-    font-size: 17px;
+    font-size: 18px;
     line-height: 1.6;
   }
 
@@ -1417,14 +1417,14 @@
   }
 
   .trace-v2 .t-evidence-quote {
-    font-size: 14px;
+    font-size: 13.5px;
     line-height: 1.7;
   }
 }
 
 /* 公开核验页：一句话答案 + 依据面板，避免一整张超长白卡 */
 .trace-v2 .t-answer-lead {
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 620;
   line-height: 1.6;
   letter-spacing: -0.01em;
@@ -1442,7 +1442,7 @@
 
 @media (max-width: 720px) {
   .trace-v2 .t-answer-lead {
-    font-size: 17px;
+    font-size: 18px;
   }
 
   .trace-v2 .case-now-counts[aria-label="已经找到但仍需核实的来源表述"] {
@@ -1468,7 +1468,7 @@
   border: 1px solid var(--t-line);
   background: var(--t-surface);
   color: var(--t-brand-deep);
-  font-size: 12.8px;
+  font-size: 13.5px;
   text-decoration: none;
   max-width: 260px;
   overflow: hidden;
@@ -1496,7 +1496,7 @@
 
 .trace-v2 .t-identity-source {
   margin-left: auto;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--t-brand);
   text-decoration: none;
   border-bottom: 1px solid rgba(15, 92, 107, 0.25);
@@ -1512,13 +1512,13 @@
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   gap: 10px;
-  font-size: 13.6px;
+  font-size: 13.5px;
   line-height: 1.6;
 }
 
 .trace-v2 .t-identity-row dt {
   color: var(--t-ink-3);
-  font-size: 12.6px;
+  font-size: 12px;
 }
 
 .trace-v2 .t-identity-row dd {
@@ -1698,7 +1698,7 @@
   .trace-v2 .t-plain-list a::after,
   .trace-v2 .t-key-sources a::after {
     content: " (" attr(href) ")";
-    font-size: 10px;
+    font-size: 11px;
     word-break: break-all;
   }
 }
@@ -1731,7 +1731,7 @@
 /* 首屏「还不能确定」一行 */
 .trace-v2 .t-answer-gap {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.7;
   color: var(--t-ink-2);
 }
@@ -1744,7 +1744,7 @@
 
 @media (max-width: 720px) {
   .trace-v2 .t-disclose > summary {
-    font-size: 14px;
+    font-size: 13.5px;
     gap: 8px;
   }
 }
@@ -1793,6 +1793,306 @@
   }
   .trace-v2 .t-share-text {
     min-height: 120px;
-    font-size: 14px;
+    font-size: 13.5px;
   }
+}
+
+/* 9. 输入导入（截图 OCR / 链接） -------------------------------------------- */
+.trace-v2 .t-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+.trace-v2 .t-import-tag {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--t-brand-soft);
+  color: var(--t-brand-deep);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.trace-v2 .t-import-panel {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--t-line);
+  border-radius: 12px;
+  background: var(--t-surface-2);
+  display: grid;
+  gap: 10px;
+}
+.trace-v2 .t-import-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--t-line-strong);
+  border-radius: 10px;
+  background: var(--t-surface);
+  color: var(--t-ink);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+.trace-v2 .t-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.trace-v2 .t-import-result {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--t-line-strong);
+}
+@media (max-width: 520px) {
+  .trace-v2 .t-import-row {
+    padding: 8px 12px 0;
+  }
+  .trace-v2 .t-import-panel {
+    padding: 12px;
+  }
+  .trace-v2 .t-import-panel textarea {
+    font-size: 13.5px;
+    min-height: 92px;
+  }
+}
+
+/* ==========================================================================
+   V3 排版层：统一栅格、间距阶梯与双栏案例页
+   --------------------------------------------------------------------------
+   这一层只解决「乱、留白多、复杂」，不改任何判定或内容：
+   1) 字号已在上层收敛为 6 级：11 / 12 / 13.5 / 15 / 18 / 28；
+   2) 竖向节奏只允许 4 / 8 / 12 / 16 / 24 / 32 六档；
+   3) 案例页在 ≥1200px 改为「主栏结论证据 + 侧栏过程统计」，侧栏 sticky；
+   4) 小于 1200px 回退单栏，顺序仍是先结论后过程。
+   ========================================================================== */
+
+.trace-v2 .trace-page {
+  --t-s1: 4px;
+  --t-s2: 8px;
+  --t-s3: 12px;
+  --t-s4: 16px;
+  --t-s5: 24px;
+  --t-s6: 32px;
+  gap: var(--t-s5);
+  padding-bottom: var(--t-s6);
+}
+
+/* 顶层兄弟只保留一档间距，避免 44/52/75/121 混用 */
+.trace-v2 .trace-page > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* 双栏：主栏宽、侧栏固定 320px；侧栏跟随滚动 */
+.trace-v2 .t-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--t-s5);
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .trace-v2 .t-shell {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: var(--t-s6);
+  }
+  .trace-v2 .t-aside {
+    position: sticky;
+    top: var(--t-s4);
+    max-height: calc(100vh - var(--t-s6));
+    overflow-y: auto;
+    padding-right: var(--t-s1);
+  }
+}
+
+.trace-v2 .t-main,
+.trace-v2 .t-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--t-s4);
+  min-width: 0;
+}
+.trace-v2 .t-main > *,
+.trace-v2 .t-aside > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* 侧栏里的区块更紧凑：只留必要内边距 */
+.trace-v2 .t-aside .t-disclose,
+.trace-v2 .t-aside .trace-versions,
+.trace-v2 .t-aside .trace-approve,
+.trace-v2 .t-aside .trace-next,
+.trace-v2 .t-aside .trace-searchline,
+.trace-v2 .t-aside .trace-conflict {
+  padding: var(--t-s3) var(--t-s4);
+}
+.trace-v2 .t-aside .t-disclose-body {
+  padding-top: var(--t-s3);
+}
+
+/* 结论区：数值/答案与元信息对齐同一条基线 */
+.trace-v2 .case-now {
+  padding: var(--t-s5) var(--t-s5);
+}
+.trace-v2 .case-now .t-value {
+  margin: var(--t-s2) 0 var(--t-s3);
+  line-height: 1.2;
+}
+
+/* 事实区：标题、计数与来源卡统一 12px 节奏 */
+.trace-v2 .trace-fact {
+  padding: var(--t-s4);
+}
+.trace-v2 .trace-fact-head {
+  gap: var(--t-s2);
+}
+.trace-v2 .trace-fact-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--t-s1) var(--t-s3);
+  margin: var(--t-s2) 0 var(--t-s3);
+  padding-bottom: var(--t-s2);
+}
+.trace-v2 .trace-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--t-s2);
+}
+.trace-v2 .trace-fact-foot {
+  margin-top: var(--t-s3);
+}
+
+/* 来源卡：内部只留两档间距 */
+.trace-v2 .source-card,
+.trace-v2 .trace-source {
+  padding: var(--t-s3);
+}
+.trace-v2 .source-card > * + *,
+.trace-v2 .trace-source > * + * {
+  margin-top: var(--t-s2);
+}
+
+/* 首页：标题降一级、说明并两行、示例上移 */
+.trace-v2 .t-hero {
+  padding: var(--t-s3) var(--t-s4);
+  gap: var(--t-s2);
+}
+.trace-v2 .t-hero h1 {
+  margin: 0;
+  line-height: 1.15;
+}
+.trace-v2 .t-hero p {
+  margin: 0;
+}
+.trace-v2 .t-example-row,
+.trace-v2 .t-examples {
+  gap: var(--t-s2);
+  margin-top: var(--t-s3);
+}
+
+@media (max-width: 640px) {
+  .trace-v2 .trace-page {
+    gap: var(--t-s4);
+    padding-left: var(--t-s4);
+    padding-right: var(--t-s4);
+  }
+  .trace-v2 .case-now,
+  .trace-v2 .trace-fact {
+    padding: var(--t-s3);
+  }
+}
+
+/* 案例页给足可用宽度：主栏 + 侧栏都在 1240 版心内，别再被 980 卡住 */
+.trace-v2 .trace-page.trace-page-wide {
+  max-width: 1240px;
+}
+@media (min-width: 1200px) {
+  .trace-v2 .trace-page.trace-page-wide {
+    padding-left: var(--t-s5);
+    padding-right: var(--t-s5);
+  }
+}
+
+/* 共用组件库的 .plain-link 用了 13px，收敛到 13.5 级 */
+.trace-v2 .plain-link {
+  font-size: 13.5px;
+}
+
+/* 首页 hero 内部再压一档：说明并两行、输入框与示例贴近 */
+.trace-v2 .t-hero-main {
+  gap: var(--t-s2);
+}
+.trace-v2 .t-hero-main > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.trace-v2 .t-hero textarea {
+  height: 72px;
+  min-height: 72px;
+  max-height: 120px;
+}
+.trace-v2 .t-hero .t-lede,
+.trace-v2 .t-hero .t-sub {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 示例入口压紧：卡片内边距与行高各降一档，首屏能一次看全 */
+.trace-v2 .t-examples {
+  gap: var(--t-s2);
+}
+.trace-v2 .t-example {
+  padding: 6px 10px;
+  line-height: 1.4;
+}
+.trace-v2 .t-example-row {
+  gap: var(--t-s2);
+}
+
+/* 「输入导入」（截图/链接）压缩成与输入框同一条紧凑条：功能保留，不再顶掉首屏 */
+.trace-v2 .t-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--t-s1) var(--t-s2);
+  margin: 0;
+  padding: 0;
+}
+.trace-v2 .t-import-tag {
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.trace-v2 .t-import-row {
+  line-height: 1.2;
+}
+.trace-v2 .t-import-row .trace-btn,
+.trace-v2 .t-import-row button {
+  padding: 2px 8px;
+}
+.trace-v2 .t-import-row .t-hint {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .trace-v2 .t-import-row .t-hint {
+    display: none;
+  }
+}
+
+/* 提交行再压一档：按钮与提示同一行，高度对齐到 8px 阶梯 */
+.trace-v2 .t-composer-foot {
+  min-height: 0;
+  padding-top: var(--t-s2);
+  padding-bottom: var(--t-s2);
+  gap: var(--t-s2);
+}
+.trace-v2 .t-composer-foot .trace-btn,
+.trace-v2 .t-composer-foot button {
+  padding-top: 6px;
+  padding-bottom: 6px;
 }

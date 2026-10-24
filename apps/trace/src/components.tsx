@@ -333,7 +333,7 @@ export function FactBlock({
 
       {shown.length ? (
         <div className="trace-evidence-list">
-          {shown.map((source) => (
+          {shown.slice(0, 3).map((source) => (
             <SourceCard
               key={source.pageId}
               source={source}
@@ -349,6 +349,24 @@ export function FactBlock({
           没有任何来源直接表述这条事实。可以换个更具体的检索式，或就这条继续追问。
         </p>
       )}
+
+      {shown.length > 3 ? (
+        <details className="trace-details trace-more-sources">
+          <summary>展开其余 {shown.length - 3} 条相关来源</summary>
+          <div className="trace-evidence-list">
+            {shown.slice(3).map((source) => (
+              <SourceCard
+                key={source.pageId}
+                source={source}
+                cluster={clusterById.get(source.clusterId)}
+                fresh={freshPageIds.has(source.pageId)}
+                onFollowup={SHOWCASE ? undefined : (item) => onFollowup(fact, item)}
+                onCorrect={onCorrect}
+              />
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       <div className="trace-fact-foot">
         {SHOWCASE ? null : <button type="button" className="trace-btn trace-btn-ghost" onClick={() => onFollowup(fact)}>
