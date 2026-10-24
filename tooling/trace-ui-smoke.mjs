@@ -24,12 +24,19 @@ try {
   if (!(await page.getByRole("link", { name: /查看真实调查/ }).count()))
     throw new Error("主入口不可点击");
   await page.screenshot({ path: output + "/home-desktop.png", fullPage: true });
-  // 侦探赛道的第一条实际体验必须可用；不能让首页主示例打开缺失的历史调查。
-  const clueSample = page.locator(".clue-example").filter({ hasText: "找线索" }).first();
-  if (!(await clueSample.count())) throw new Error("首页缺少主打的模糊线索侦探入口");
-  await clueSample.click();
-  await page.waitForURL((url) => url.hash.includes("/cases/"), { timeout: 15000 });
-  await page.getByText("法医秦明", { exact: false }).first().waitFor({ state: "visible", timeout: 15000 });
+  // 三条真实侦探调查从首页逐一点击：必须进入正确案件，且答案有实际渲染。
+  for (const example of [
+    { label: "找线索", id: "run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb", answer: "法医秦明" },
+    { label: "按剧情找电影", id: "run_1413b04d-4b42-4806-9060-da6b40d1a432", answer: "源代码" },
+    { label: "排除翻拍和续作", id: "run_1b4e678d-eb31-4e39-b467-a4ed80db4db0", answer: "无间道" },
+  ]) {
+    await page.goto(base + "/#/", { waitUntil: "networkidle" });
+    const trigger = page.locator(".clue-example").filter({ hasText: example.label }).first();
+    if (!(await trigger.count())) throw new Error("首页缺少真实侦探入口：" + example.label);
+    await trigger.click();
+    await page.waitForURL((url) => url.hash.includes(example.id), { timeout: 15000 });
+    await page.getByText(example.answer, { exact: false }).first().waitFor({ state: "visible", timeout: 15000 });
+  }
   await page.goto(base + "/#/", { waitUntil: "networkidle" });
 
 
