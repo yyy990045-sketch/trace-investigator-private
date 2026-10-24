@@ -21,7 +21,7 @@ try {
   await page.getByRole("heading", { name: /只记得一点线索.*追到答案/ }).waitFor({ timeout: 15000 });
   if (await page.locator("textarea[aria-label='你想查什么']").count())
     throw new Error("只读展示出现无法操作的假搜索输入框");
-  if (!(await page.getByRole("link", { name: /查看真实调查/ }).count()))
+  if (!(await page.getByRole("link", { name: /查看侦探实战/ }).count()))
     throw new Error("主入口不可点击");
   await page.screenshot({ path: output + "/home-desktop.png", fullPage: true });
   // 三条真实侦探调查从首页逐一点击：必须进入正确案件，且答案有实际渲染。
@@ -60,10 +60,10 @@ try {
     }
   }
   await page.goto(base + "/#/", { waitUntil: "networkidle" });
-  await page.getByRole("link", { name: /查看真实调查/ }).click();
-  await page.waitForURL((url) => url.hash.includes("run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6"));
-  await page.getByText("2021年11月1日", { exact: false }).first().waitFor();
-  await page.screenshot({ path: output + "/case-law-desktop.png", fullPage: true });
+  await page.getByRole("link", { name: /查看侦探实战/ }).click();
+  await page.waitForURL((url) => url.hash.includes("run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb"));
+  await page.getByText("法医秦明", { exact: false }).first().waitFor();
+  await page.screenshot({ path: output + "/case-detective-desktop.png", fullPage: true });
 
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 1 });
   phone.on("pageerror", (e) => errors.push(e.message));
