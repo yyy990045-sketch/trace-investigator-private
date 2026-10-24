@@ -73,14 +73,39 @@ try {
   await phone.goto(base + "/#/", { waitUntil: "networkidle" });
   await phone.getByRole("heading", { name: /你想查清什么|只记得一点线索/ }).waitFor();
   await phone.screenshot({ path: output + "/home-mobile.png", fullPage: true });
-  const overflow = await phone.evaluate(() => ({
-    content: document.documentElement.scrollWidth,
-    viewport: window.innerWidth,
-  }));
-  if (overflow.content > overflow.viewport + 4)
-    throw new Error("390px 页面发生横向溢出：" + JSON.stringify(overflow));
+
+  /** 390px 下每一页都不能出现横向溢出：手机上出现横向滚动就等于内容被裁。 */
+  const assertNoOverflow = async (label) => {
+    const overflow = await phone.evaluate(() => ({
+      content: document.documentElement.scrollWidth,
+      viewport: window.innerWidth,
+    }));
+    if (overflow.content > overflow.viewport + 4)
+      throw new Error(`390px 页面发生横向溢出（${label}）：` + JSON.stringify(overflow));
+  };
+  await assertNoOverflow("首页");
+
+  const mobilePages = [
+    { label: "影视调查", path: "/#/cases/run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb", marker: "法医秦明" },
+    { label: "公开核验", path: "/#/cases/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6", marker: "1316.8" },
+    { label: "调查档案", path: "/#/archive/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6", marker: "调查档案" },
+  ];
+  for (const item of mobilePages) {
+    await phone.goto(base + item.path, { waitUntil: "networkidle" });
+    await phone.getByText(item.marker, { exact: false }).first().waitFor({ state: "visible", timeout: 15000 });
+    await assertNoOverflow(item.label);
+  }
+
+  // 影视调查页必须有返回入口，并且点了真的回到首页（此前只有顶部品牌可点）。
+  await phone.goto(base + "/#/cases/run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb", { waitUntil: "networkidle" });
+  const back = phone.getByRole("link", { name: /新的调查/ }).first();
+  if (!(await back.count())) throw new Error("影视调查页缺少返回入口");
+  await back.click();
+  await phone.waitForURL((url) => !url.hash.includes("/cases/"), { timeout: 15000 });
+  await phone.getByRole("heading", { name: /你想查清什么|只记得一点线索/ }).waitFor({ timeout: 15000 });
+
   if (errors.length) throw new Error("前端未捕获异常：" + errors.join(" | "));
-  console.log("TRACE 无密钥静态展示验收通过：主页、三个 V14 案例、1440/390px，无横向溢出或页面异常。");
+  console.log("TRACE 无密钥静态展示验收通过：主页、三个 V14 案例、1440/390px，五页无横向溢出、返回入口可用、无页面异常。");
 } finally {
   await browser.close();
 }

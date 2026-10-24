@@ -477,22 +477,14 @@ export function Entry() {
                 {outcomeLabel[featured.digest.outcome || "insufficient"] || "调查记录"}
               </span>
               <p className="t-feature-q">{featured.digest.question}</p>
-              <p className="t-feature-text">
-                {(() => {
-                  // 精选卡只放一句话结论：完整来源与补查记录在详情页里。
-                  const text = String(featured.digest.statement || "")
-                    .replace(/查到的是：[\s\S]*?。/, "")
-                    .replace(/——[\s\S]*?(。|$)/, "。")
-                    .trim();
-                  return text.length > 78 ? `${text.slice(0, 76)}…` : text;
-                })()}
-              </p>
+              {/* 结论原文完整保留，只在视觉上截断（CSS line-clamp），不做任何正则裁剪。 */}
+              <p className="t-feature-text">{featured.digest.statement}</p>
               <div className="t-feature-foot">
                 <span>
                   {featured.digest.independentSources} 个独立来源 · {featured.digest.bodyBacked} 份原文
                 </span>
                 <a className="t-btn t-btn-quiet" href={caseHref(featured.digest.runId)}>
-                  查看过程 <ArrowRight size={14} />
+                  查看完整结论 <ArrowRight size={14} />
                 </a>
               </div>
             </div>

@@ -14,7 +14,7 @@ import {
   type TraceBundleView,
 } from "../api";
 import type { RunRecord } from "@personal/capability-sdk";
-import { formatTime } from "../components";
+import { BackLink, formatTime } from "../components";
 import { needsDetectiveFollowup } from "../clue-followup-policy";
 
 const clueKindName: Record<ClueItemView["kind"], string> = {
@@ -199,7 +199,11 @@ export function ClueCase({
       </header>
 
       {/* 首屏：答案、依据与未解疑点，优先于搜索过程 */}
-      <section className="t-verdict" data-state={decision?.state || "insufficient"} aria-label="调查结果">
+      <section
+        className="t-verdict t-verdict-split"
+        data-state={decision?.state || "insufficient"}
+        aria-label="调查结果"
+      >
         <div className="t-verdict-main">
         <div className="t-verdict-head">
           <span className="t-status" data-tone={decision?.state || "insufficient"}>
@@ -336,45 +340,80 @@ export function ClueCase({
           </div>
         ) : null}
 
-        {/* 作品身份：类型 / 年份 / 导演 / 主演，都带来源，第一屏就能核对。 */}
-        {candidates[0]?.identity ? (
-          <div className="t-identity" aria-label="作品身份">
-            <b>作品身份：</b>
-            {[
-              (candidates[0].identity.types || []).map((item: any) => (item.value === "tv" ? "电视剧" : item.value === "film" ? "电影" : item.value === "anime" ? "动画" : item.value === "book" ? "小说/原著" : "类型未知")),
-              (candidates[0].identity.years || []).map((item: any) => `${item.value} 年`),
-              (candidates[0].identity.directors || []).map((item: any) => `导演 ${item.value}`),
-              (candidates[0].identity.cast || []).slice(0, 3).map((item: any) => `主演 ${item.value}`),
-            ].flat().filter(Boolean).join(" · ") || "现有资料没有写清类型、年份或演职员"}
-            {(candidates[0].identity.conflicts || []).length ? (
-              <span data-identity-conflict="true">
-                {" "}（{(candidates[0].identity?.conflicts || []).join("；")}）
-              </span>
-            ) : null}
-            {(() => {
-              const evidence = [
-                ...(candidates[0].identity.types || []),
-                ...(candidates[0].identity.years || []),
-              ].find((item: any) => item.url);
-              return evidence ? (
-                <>
-                  {" "}
-                  <a href={evidence.url} target="_blank" rel="noreferrer noopener">
+        {/* 作品身份：类型 / 年份 / 导演 / 主演分开写，资料没写清的地方如实说明。 */}
+        {(() => {
+          const identity = candidates[0]?.identity;
+          if (!identity) return null;
+          const typeLabel = (value: string) =>
+            value === "tv"
+              ? "电视剧"
+              : value === "film"
+                ? "电影"
+                : value === "anime"
+                  ? "动画"
+                  : value === "book"
+                    ? "小说/原著"
+                    : "类型未知";
+          const types = (identity.types || []).map((item: any) => typeLabel(item.value));
+          const rows = [
+            { label: "年份", values: (identity.years || []).map((item: any) => `${item.value} 年`) },
+            { label: "导演", values: (identity.directors || []).map((item: any) => item.value) },
+            { label: "主演", values: (identity.cast || []).slice(0, 3).map((item: any) => item.value) },
+          ].filter((row) => row.values.length);
+          const evidence = [...(identity.types || []), ...(identity.years || [])].find((item: any) => item.url);
+          const empty = !types.length && !rows.length;
+          return (
+            <div className="t-identity" aria-label="作品身份">
+              <div className="t-identity-head">
+                <b>作品身份</b>
+                {types.length ? (
+                  <div className="t-chips">
+                    {types.map((type) => (
+                      <span className="t-chip" key={type}>
+                        {type}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {evidence ? (
+                  <a
+                    className="t-identity-source"
+                    href={evidence.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
                     {evidence.site || "来源"}
                   </a>
-                </>
-              ) : null;
-            })()}
-          </div>
-        ) : null}
-
+                ) : null}
+              </div>
+              {rows.length ? (
+                <dl className="t-identity-rows">
+                  {rows.map((row) => (
+                    <div className="t-identity-row" key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.values.join("、")}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+              {empty ? <p className="t-hint">现有资料没有写清类型、年份或演职员。</p> : null}
+              {(identity.conflicts || []).length ? (
+                <p className="t-hint" data-identity-conflict="true">
+                  资料本身存在不同说法：{(identity.conflicts || []).join("；")}（按原句保留，不替任何一方下结论）
+                </p>
+              ) : null}
+            </div>
+          );
+        })()}
         </div>
 
         <div className="t-verdict-side">
         {/*
-          关键依据：只在「真的能对应线索」的原句里挑，最多两条，同句不重复。
-          一句话能覆盖多条线索时优先；只写了上映/导演/主演这类信息的，明确标成「作品身份依据」，
-          不伪装成剧情证据。
+          关键依据：三层降级，只有确实没有更好的句子时才用页面摘要，并如实标注。
+            ① 正文原句（同句命中、非噪声）        → 剧情依据
+            ② 搜索摘要里的同句命中（非噪声）      → 剧情依据（标注「搜索摘要」）
+            ③ 其余（播放页/合集页标题式摘要等）    → 页面摘要（非剧情原句），截断到噪声之前
+          只写上映/导演/主演这类信息的句子一律标「作品身份依据」。
         */}
         {(() => {
           const lead =
@@ -382,14 +421,13 @@ export function ClueCase({
             candidates[0];
           if (!lead) return null;
           const IDENTITY = /(执导|导演|主演|出演|饰演|上映|首播|推出|出品|制片|改编自|获得|票房)/;
-          // 真正说明剧情的句子通常带这些动作/关系词；只有片名、年份、导演的句子不算。
           const PLOT = /(讲述|剧情|故事|经历|为了|决定|遇见|遇到|救|帮助|寻找|对抗|长大|发现|成为朋友|结识|爱上|复仇|逃离|潜入|调查|追查)/;
+          const NOISE = /(播放|一口气|合集|全集|在线观看|\d+\s*集|资源|下载|完整版|\d{1,2}\s*:\s*\d{2})/;
           const name = lead.name || "";
           // 线索如果本身就在片名里（「龙」之于《驯龙高手》），句子里只出现片名不能算该线索的证据。
           const outsideTitle = (sentence: string, clue: string) => {
             if (!name || (!name.includes(clue) && !clue.includes(name))) return sentence.includes(clue);
-            const stripped = sentence.split(name).join(" ");
-            return stripped.includes(clue);
+            return sentence.split(name).join(" ").includes(clue);
           };
           const bySentence = new Map<
             string,
@@ -411,38 +449,60 @@ export function ClueCase({
           }
           const ranked = [...bySentence.values()]
             .map((item) => {
-              // 只看「这个词在片名之外是否出现」，避免把书名号里的片名当成剧情证据。
               const plotClues = item.clues.filter((clue) => outsideTitle(item.sentence, clue));
+              const noisy = NOISE.test(item.sentence);
               const identityOnly = IDENTITY.test(item.sentence) && !PLOT.test(item.sentence);
-              return { ...item, score: plotClues.length, identityOnly };
+              // 层级越小越好：1 正文同句、2 摘要同句、3 只能拿到页面摘要。
+              const tier = noisy ? 3 : item.from === "body" && item.scope === "sentence" ? 1 : 2;
+              return { ...item, score: plotClues.length, identityOnly, noisy, tier };
             })
-            .map((item) => {
-              // 播放页、合集页的标题式摘要不是剧情证据，排序时压后。
-              const noisy = /(播放|一口气|全集|资源|下载|在线观看|第\s*\d+\s*集|完整版)/.test(item.sentence);
-              const bodyBonus = item.from === "body" ? 1 : 0;
-              return { ...item, weight: (item.identityOnly ? 0 : 10) + item.score * 2 + bodyBonus - (noisy ? 6 : 0) };
+            .sort(
+              (a, b) =>
+                Number(a.identityOnly) - Number(b.identityOnly) ||
+                a.tier - b.tier ||
+                b.score - a.score ||
+                Number(b.from === "body") - Number(a.from === "body"),
+            );
+          // 近重复合并：同一段内容（前 40 字相同）只留一条。
+          const seen = new Set<string>();
+          const picked = ranked
+            .filter((item) => {
+              const fingerprint = item.sentence.slice(0, 40);
+              if (seen.has(fingerprint)) return false;
+              seen.add(fingerprint);
+              return true;
             })
-            .sort((a, b) => b.weight - a.weight);
-          const picked = ranked.slice(0, 2);
+            .slice(0, 2);
           if (!picked.length) return null;
+          const clip = (item: { sentence: string; noisy: boolean }) => {
+            if (!item.noisy) return item.sentence.length > 120 ? `${item.sentence.slice(0, 118)}…` : item.sentence;
+            const hit = NOISE.exec(item.sentence);
+            const head = hit ? item.sentence.slice(0, hit.index).trim() : "";
+            if (head.length >= 12) return `${head}…（节选）`;
+            return item.sentence.length > 120 ? `${item.sentence.slice(0, 118)}…` : item.sentence;
+          };
           return (
             <div className="t-evidence" style={{ marginTop: 18 }} aria-label="关键依据">
               {picked.map((item, index) => (
                 <div className="t-evidence-item" key={`${item.url}-${index}`}>
                   <div className="t-evidence-tags">
-                    <span className="t-evidence-kind" data-kind={item.identityOnly ? "identity" : "plot"}>
-                      {item.identityOnly ? "作品身份依据" : "剧情依据"}
+                    <span
+                      className="t-evidence-kind"
+                      data-kind={item.tier === 3 ? "excerpt" : item.identityOnly ? "identity" : "plot"}
+                    >
+                      {item.tier === 3 ? "页面摘要（非剧情原句）" : item.identityOnly ? "作品身份依据" : "剧情依据"}
                     </span>
-                    {item.clues.length ? (
+                    {item.clues.length && item.tier !== 3 ? (
                       <span className="t-evidence-clues">对应线索：{item.clues.join("、")}</span>
                     ) : null}
-                    {item.score === 0 ? (
+                    {item.tier !== 3 && item.score === 0 ? (
                       <span className="t-evidence-clues">这段只说明作品身份，不是剧情证据</span>
                     ) : null}
+                    {item.tier === 3 ? (
+                      <span className="t-evidence-clues">这条来源只有播放页/合集页摘要，没有可用原句</span>
+                    ) : null}
                   </div>
-                  <p className="t-evidence-quote">
-                    {item.sentence.length > 120 ? `${item.sentence.slice(0, 118)}…` : item.sentence}
-                  </p>
+                  <p className="t-evidence-quote">{clip(item)}</p>
                   <div className="t-evidence-meta">
                     <span>{item.site || "来源"}</span>
                     <span>{item.from === "body" ? "原文正文" : "搜索摘要"}</span>
@@ -457,7 +517,6 @@ export function ClueCase({
             </div>
           );
         })()}
-
 
         </div>
 
@@ -736,7 +795,7 @@ export function ClueCase({
         </details>
 
       {/* 区域二：搜索过程 */}
-      <details className="t-disclose" aria-label="搜索过程">
+      <details className="t-disclose" id="t-clue-process" aria-label="搜索过程">
         <summary>
           调查过程：{searches.length + rounds.length} 次检索、{rounds.length} 轮主动补查
         </summary>
@@ -931,6 +990,14 @@ export function ClueCase({
           ) : null}
         </div>
       </details>
+
+      {/* 返回入口：影视页此前只有顶部品牌可点，这里补上和核验页一致的出口。 */}
+      <footer className="t-page-foot">
+        <BackLink />
+        <a className="t-btn t-btn-quiet" href="#t-clue-process">
+          查看调查过程
+        </a>
+      </footer>
     </main>
   );
 }
