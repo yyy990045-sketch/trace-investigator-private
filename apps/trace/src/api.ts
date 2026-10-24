@@ -12,7 +12,65 @@ import {
   type RunStepRecord,
 } from "@personal/capability-sdk";
 
-const liveClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "/api");
+/**
+ * 匿名会话：公网部署时每个浏览器领一个会话令牌，调查记录按会话隔离。
+ * 本机开发（Runtime 未开启公网模式）时这个头会被忽略，行为不变。
+ */
+const SESSION_STORAGE_KEY = "trace.session.v1";
+let sessionToken: string | null = null;
+try {
+  sessionToken = window.localStorage.getItem(SESSION_STORAGE_KEY);
+} catch {
+  sessionToken = null;
+}
+
+export function currentSessionToken() {
+  return sessionToken;
+}
+
+function sessionHeaders(): Record<string, string> {
+  return sessionToken ? { "x-trace-session": sessionToken } : {};
+}
+
+/** 确保本浏览器已有会话；失败时抛出可直接展示的错误。 */
+export async function ensureSession(): Promise<void> {
+  if (SHOWCASE) return;
+  const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
+  // 请求头或 HttpOnly Cookie 任一有效就沿用现有会话（清空 localStorage 也不会丢记录）。
+  const probe = await fetch(root + "/v1/session", { headers: sessionHeaders() }).catch(() => null);
+  if (probe && probe.ok) return;
+  if (probe && probe.status >= 500) throw new Error("运行服务暂时不可用，请稍后重试。");
+  if (sessionToken) {
+    sessionToken = null;
+    try {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      /* 忽略隐私模式下的存储失败 */
+    }
+  }
+  const created = await fetch(root + "/v1/session", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-platform-client": "workbench-v1" },
+    body: "{}",
+  }).catch(() => null);
+  if (!created)
+    throw new Error("无法连接调查服务，请检查网络后重试。");
+  const data = (await created.json().catch(() => null)) as
+    | { token?: string; message?: string }
+    | null;
+  if (!created.ok || !data?.token)
+    throw new Error(data?.message || `建立会话失败（HTTP ${created.status}）。`);
+  sessionToken = data.token;
+  try {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, data.token);
+  } catch {
+    /* 忽略 */
+  }
+}
+
+const liveClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "/api", {
+  headers: sessionHeaders,
+});
 
 /**
  * 只读静态展示模式：把同一套界面跑在「历史调查记录」上，不连 Runtime。
@@ -533,7 +591,11 @@ async function traceRequest<T>(path: string, method = "GET", body?: unknown): Pr
   try {
     response = await fetch(runtimeBase + path, {
       method,
-      headers: { "content-type": "application/json", "x-platform-client": "workbench-v1" },
+      headers: {
+        "content-type": "application/json",
+        "x-platform-client": "workbench-v1",
+        ...sessionHeaders(),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {

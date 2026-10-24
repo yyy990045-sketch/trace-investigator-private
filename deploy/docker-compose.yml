@@ -1,0 +1,65 @@
+# TRACE 公网部署：Runtime 容器 + Caddy（静态前端 + /api 反向代理 + 自动 HTTPS）。
+#
+# 目录约定：
+#   /opt/trace/app     仓库源码（rsync 上来）
+#   /opt/trace/data    SQLite 与档案文件（持久卷，容器重建不丢）
+#   /opt/trace/.env    服务端密钥与配额（不提交到仓库）
+services:
+  runtime:
+    build:
+      context: ./app
+      dockerfile: deploy/Dockerfile
+    image: trace-runtime:latest
+    container_name: trace-runtime
+    restart: unless-stopped
+    env_file: ./.env
+    # 容器重建后旧进程号会残留在 /data/runtime.lock 里，导致误判「已有进程占用」。
+    # 这个卷只挂给本容器，启动前清掉陈旧锁即可（不影响单实例约束）。
+    command: ["/bin/sh", "-c", "rm -f /data/runtime.lock && exec npx tsx services/runtime/src/server.ts"]
+    volumes:
+      - ./data:/data
+    expose:
+      - "4313"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4313/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  web:
+    build:
+      context: ./app
+      dockerfile: deploy/Web.Dockerfile
+    image: trace-web:latest
+    container_name: trace-web
+    restart: unless-stopped
+    environment:
+      # 站点只在容器内监听 :80，对外 HTTPS 由 Cloudflare Tunnel 提供。
+      XDG_DATA_HOME: /data
+    depends_on:
+      - runtime
+    ports:
+      # 本机回环端口给 cloudflared 用；80/443 保留（备案通过的域名可直接用）。
+      - "127.0.0.1:8081:80"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

@@ -92,6 +92,8 @@ function caseShortName(claim: string) {
 }
 
 export function Entry() {
+  // 本机 / 公网 / 只读展示三种环境的文案必须与事实一致。
+  const localHost = ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname);
   const nav = useNavigate();
   const availability = useQuery({ queryKey: ["search-availability"], queryFn: searchAvailability });
   const model = useQuery({ queryKey: ["model-availability"], queryFn: modelAvailability, enabled: !SHOWCASE });
@@ -339,7 +341,7 @@ export function Entry() {
               <Search size={16} /> {clueBusy ? "正在调查…" : heroMode === "verification" ? "开始核查" : "开始找线索"}
             </button>
             {heroMode === "verification" ? (
-              <p className="clue-hero-note">请输入一句可核查的具体说法；当前按原句立案，不会把开放式问题自动改写成未经确认的事实。</p>
+              <p className="clue-hero-note">写一句待核实的说法或问句即可：系统会先把问句改写成可核查的说法再检索，改写依据会显示在调查页。</p>
             ) : null}
           </div>
         )}
@@ -387,7 +389,7 @@ export function Entry() {
           ))}
       </div>
 
-      <details className="trace-home-extra">
+      <details className="trace-home-extra" open={!SHOWCASE}>
         <summary>高级调查设置、历史案例与详细研究</summary>
       {digests.datePair ? (
         <Watershed
@@ -743,11 +745,13 @@ export function Entry() {
       {!SHOWCASE ? (
         <section className="trace-recent-block">
           <div className="trace-section-head">
-            <h2>本机历史调查</h2>
-            <span>{digests.rows.length ? `${digests.rows.length} 条已完成记录` : "读取中"}</span>
+            <h2>{localHost ? "本机历史调查" : "我的调查记录"}</h2>
+            <span>{digests.rows.length ? `${digests.rows.length} 条记录` : "读取中"}</span>
           </div>
           <p className="trace-hint">
-            这些是这台机器上真实跑过的调查，打开看到的是当时检索到的来源与结论，不是现在正在联网查询。
+            {localHost
+              ? "这些是这台机器上真实跑过的调查，打开看到的是当时检索到的来源与结论，不是现在正在联网查询。"
+              : "只列出这个浏览器会话发起的调查，其他会话看不到；打开看到的是当时真实检索到的来源与结论。"}
           </p>
           {digests.rows.length ? (
             <div className="trace-recent">

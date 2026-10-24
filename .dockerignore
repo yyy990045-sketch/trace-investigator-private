@@ -1,0 +1,12 @@
+node_modules
+data
+.git
+.ccg
+delivery/trace-showcase
+delivery/demo
+delivery/trace-review-screenshots
+delivery/materials
+docs/screenshots
+**/dist
+**/.vite
+*.log

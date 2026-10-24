@@ -21,6 +21,8 @@ export interface TraceFact {
   timeScope?: string;
   /** 主体与地区要求，例如「中国大陆」「教育部」；留空表示未限定 */
   subjectScope?: string;
+  /** 检索式来源：客户端给定，或按规则从原句扩展 */
+  queryPlan?: { source: "client" | "rule"; note: string };
 }
 
 export interface AnalysablePage {

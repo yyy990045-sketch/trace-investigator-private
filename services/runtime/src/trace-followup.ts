@@ -534,9 +534,46 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
     const pendingReassessments = delivered
       ? reassessments.filter((item) => item.createdAt > delivered.at).length
       : reassessments.length;
-    const { assessment } = buildAssessment(run);
+    // 调查还在进行时（核验步骤尚未产出）没有可展示的结论：
+    // 明确回「尚未就绪」，而不是抛 400 让前端控制台报错。
+    let assessment: ReturnType<typeof buildAssessment>["assessment"] | null = null;
+    try {
+      assessment = buildAssessment(run).assessment;
+    } catch {
+      assessment = null;
+    }
+    if (!assessment)
+      return {
+        deliveredRevision: delivered?.revision || 0,
+        dirty: true,
+        ready: false,
+        pendingFollowups: 0,
+        pendingCorrections: 0,
+        pendingReassessments: 0,
+        current: null,
+        changes: [],
+        revisions: revisions.map((item) => ({
+          revision: item.revision,
+          at: item.at,
+          actor: item.actor,
+          artifacts: item.artifacts,
+          verdict: item.assessment?.verdict
+            ? {
+                outcome: item.assessment.verdict.outcome,
+                headline: item.assessment.verdict.headline,
+                counts: item.assessment.verdict.counts,
+              }
+            : null,
+          followupCount: item.followupCount,
+          correctionCount: item.correctionCount,
+          changes: item.changes,
+          assessment: item.assessment,
+          derived: item.derived === true,
+        })),
+      };
     return {
       deliveredRevision: delivered?.revision || 0,
+      ready: true,
       dirty: !delivered || pendingFollowups > 0 || pendingCorrections > 0 || pendingReassessments > 0,
       pendingFollowups,
       pendingCorrections,
@@ -544,12 +581,12 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       current: assessment,
       changes:
         delivered && (pendingFollowups > 0 || pendingCorrections > 0)
-          ? describeChanges(delivered.assessment, assessment, {
+          ? describeChanges(delivered.assessment, assessment as any, {
               followups: pendingFollowups,
               corrections: pendingCorrections,
             })
           : delivered && pendingReassessments > 0
-            ? describeChanges(delivered.assessment, assessment, { followups: 0, corrections: 0 })
+            ? describeChanges(delivered.assessment, assessment as any, { followups: 0, corrections: 0 })
             : [],
       revisions: revisions.map((item) => ({
         revision: item.revision,

@@ -32,6 +32,8 @@ export interface TraceCase {
   /** manual=人工确认事实；clue=从模糊线索出发追查候选 */
   mode: "manual" | "clue";
   modeNote: string;
+  /** 只提交一句问句时，系统把问句改写成可核查说法的说明（原始问题保持不变） */
+  claimRewrite?: { note: string };
   /** 线索模式：用户到底想知道什么 */
   goal?: string;
   /** 线索模式：已识别的线索（每条带比对用检索词） */
@@ -105,6 +107,16 @@ const factSchema = {
     queries: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", minLength: 1, maxLength: 120 } },
     timeScope: { type: "string", maxLength: 60 },
     subjectScope: { type: "string", maxLength: 60 },
+    // 检索式来源：客户端给定，或按规则从原句扩展（便于页面上解释「为什么查这几条」）。
+    queryPlan: {
+      type: "object",
+      required: ["source", "note"],
+      properties: {
+        source: { enum: ["client", "rule"] },
+        note: { type: "string", maxLength: 200 },
+      },
+      additionalProperties: false,
+    },
   },
   additionalProperties: false,
 };
@@ -138,6 +150,12 @@ export const traceBundleSchema: Schema = {
         facts: { type: "array", maxItems: 6, items: factSchema },
         mode: { type: "string", enum: ["manual", "clue"] },
         modeNote: { type: "string" },
+        claimRewrite: {
+          type: "object",
+          required: ["note"],
+          properties: { note: { type: "string", maxLength: 200 } },
+          additionalProperties: false,
+        },
         goal: { type: "string", maxLength: 200 },
         clues: { type: "array", maxItems: 8, items: { type: "object" } },
         plan: { type: "object" },

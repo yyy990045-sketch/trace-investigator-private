@@ -321,6 +321,17 @@ export function Case() {
             </span>
           </div>
           <p className="case-now-text">{evidenceWording(verdict.statement)}</p>
+          {(() => {
+            // 问句被改写成可核查说法时，把改写依据写在这里：用户要能看出系统改了什么、
+            // 为什么改，而不是以为自己的原话被悄悄换掉了。
+            const rewrite = (bundle?.case as { claimRewrite?: { note: string } } | undefined)?.claimRewrite;
+            if (!rewrite?.note) return null;
+            return (
+              <p className="trace-hint" data-claim-rewrite="true">
+                核查对象：{rewrite.note}
+              </p>
+            );
+          })()}
           {quantityBySource.length > 1 ? (
             <div className="trace-quantity-diff" aria-label="已核实的不同来源数字">
               <h3>已找到的两组数字</h3>

@@ -15,6 +15,13 @@ import { modelConfiguration } from "./providers.ts";
 import { ExecutionError, type CapabilityDefinition } from "./contracts.ts";
 import { hash, now } from "./util.ts";
 import type { ProjectDraft, UploadInput } from "@personal/capability-sdk";
+import {
+  createGuard,
+  installPublicGuard,
+  publicMode,
+  requestIp,
+  sessionOfRequest,
+} from "./public-guard.ts";
 const root = resolve(import.meta.dirname, "../../..");
 export async function createPlatform(
   options: {
@@ -64,14 +71,28 @@ export async function createPlatform(
     ).split(","),
   );
   app.addHook("onRequest", async (req, reply) => {
-    const host = new URL("http://" + (req.headers.host || "localhost"))
-      .hostname;
-    if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) {
+    const host = new URL(
+      "http://" + (req.headers.host || "localhost"),
+    ).hostname;
+    // 公网模式下不再限定本机主机名；访问控制改由会话、配额与检索预算承担。
+    if (!publicMode() && !["127.0.0.1", "localhost", "[::1]"].includes(host)) {
       reply.code(403);
       throw new ExecutionError("HOST_DENIED", "仅允许本机运行服务主机名。");
     }
     const origin = req.headers.origin;
-    if (origin && !allowed.has(origin)) {
+    // 公网模式下同源请求必须放行：前端与 API 在同一站点（反向代理同域），
+    // 浏览器对 POST 会带 Origin，其 host 就是本次请求的 Host。
+    const sameOrigin =
+      publicMode() &&
+      Boolean(origin) &&
+      (() => {
+        try {
+          return new URL(origin!).host === (req.headers.host || "");
+        } catch {
+          return false;
+        }
+      })();
+    if (origin && !allowed.has(origin) && !sameOrigin) {
       reply.code(403);
       throw new ExecutionError(
         "ORIGIN_DENIED",
@@ -106,18 +127,26 @@ export async function createPlatform(
   app.setErrorHandler((error: any, req, reply) => {
     const code = error.code || "INTERNAL_ERROR";
     const known = error instanceof ExecutionError;
+    const quotaCodes =
+      /^(QUOTA_EXCEEDED|IP_QUOTA_EXCEEDED|SERVICE_QUOTA_EXCEEDED|SEARCH_BUDGET_EXHAUSTED|SEARCH_LIMIT_PER_RUN|RUN_ALREADY_ACTIVE|RATE_LIMITED|SESSION_RATE_LIMITED)$/;
     const status =
       reply.statusCode >= 400
         ? reply.statusCode
-        : code.endsWith("_NOT_FOUND")
-          ? 404
-          : /CONFLICT|CHANGED/.test(code)
-            ? 409
-            : code === "ASSEMBLY_BLOCKED"
-              ? 409
-              : known || error.validation
-                ? 400
-                : 500;
+        : quotaCodes.test(code)
+          ? 429
+          : code === "SESSION_REQUIRED"
+            ? 401
+            : code === "ADMIN_DENIED"
+              ? 403
+              : code.endsWith("_NOT_FOUND")
+                ? 404
+                : /CONFLICT|CHANGED/.test(code)
+                  ? 409
+                  : code === "ASSEMBLY_BLOCKED"
+                    ? 409
+                    : known || error.validation
+                      ? 400
+                      : 500;
     reply
       .code(status)
       .send({
@@ -130,6 +159,9 @@ export async function createPlatform(
         ...(error.issues ? { issues: error.issues } : {}),
       });
   });
+  // 公网受控层：只在 PLATFORM_PUBLIC=1 时生效；本机开发行为不变。
+  const guard = createGuard(store);
+  installPublicGuard(app, store, guard, process.env.PLATFORM_ADMIN_TOKEN);
   const projectBody = {
     type: "object",
     required: ["name", "layout", "permissions", "steps"],
@@ -219,11 +251,16 @@ export async function createPlatform(
       return registry.info(def);
     },
   );
-  app.get("/v1/projects", async () =>
-    store
-      .all("SELECT * FROM projects ORDER BY updated_at DESC")
-      .map((p) => engine.project(p.id)),
-  );
+  app.get("/v1/projects", async (req) => {
+    const session = publicMode() ? sessionOfRequest(req) : null;
+    const rows = session
+      ? store.all(
+          "SELECT id FROM projects WHERE owner=? ORDER BY updated_at DESC",
+          session.id,
+        )
+      : store.all("SELECT * FROM projects ORDER BY updated_at DESC");
+    return rows.map((p: any) => engine.project(p.id));
+  });
   app.post<{ Body: ProjectDraft }>(
     "/v1/projects",
     { schema: { body: projectBody } },
@@ -231,7 +268,19 @@ export async function createPlatform(
       if (!req.body.name.trim())
         throw new ExecutionError("INVALID_PROJECT_NAME", "项目名称不能为空。");
       reply.code(201);
-      return engine.createProject({ ...req.body, name: req.body.name.trim() });
+      const created = engine.createProject({
+        ...req.body,
+        name: req.body.name.trim(),
+      });
+      // 公网模式：项目归属到会话，其他会话读不到。
+      const session = publicMode() ? sessionOfRequest(req) : null;
+      if (session)
+        store.exec(
+          "UPDATE projects SET owner=? WHERE id=?",
+          session.id,
+          created.id,
+        );
+      return engine.project(created.id);
     },
   );
   app.get<{ Params: { id: string } }>("/v1/projects/:id", async (req) =>
@@ -289,24 +338,57 @@ export async function createPlatform(
         const payload: any = (input as any).payload || {};
         const claim = String(payload.claim ?? payload.question ?? "");
         const facts = (Array.isArray(payload.facts) ? payload.facts : []).map((fact: any) =>
-          typeof fact === "string" ? fact : String(fact?.text ?? ""),
+        typeof fact === "string" ? fact : String(fact?.text ?? ""),
         );
         const { detected, hints } = matchExperiences(store, claim, facts);
         if (detected) (input as any).payload = { ...payload, experienceMatch: { detected, hints } };
       }
-      return engine.createRun(req.params.id, input, expectedRevision);
+      // 公网模式：先做配额检查，再把这次调查登记到会话名下。
+      const session = publicMode() ? sessionOfRequest(req) : null;
+      const ip = requestIp(req);
+      if (session) guard.assertInvestigationAllowed(session, ip);
+      const run = engine.createRun(req.params.id, input, expectedRevision);
+      if (session) {
+        guard.recordInvestigation(run.id, session, ip);
+        // 运行超时看门狗：到点自动取消，避免长期占用外部检索。
+        const timer = setTimeout(() => {
+          const status = store.get("SELECT status FROM runs WHERE id=?", run.id)?.status;
+          if (status === "running" || status === "queued") {
+            try {
+              engine.cancel(run.id);
+            } catch {
+              // 运行刚好结束时取消失败可以忽略：状态以数据库为准。
+            }
+          }
+        }, guard.runTimeoutMs);
+        timer.unref?.();
+      }
+      return run;
     },
   );
   app.get<{ Querystring: { projectId?: string } }>("/v1/runs", async (req) => {
+    const session = publicMode() ? sessionOfRequest(req) : null;
     const rows = req.query.projectId
       ? store.all(
           "SELECT id FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 100",
           req.query.projectId,
         )
-      : store.all("SELECT id FROM runs ORDER BY created_at DESC LIMIT 100");
+      : session
+        ? store.all(
+            "SELECT id FROM runs WHERE owner=? ORDER BY created_at DESC LIMIT 100",
+            session.id,
+          )
+        : store.all("SELECT id FROM runs ORDER BY created_at DESC LIMIT 100");
     return rows.map((r) => {
       const run = store.run(r.id)!;
-      return { ...run, evidence: [], modelCalls: [] };
+      // 列表页只需要状态与装配信息；步骤输出动辄上百 KB，列表里去掉，
+      // 单条详情仍由 /v1/runs/:id 返回完整内容。
+      return {
+        ...run,
+        evidence: [],
+        modelCalls: [],
+        steps: run.steps.map((step) => ({ ...step, output: undefined })),
+      };
     });
   });
   app.get<{ Params: { id: string } }>("/v1/runs/:id", async (req) => {
