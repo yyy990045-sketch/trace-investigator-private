@@ -207,10 +207,31 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
     };
   }
 
-  // 3) 明确否定 → 直接反驳。
+  // 3) 否定必须有明确的对象。"没有证据证明 X" 不能反推 "X 已被证明为假"；
+  // "研究并不是说 X" 只说明研究本身不足以证明 X。
   const deny = DENY.exec(text);
   if (deny) {
-    return { verdict: "direct_refute", reason: `原句出现否定表述「${deny[0]}」`, sufficient: true };
+    const epistemic = /(不能证明|无法证明|尚无证据|没有证据|缺乏证据|没有证明|未能证明|尚未证实|未证实|并不意味着|不代表|不能说明|无法说明|并不是说|不能得出|不能确定|不等于|无法确定)/.test(text);
+    if (epistemic) {
+      return {
+        verdict: "partial",
+        reason: "来源指出证据或研究结论不足，不能据此认定现实中的相反命题已经成立",
+        sufficient: false,
+      };
+    }
+    const directlyNegated = text
+      .split(/[，,；;]/)
+      .some((clause) => DENY.test(clause) &&
+        Boolean(predicateHit?.synonyms.test(clause)) &&
+        (!claim.subject || clause.includes(claim.subject) || clause.includes("该产品") || clause.includes("这一说法")));
+    if (!directlyNegated) {
+      return {
+        verdict: "related_only",
+        reason: "原句出现否定词，但未能确认其否定对象就是当前待查说法",
+        sufficient: false,
+      };
+    }
+    return { verdict: "direct_refute", reason: `来源明确否定对应主体的「${claim.predicate}」表述`, sufficient: true };
   }
 
   // 4) 已经发生 vs 计划/预测：说法是「已停产」，来源说「将停产」只能算相关系。
@@ -235,14 +256,6 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
       sufficient: false,
     };
   }
-  if (false) {
-    return {
-      verdict: "partial",
-      reason: "来源只给出统计相关，没有证明因果",
-      sufficient: false,
-    };
-  }
-
   // 6) 时间/地区限定：说法带了具体年份或地区，来源必须对得上。
   if (claim.time.length && !claim.time.some((time) => text.includes(time.replace(/\s/g, "")))) {
     return {
