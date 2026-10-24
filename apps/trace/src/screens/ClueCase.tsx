@@ -221,12 +221,28 @@ export function ClueCase({
 
       {/* 首屏：答案、依据与未解疑点，优先于搜索过程 */}
       <section className="clue-result" data-state={decision?.state || "insufficient"} aria-label="调查结果">
-        <h2>{decision ? stateCopy[decision.state].title : "调查进行中"}</h2>
+        <h2>
+          {decision
+            ? decision.state === "found"
+              ? decision.unverified?.length
+                ? "作品已确定，部分细节还没核实"
+                : stateCopy.found.title
+              : stateCopy[decision.state].title
+            : "调查进行中"}
+        </h2>
         <p className="clue-headline">{decision?.headline}</p>
+        {decision?.evidenceLimit ? (
+          <p className="clue-hint" data-evidence-limit="true">
+            证据限制：{decision.evidenceLimit}。
+          </p>
+        ) : null}
         {decision?.state === "found" && candidates[0] ? (
           <div className="clue-answer">
             <b>{candidates[0].name}</b>
-            <span>对上 {candidates[0].matchedClues}/{clues.length} 条线索</span>
+            <span>
+              对上 {candidates[0].matchedClues}/{clues.length} 条线索
+              {decision.unverified?.length ? `，${decision.unverified.length} 条还没核实` : ""}
+            </span>
           </div>
         ) : null}
 

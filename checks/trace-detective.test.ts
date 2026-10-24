@@ -185,6 +185,10 @@ describe("侦探链路的通用判定（本轮修复回归）", () => {
     );
     // 三个词来自同一句：只证明「这句话提到这三件事」，不能算三段独立剧情。
     expect(decision.state).not.toBe("found");
+    // 但同一句里对上多条具体情节，足以给出「最可能」，同时必须写明证据限制。
+    expect(decision.state).toBe("ambiguous");
+    expect(decision.bestGuess).toBe("小美人鱼");
+    expect(decision.evidenceLimit).toContain("同一段材料");
   });
 });
 

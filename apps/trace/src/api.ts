@@ -918,6 +918,8 @@ export interface ClueAssessmentView {
     bestGuess?: string;
     /** 身份已确定，但还没在资料里核到的具体情节 */
     unverified?: string[];
+    /** 最可能答案的证据限制（例如几条情节都出自同一段材料） */
+    evidenceLimit?: string;
     /** 候选对照：各自符合/缺少的情节 */
     comparison?: { name: string; matched: string[]; missing: string[]; type: string; note: string }[];
     /** 用户记的年份 vs 资料年份 */
