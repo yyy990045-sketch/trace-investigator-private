@@ -6,6 +6,8 @@
  * 模型不可用时退回规则拆分，并在记录里写明本次用的是哪一种。
  */
 import { modelConfiguration } from "./providers.ts";
+import { detectInvestigationDomain } from "@personal/capability-sdk";
+export { detectInvestigationDomain } from "@personal/capability-sdk";
 
 export interface PlannedClue {
   text: string;
@@ -64,17 +66,6 @@ export function expandTerms(terms: string[]): string[] {
   return [...new Set(out)].slice(0, 5);
 }
 
-/** 调查类型由用户的问题决定，不再把所有陌生问题强行引向“找电视剧”。 */
-export type InvestigationDomain = "screen" | "event" | "verification" | "general";
-
-export function detectInvestigationDomain(question: string): InvestigationDomain {
-  if (/演唱会|音乐节|巡演|售票|余票|还有票|开票|门票|票务|场次/.test(question)) return "event";
-  if (/网传|传言|谣言|真假|真实吗|是真的吗|官方宣布|是否属实|有没有依据|消息可靠|公告/.test(question))
-    return "verification";
-  if (/电影|电视剧|剧名|港片|动画|动漫|演员|法医|卧底|主角|剧情|哪部剧|哪部片|片名|看过一部/.test(question))
-    return "screen";
-  return "general";
-}
 
 function usableQuestionChunks(question: string) {
   const cleaned = question.replace(/[？?！!。，,、；;：:\n]/g, " ").replace(/\s+/g, " ").trim();
