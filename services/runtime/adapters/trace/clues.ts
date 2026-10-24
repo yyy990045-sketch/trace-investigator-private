@@ -59,8 +59,8 @@ export interface CandidateMatch {
   from: "body" | "excerpt";
   /** 证据落在什么粒度：同句 > 同段 > 同一网页（后两者只能算间接关联） */
   scope: "sentence" | "paragraph" | "page";
-  /** 这条证据属于哪一类：直接支持 / 间接关联 / 未核实 */
-  relation: "direct" | "indirect" | "unverified";
+  /** 这条证据属于哪一类：直接支持 / 间接关联 / 未核实 / 与资料冲突 */
+  relation: "direct" | "indirect" | "unverified" | "conflicts";
   /** 证据实际描述的主体（通常等于候选名；列举句里会是别人） */
   subject: string;
   /** 这是不是决定性线索 */
@@ -113,6 +113,9 @@ export interface Candidate {
   matches: CandidateMatch[];
   matchedClues: number;
   missingClues: string[];
+  /** 与用户说法冲突的线索条数（有原文依据，才会计入） */
+  conflicts?: number;
+  conflictClues?: string[];
   /** 只有全部线索命中且明显领先时才算 confirmed */
   status: "leading" | "tied" | "partial";
   /** 与线索的差异说明（用于「为什么排除」） */
@@ -130,6 +133,15 @@ export interface ClueDecision {
   askUser: string | null;
   /** 题材/地区这类辅助线索没能同句核实：结论仍成立，但要说清楚 */
   auxiliaryClues?: string[];
+  /** 用户记忆里与资料冲突的线索（附原文证据），结论里要说明 */
+  conflicts?: {
+    clue: string;
+    candidate: string;
+    quote: string;
+    url: string;
+    site: string;
+    from: "body" | "excerpt";
+  }[];
 }
 
 const STOP_NAMES = new Set([
@@ -479,6 +491,42 @@ function nearClue(sentence: string, name: string, terms: string[]): boolean {
   });
 }
 
+/**
+ * 用户在问题里「点名」的人物类线索（主演/演员/主角叫什么）。
+ *
+ * 只有这种线索才允许被判「与资料冲突」：说错主演是最常见的记忆错误，
+ * 而「剧情/场景」类线索没有客观名单可以对照，不能凭一句没命中就说用户记错。
+ */
+const PERSON_FRAME =
+  /(主演|演员|领衔|出演|演的|由[^，。；]{0,8}主演|男主演|女主演|男主(?:角)?(?:叫|是)|女主(?:角)?(?:叫|是)|主角(?:好像|像是|是|叫)?)/;
+
+export function personClueTexts(question: string, clues: ClueItem[]): Set<string> {
+  const found = new Set<string>();
+  if (!question) return found;
+  for (const clue of clues) {
+    for (const term of clue.terms.length ? clue.terms : [clue.text]) {
+      if (term.length < 2) continue;
+      const at = question.indexOf(term);
+      if (at < 0) continue;
+      // 只看紧贴在人名前面的那几个字：「主演是X」「由X主演」「主角好像是X」。
+      // 放宽成「前面 12 字里出现过主演」会把「主演A，剧情讲密码」里的「密码」也算成人名。
+      const prefix = question.slice(Math.max(0, at - 6), at);
+      const suffix = question.slice(at + term.length, at + term.length + 4);
+      const framed =
+        /(主演|演员|出演|领衔|主角|男主|女主|由|是|好像|像是|似乎|应该|可能)\s*$/.test(prefix) ||
+        /^(主演|演的|出演|饰演|饰)/.test(suffix);
+      if (framed) {
+        found.add(clue.text);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** 演员表/主演名单类句子：用它来判断「用户说的人是不是真的演了这部」。 */
+const CAST_SENTENCE = /(主演|领衔主演|演员表|演员阵容|出演|由[^。；]{0,20}主演)/;
+
 /** 把一个候选与线索逐条比对：同句优先，退一步到同段落共现，都保留原句。 */
 export function matchCandidate(
   candidate: Candidate,
@@ -487,11 +535,13 @@ export function matchCandidate(
   bodies: Map<string, BodyLike>,
   otherNames: string[] = [],
   question = "",
+  personTexts: Set<string> = new Set(),
 ): Candidate {
   const matches: CandidateMatch[] = [];
   const others = otherNames.filter((name) => normalized(name) !== normalized(candidate.name));
   for (const clue of clues) {
-    const decisive = isDecisiveClue(clue, question);
+    // 用户点名的人物（主演/演员）就是身份线索：作品对不上这个人，就不能算「完全符合」。
+    const decisive = isDecisiveClue(clue, question) || personTexts.has(clue.text);
     let hit: CandidateMatch | null = null;
     /** 只提到候选名、但证据不属于它的句子，留作「间接关联」备查。 */
     let indirect: CandidateMatch | null = null;
@@ -531,8 +581,55 @@ export function matchCandidate(
       }
       if (hit) break;
     }
+    // 人物线索没有命中时，先看资料里的主演名单：名单里没有这个人，就是有据可查的冲突，
+    // 不是「没查到」。原文句子一起存下来，页面上要能点开核对。
+    let conflict: CandidateMatch | null = null;
+    if (!hit && personTexts.has(clue.text)) {
+      for (const page of pages) {
+        if (!page.url) continue;
+        const body = bodies.get(page.id);
+        const blocks: { from: "body" | "excerpt"; text: string }[] = [
+          ...(body?.ok ? [{ from: "body" as const, text: body.text.slice(0, 20_000) }] : []),
+          { from: "excerpt" as const, text: [page.title, page.passage].join("\n") },
+        ];
+        for (const block of blocks) {
+          for (const sentence of block.text.split(/(?<=[。！？!?\n])/).map((item) => item.trim()).filter(Boolean)) {
+            if (!CAST_SENTENCE.test(sentence)) continue;
+            if (!normalized(sentence).includes(normalized(candidate.name))) continue;
+            if (hasTerm(sentence)) continue;
+            const { attribution } = attributeSentence(sentence, candidate.name, others);
+            if (attribution !== "subject" && attribution !== "unclear") continue;
+            // 冲突证据要能直接看出「主演是谁」：截取主演关键词附近的窗口，
+            // 而不是整段网页信息栏。
+            const castAt = sentence.search(CAST_SENTENCE);
+            const castSnippet =
+              castAt >= 0
+                ? `${castAt > 20 ? "…" : ""}${sentence.slice(Math.max(0, castAt - 20), castAt + 80).trim()}${castAt + 80 < sentence.length ? "…" : ""}`
+                : snippetAround(sentence, candidate.name);
+            conflict = {
+              clueId: clue.id,
+              clue: clue.text,
+              found: false,
+              sentence: castSnippet,
+              url: page.url,
+              site: page.site,
+              title: page.title,
+              from: block.from,
+              scope: "sentence",
+              relation: "conflicts",
+              subject: candidate.name,
+              decisive: true,
+            };
+            break;
+          }
+          if (conflict) break;
+        }
+        if (conflict) break;
+      }
+    }
     matches.push(
       hit ||
+        conflict ||
         indirect || {
           clueId: clue.id,
           clue: clue.text,
@@ -550,10 +647,20 @@ export function matchCandidate(
     );
   }
   const matchedClues = matches.filter((item) => item.found).length;
-  const missingClues = matches.filter((item) => !item.found).map((item) => item.clue);
+  const conflictMatches = matches.filter((item) => item.relation === "conflicts");
+  const missingClues = matches.filter((item) => !item.found && item.relation !== "conflicts").map((item) => item.clue);
   // 命中线索最重要；标题里被直接指认、以及被多个不同来源提到，作为区分依据（不是排序玄学）。
   const score = matchedClues * 10 + Math.min(candidate.titleHits, 5) * 2 + Math.min(candidate.sites, 6);
-  return { ...candidate, matches, matchedClues, missingClues, score };
+  // 冲突线索不再当作「没查到的缺口」，它已经是查清楚了的：资料和用户说法不一致。
+  return {
+    ...candidate,
+    matches,
+    matchedClues,
+    missingClues,
+    conflicts: conflictMatches.length,
+    conflictClues: conflictMatches.map((item) => item.clue),
+    score: score - conflictMatches.length * 6,
+  };
 }
 
 /** 汇总所有候选，并给出「继续查 / 问用户 / 结束」的判断。 */
@@ -573,6 +680,7 @@ export function evaluateCandidates(
 } {
   // 先抽有向关系（谁改编自谁、谁是谁的续集/翻拍/别名），再由关系决定候选在竞争里的身份。
   const graph = extractRelations(pages, bodies, raw.map((item) => item.name));
+  const personTexts = personClueTexts(question, clues);
   const classified = raw.map((candidate) => {
     const byRelation = relationRoleOf(candidate.name, graph);
     const heuristic = classifyEntity(candidate.name, pages, bodies);
@@ -609,7 +717,7 @@ export function evaluateCandidates(
             url: byRelation.relation?.evidence[0]?.url || heuristic.url,
             site: byRelation.relation?.evidence[0]?.site || heuristic.site,
           };
-    return matchCandidate({ ...candidate, entity }, clues, pages, bodies, raw.map((item) => item.name), question);
+    return matchCandidate({ ...candidate, entity }, clues, pages, bodies, raw.map((item) => item.name), question, personTexts);
   });
   const relations = classified.filter((item) => isRelation(item, targetKind));
   const candidates = classified
@@ -639,6 +747,21 @@ export function evaluateCandidates(
   const best = candidates[0];
   const runnerUp = candidates[1];
   const total = clues.length;
+  // 与资料冲突的线索：有原文依据才算，结论里必须点名说明，不能悄悄改用户的描述。
+  const conflicts = (best?.matches || [])
+    .filter((match) => match.relation === "conflicts")
+    .map((match) => ({
+      clue: match.clue,
+      candidate: best.name,
+      quote: match.sentence,
+      url: match.url,
+      site: match.site,
+      from: match.from,
+    }));
+  const conflictNote = conflicts.length
+    ? `你说的「${conflicts.map((item) => item.clue).join("」「")}」与资料不符：资料显示的是别的人/内容，这里以原文为准`
+    : "";
+  const conflictFields = conflicts.length ? { conflicts } : {};
   // 决定性线索才决定答案：题材/身份/地区这类词命中多少都不足以定案。
   const decisiveOf = (candidate: Candidate | undefined) =>
     (candidate?.matches || []).filter((match) => match.decisive);
@@ -686,11 +809,13 @@ export function evaluateCandidates(
   // 定案要点：决定性线索全部对上，且满足下面任一条件——
   //  a) 至少两条决定性线索命中；b) 一条决定性线索 + 覆盖率过半；
   //  c) 覆盖率≥75% 且比第二名多出至少两条（排除「只是关键词出现得多」）。
+  // 同源共现必须配合覆盖率：只对上「用户说的主演 + 一个泛词」不算证据组合，
+  // 否则一旦用户把主演记错，错误候选反而更容易被当成答案。
   const enough =
     decisiveHit >= 2 ||
     (decisiveHit >= 1 && coverage >= 0.5) ||
     (coverage >= 0.75 && lead >= 2) ||
-    (coOccurrence && lead >= 1);
+    (coOccurrence && coverage >= 0.5 && lead >= 1);
   if (!decisiveMissing.length && (decisiveHit > 0 || coOccurrence) && enough && !tie)
     return {
       candidates,
@@ -699,12 +824,13 @@ export function evaluateCandidates(
       pending,
       decision: {
         state: "found",
+        ...conflictFields,
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
         headline: decisiveOf(best).length
-          ? `决定性线索全部对上：${best.name}`
+          ? `决定性线索全部对上：${best.name}${conflictNote ? "；" + conflictNote : ""}`
           : coOccurrence
-            ? `同一条来源同时符合 ${bestSourceCount} 条线索：${best.name}`
-            : `线索全部对上：${best.name}`,
+            ? `同一条来源同时符合 ${bestSourceCount} 条线索：${best.name}${conflictNote ? "；" + conflictNote : ""}`
+            : `线索全部对上：${best.name}${conflictNote ? "；" + conflictNote : ""}`,
         nextQueries: [],
         askUser: null,
         ...(auxiliaryMissing.length ? { auxiliaryClues: auxiliaryMissing } : {}),
@@ -729,6 +855,7 @@ export function evaluateCandidates(
       pending,
       decision: {
         state: "ambiguous",
+        ...conflictFields,
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
         headline: `找到 ${candidates.length} 个可能候选，还差一条能区分的线索`,
         nextQueries,
@@ -751,6 +878,7 @@ export function evaluateCandidates(
       // 能否定案只取决于上面的“决定性直接证据 + 覆盖率 + 排除竞争者”条件。
       // 检索式耗尽不能反过来证明答案成立，特别是只有“科幻/悬疑”之类泛线索时。
       state: "insufficient",
+      ...conflictFields,
       decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
       headline: decisiveHit === 0
         ? `「${best.name}」有部分特征符合，但没有能够确定身份的关键证据`

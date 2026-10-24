@@ -187,3 +187,39 @@ describe("侦探链路的通用判定（本轮修复回归）", () => {
     expect(decision.headline).toContain("同一条来源");
   });
 });
+
+describe("用户记忆与资料冲突（V18 主线）", () => {
+  const page = { id: "p1", url: "https://baike.example.com/a", site: "百科", title: "暗算", date: "", passage: "《暗算》主演 柳云龙、王宝强、陈数" } as any;
+  const body = new Map([["p1", { ok: true, text: "《暗算》主演 柳云龙、王宝强、陈数。该剧讲述密码破译。" } as any]]);
+  const clues: ClueItem[] = [
+    { id: "c1", text: "布拉德·皮特", terms: ["布拉德·皮特"], kind: "role" },
+    { id: "c2", text: "密码", terms: ["密码"], kind: "other" },
+  ];
+  it("用户点名的主演与资料不一致时，给出带原文的冲突而不是「没查到」", () => {
+    const { decision, candidates } = evaluateCandidates(
+      [{ name: "暗算", pages: [page], score: 0, titleHits: 1 } as any],
+      clues,
+      [page],
+      body,
+      "screen_work",
+      "主角好像是布拉德·皮特演的，剧情讲密码",
+    );
+    expect(decision.conflicts?.length).toBe(1);
+    expect(decision.conflicts?.[0].clue).toBe("布拉德·皮特");
+    expect(decision.conflicts?.[0].quote).toContain("主演");
+    // 冲突线索不再算「未核实的缺口」
+    expect(candidates[0].missingClues).not.toContain("布拉德·皮特");
+  });
+
+  it("主演只对一个泛词时不能被当成答案（冲突会压低排序权重）", () => {
+    const { decision } = evaluateCandidates(
+      [{ name: "暗算", pages: [page], score: 0, titleHits: 1 } as any],
+      clues,
+      [page],
+      body,
+      "screen_work",
+      "主角好像是布拉德·皮特演的，剧情讲密码",
+    );
+    expect(decision.state).not.toBe("found");
+  });
+});

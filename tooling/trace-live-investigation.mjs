@@ -106,7 +106,8 @@ try {
         ? { question }
         : { question, claim: question, facts: [{ id: "fact-1", text: question, queries: [question] }] },
     dataConsent: true,
-    modelConsent: false,
+    // 允许用现有模型辅助规划线索（不改变「答案只来自真实检索」这条底线）。
+    modelConsent: process.env.TRACE_MODEL === "1",
   });
   let run = started;
   for (let n = 0; n < 55; n++) {

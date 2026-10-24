@@ -23,10 +23,14 @@ export interface InvestigationSnapshot {
   candidates: {
     name: string;
     matchedClues: number;
-    matches: { clue: string; decisive: boolean; found: boolean }[];
+    matches: { clue: string; decisive: boolean; found: boolean; relation?: string }[];
     missingClues: string[];
+    /** 与用户说法冲突的线索（有原文依据） */
+    conflictClues?: string[];
   }[];
   clues: { text: string; terms: string[] }[];
+  /** 用户点名的人物类线索（主演/演员）：这类线索必须单独核实 */
+  personClues?: string[];
 }
 
 const normal = (value: string) => value.normalize("NFKC").replace(/[\s“”"'《》：:，,、]+/g, "").toLowerCase();
@@ -48,6 +52,72 @@ export function nextClueSearch(
     return [item.subject, item.object].includes(top.name) &&
       (gap <= 1 || snapshot.decision.state !== "found");
   });
+  // 用户的描述与资料冲突时，先把冲突查清楚：这决定了「是记错名字」还是「另有其片」。
+  // 冲突没查清就定案，等于把用户的原话悄悄改掉了。
+  for (const candidate of snapshot.candidates.slice(0, 2)) {
+    const clue = (candidate.conflictClues || [])[0];
+    if (!clue) continue;
+    const choice = offer({
+      question: `「${candidate.name}」的资料里为什么没有「${clue}」？`,
+      query: `${candidate.name} 主演 演员表`,
+      reason: `你说的「${clue}」与该作品资料不一致；先核实它真正的演职员，再判断是记忆有误还是换了一部作品。`,
+      subject: candidate.name,
+      object: clue,
+      kind: "relationship",
+    });
+    if (choice) return choice;
+  }
+
+  // 人物线索没有命中时，先去核对该作品的演职员表：
+  // 这一步既能确认用户记对，也能拿到「资料写的是别人」这句可以引用的原文。
+  if (snapshot.decision.state !== "found") {
+    const people = new Set(snapshot.personClues || []);
+    for (const candidate of snapshot.candidates.slice(0, 2)) {
+      const unmatched = (candidate.matches || []).find(
+        (match) => people.has(match.clue) && !match.found,
+      );
+      if (!unmatched) continue;
+      const choice = offer({
+        question: `「${unmatched.clue}」到底有没有出演《${candidate.name}》？`,
+        query: `${candidate.name} 主演 演员表`,
+        reason: `你提到的「${unmatched.clue}」在现有材料里没有和这部作品对上；先查它的演职员表，再判断是记错了人还是找错了片。`,
+        subject: candidate.name,
+        object: unmatched.clue,
+        kind: "relationship",
+      });
+      if (choice) return choice;
+    }
+  }
+
+  // 用户点名的人物对上了某个候选、但剧情线索大量没对上时，最可能的情况是：
+  // 这个人演的是另一部片子，而用户把两件事记混了。此时必须先「不带这条人物线索」再查一次剧情。
+  if (snapshot.decision.state !== "found") {
+    const top = snapshot.candidates[0];
+    const total = snapshot.clues.length;
+    const coverage = top && total ? top.matchedClues / total : 0;
+    const personHit = top?.matches.find((match) => match.found && match.clue.length >= 2 && match.decisive);
+    if (top && personHit && coverage < 0.5) {
+      const plotTerms = snapshot.clues
+        .flatMap((clue) => clue.terms || [clue.text])
+        .filter(
+          (term) =>
+            term.length >= 2 &&
+            !lowSignal(term) &&
+            !personHit.clue.includes(term) &&
+            !term.includes(personHit.clue),
+        );
+      const choice = offer({
+        question: `如果不看「${personHit.clue}」，这些剧情还指向哪部作品？`,
+        query: [...new Set(plotTerms)].slice(0, 5).join(" "),
+        reason: "你说的主演只对上了一个候选，但剧情线索大多对不上；先把主演放一边，单用剧情再查一次。",
+        subject: "",
+        object: personHit.clue,
+        kind: "discovery",
+      });
+      if (choice) return choice;
+    }
+  }
+
   // 首先查清能改变答案的候选关系，避免把翻拍、续作或原著当成独立答案。
   for (const item of unresolved) {
     const choice = offer({ ...item, kind: "relationship" });

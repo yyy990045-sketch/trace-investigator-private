@@ -228,6 +228,38 @@ export function ClueCase({
           </div>
         ) : null}
 
+        {/* 用户记忆与资料冲突：有原文依据才展示，且不改写用户原话。 */}
+        {decision?.conflicts?.length ? (
+          <div className="clue-conflict" aria-label="记忆与资料不一致的线索">
+            <h3>你有一条线索和资料不一致</h3>
+            <ul>
+              {decision.conflicts.map((item, index) => (
+                <li key={`${item.clue}-${index}`}>
+                  <p>
+                    你说的是「<b>{item.clue}</b>」，但资料里关于《{item.candidate}》的原文是这样写的：
+                  </p>
+                  <blockquote>{item.quote}</blockquote>
+                  <p className="trace-mono">
+                    {item.site || item.url}
+                    {item.from === "body" ? " · 原文正文" : " · 搜索摘要"}
+                    {item.url ? (
+                      <>
+                        {" "}
+                        <a href={item.url} target="_blank" rel="noreferrer noopener">
+                          打开原始页面
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <p className="clue-hint">
+              这条冲突不影响其余线索的核对；最终答案按资料判定，你的原始描述没有被改写。
+            </p>
+          </div>
+        ) : null}
+
         {decision?.decisiveClues?.length ? (
           <div className="clue-decisive">
             <h3>用来定案的决定性线索</h3>

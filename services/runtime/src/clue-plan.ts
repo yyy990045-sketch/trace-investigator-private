@@ -161,17 +161,72 @@ function clueTokens(question: string): string[] {
 }
 
 /** 模型未授权或不可用时，仍能从陌生中文句子生成可核验的短线索和检索式。 */
+/**
+ * 从「好像 X 演的 / 由 X 主演 / 主演是 X」里取出完整人名。
+ *
+ * 中文分词会把外国人名切碎（布拉德·皮特 → 拉德），一旦切碎，系统就没法去核对
+ * 「这个人到底演没演这部片」，记忆错误也就无法被发现。
+ */
+const PERSON_SPAN = /([\u4e00-\u9fa5·]{2,10})(?:主演|演的|出演|饰演|饰)/g;
+const PERSON_AFTER = /主演(?:是|为|由)?([\u4e00-\u9fa5·]{2,10})/g;
+const NAME_LEAD = /^(好像|像是|似乎|应该是|可能是|由|是|主角|男主角|女主角|男主演|女主演|演员|记得|大概)/;
+
+function personSpans(question: string): string[] {
+  const out: string[] = [];
+  const push = (raw: string) => {
+    // 反复剥掉口头前缀（「主角好像是布拉德·皮特」→「布拉德·皮特」）。
+    let name = raw.trim();
+    for (let i = 0; i < 6; i++) {
+      const next = name
+        .replace(NAME_LEAD, "")
+        .replace(/^角(?=好像|像是|是|似乎|应该|可能|由)/, "")
+        .trim();
+      if (next === name) break;
+      name = next;
+    }
+    if (name.length < 2 || name.length > 10) return;
+    if (INVESTIGATION_FILLERS.has(name) || lowSignal(name)) return;
+    if (GENERIC_TERMS.has(name)) return;
+    out.push(name);
+  };
+  for (const match of question.matchAll(PERSON_SPAN)) push(match[1]);
+  for (const match of question.matchAll(PERSON_AFTER)) push(match[1]);
+  return [...new Set(out)];
+}
+
 export function planByRule(question: string): CluePlan {
   const domain = detectInvestigationDomain(question);
   const terms = clueTokens(question);
-  const clues: PlannedClue[] = terms.slice(0, 6).map((text) => ({
-    text,
-    terms: expandTerms([text]),
-    kind: (KINDS.find((item) => item.pattern.test(text))?.kind || "other") as PlannedClue["kind"],
-  }));
+  const people = personSpans(question);
+  const clues: PlannedClue[] = [
+    // 人名线索优先：它是最容易被记错、也最值得单独核对的一类线索。
+    ...people.map((name) => ({
+      text: name,
+      terms: [name],
+      kind: "role" as const,
+    })),
+    ...terms.slice(0, 6).map((text) => ({
+      text,
+      terms: expandTerms([text]),
+      kind: (KINDS.find((item) => item.pattern.test(text))?.kind || "other") as PlannedClue["kind"],
+    })),
+  ];
+  // 人名已经完整时，去掉被切碎的残片（「拉德」⊂「布拉德·皮特」）。
+  const deduped = clues.filter(
+    (item) =>
+      !people.some(
+        (name) => name !== item.text && name.includes(item.text),
+      ),
+  );
+  clues.length = 0;
+  clues.push(...deduped.slice(0, 6));
+
   if (!clues.length && question.trim().length >= 2)
     clues.push({ text: question.trim().slice(0, 40), terms: [question.trim().slice(0, 20)], kind: "other" });
-  const base = terms.slice(0, 9).join(" ").slice(0, 100);
+  const base = [...new Set(clues.flatMap((item) => item.terms).filter((term) => term.length >= 2))]
+    .slice(0, 9)
+    .join(" ")
+    .slice(0, 100);
   const context = domain === "screen"
     ? ["剧情 电影 电视剧", "剧名 主演 角色"]
     : domain === "event"
@@ -179,7 +234,22 @@ export function planByRule(question: string): CluePlan {
       : domain === "verification"
         ? ["官方 原始声明", "来源 事实核实"]
         : ["相关事实 原始出处", "官方资料 依据"];
-  const queries = [base || question.slice(0, 90), ...context.map((suffix) => `${base || question.slice(0, 80)} ${suffix}`)]
+  // 分离检索：一条带全部线索，一条只用剧情（去掉用户点名的人物）。
+  // 用户把主演记错时，只有「不带主演」的那条检索才可能找到真正的作品。
+  const plotBase = [...new Set(clues.flatMap((item) => item.terms))]
+    .filter(
+      (term) =>
+        term.length >= 2 &&
+        !people.some((name) => name.includes(term) || term.includes(name)),
+    )
+    .slice(0, 9)
+    .join(" ")
+    .slice(0, 100);
+  const queries = [
+    base || question.slice(0, 90),
+    ...(people.length && plotBase && plotBase !== base ? [plotBase] : []),
+    ...context.map((suffix) => `${base || question.slice(0, 80)} ${suffix}`),
+  ]
     .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
     .filter((query) => query.length >= 2);
   return {
