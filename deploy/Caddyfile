@@ -12,7 +12,12 @@ http://:80 {
 	# 前端只调用同源 /api，运行服务不直接暴露到公网。
 	# handle_path 会先去掉 /api 前缀，再转给 runtime:4313。
 	handle_path /api/* {
-		reverse_proxy runtime:4313
+		# Cloudflare Tunnel 接入后，客户端地址来自 Cloudflare 边缘写入的 CF-Connecting-IP。
+		# 同时要求 compose 只在 127.0.0.1:8081 发布端口；不能将此代理直接开放公网。
+		# 防止将所有访问者误识别为 cloudflared 容器 IP，导致 IP 配额全站共享。
+		reverse_proxy runtime:4313 {
+			header_up X-Forwarded-For {http.request.header.Cf-Connecting-Ip}
+		}
 	}
 
 	# 其余请求一律走单页应用：/cases/... 这类前端路由回落到 index.html。

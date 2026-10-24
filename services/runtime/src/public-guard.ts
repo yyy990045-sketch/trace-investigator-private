@@ -16,6 +16,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { ExecutionError } from "./contracts.ts";
 import { now } from "./util.ts";
 import type { Store } from "./store.ts";
+import type { Engine } from "./engine.ts";
 
 export interface TraceSession {
   id: string;
@@ -49,6 +50,8 @@ export const limits = () => ({
   dailySearchBudget: intEnv("PLATFORM_DAILY_SEARCH_BUDGET", 300, 1, 100000),
   /** 单次调查最长运行时间，到点自动取消 */
   runTimeoutMs: intEnv("PLATFORM_RUN_TIMEOUT_MS", 300_000, 30_000, 1_800_000),
+  /** 公网等待人工确认的最长时间，避免遗弃任务永久挂起 */
+  approvalWaitTimeoutMs: intEnv("PLATFORM_APPROVAL_WAIT_TIMEOUT_MS", 1_800_000, 300_000, 86_400_000),
   /** 每会话每分钟请求数 */
   requestsPerMinute: intEnv("PLATFORM_REQUESTS_PER_MINUTE", 60, 5, 600),
   /** 每个 IP 每小时可领的会话数 */
@@ -326,6 +329,27 @@ export function createGuard(store: Store): Guard {
       "SELECT AVG((julianday(updated_at)-julianday(created_at))*86400) AS s FROM runs WHERE created_at>=? AND status IN ('completed','failed','canceled')",
       day + "T00:00:00",
     );
+    // 用户是否真正查到答案，是独立于 HTTP/任务成功率的产品质量指标。
+    // 每个运行只取最近一次已保存的规则判定，不将重算次数当作更多调查。
+    // 本处只统计状态类型，不把“有结论”伪称为“结论准确”。
+    const verdictsToday = store.all(
+      `SELECT CASE
+             WHEN e.kind='trace.reassessment' THEN json_extract(e.data,'$.assessment.verdict.outcome')
+             ELSE json_extract(e.data,'$.outcome')
+           END AS outcome,COUNT(*) AS count
+         FROM runs r
+         JOIN evidence e ON e.rowid=(
+           SELECT x.rowid FROM evidence x
+           WHERE x.run_id=r.id AND x.kind IN ('trace.verdict','trace.reassessment')
+           ORDER BY x.created_at DESC,x.rowid DESC LIMIT 1
+         )
+         WHERE r.created_at>=? AND r.owner IS NOT NULL
+         GROUP BY outcome`,
+      day + "T00:00:00",
+    );
+    const waitingApprovalCount = Number(store.get(
+      "SELECT COUNT(*) AS n FROM runs WHERE owner IS NOT NULL AND status='waiting_approval'",
+    )?.n || 0);
     return {
       mode: "public",
       day,
@@ -339,6 +363,9 @@ export function createGuard(store: Store): Guard {
       searchBudget: limit.dailySearchBudget,
       runBudget: limit.dailyRunBudget,
       failuresToday,
+      verdictsToday,
+      waitingApprovalCount,
+      note: "状态计数仅表示真实调查判定分布，不代表结论准确率或真实问题解决率。",
       averageDurationSeconds: duration?.s ? Math.round(Number(duration.s)) : null,
       limits: limit,
       uptimeSeconds: Math.round(process.uptime()),
@@ -364,6 +391,35 @@ export function createGuard(store: Store): Guard {
  * 供能力插件调用：检索前占预算。
  * 非公网模式或尚未创建 guard 时返回 null，插件按原逻辑继续。
  */
+/**
+ * 公网审批遗弃清理：只处理匿名公网会话拥有、超过配置窗口的等待任务。
+ * 依赖原有 Engine.cancel，保留取消事件/待审记录，不删除历史数据。
+ * 每次运行可重入，SQLite 状态条件和 Engine 冲突校验防止重复取消。
+ */
+export function expireAbandonedApprovals(
+  store: Store,
+  engine: Pick<Engine, "cancel">,
+  maxAgeMs = limits().approvalWaitTimeoutMs,
+) {
+  if (!publicMode()) return 0;
+  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+  const expired = store.all(
+    "SELECT id FROM runs WHERE owner IS NOT NULL AND status='waiting_approval' AND updated_at<? ORDER BY updated_at ASC LIMIT 100",
+    cutoff,
+  );
+  let count = 0;
+  for (const row of expired) {
+    try {
+      engine.cancel(row.id);
+      store.event(row.id, "approval.expired", { reason: "PUBLIC_APPROVAL_TIMEOUT", timeoutMs: maxAgeMs });
+      count++;
+    } catch (error) {
+      if (!(error instanceof ExecutionError) || error.code !== "CANCEL_CONFLICT") throw error;
+    }
+  }
+  return count;
+}
+
 export function guardReserveSearch(runId: string) {
   if (!publicMode() || !activeGuard) return null;
   return activeGuard.reserveSearch(runId);
