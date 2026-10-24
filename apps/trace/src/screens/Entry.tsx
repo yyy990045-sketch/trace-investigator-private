@@ -22,6 +22,7 @@ import { Tag, archiveHref, caseHref, formatTime } from "../components";
 import { Watershed } from "../Watershed";
 import { ensureClueProject, startClueInvestigation } from "../api";
 import { evidenceWording } from "../presentation";
+import { detectInvestigationDomain, investigationFlow } from "@personal/capability-sdk";
 
 const MAX_FACTS = 6;
 const MAX_QUERIES = 6;
@@ -112,6 +113,8 @@ export function Entry() {
   const [clueModelConsent, setClueModelConsent] = useState(false);
   const [clueError, setClueError] = useState<string | null>(null);
   const modelBlocked = useModel && model.data?.available !== true;
+  const routedFlow = investigationFlow(clueQuestion, heroMode);
+  const isRedirected = heroMode === "clue" && routedFlow === "verification";
 
   const blocked = !SHOWCASE && availability.data?.available !== true;
   const blockerReason = availability.isError
@@ -205,7 +208,9 @@ export function Entry() {
     setClueBusy(true);
     setClueError(null);
     try {
-      if (mode === "verification") {
+      // 影视线索走候选识别；演出余票、传言、开放事实问题使用出处核验。
+      // 用户无须理解底层项目装配，也不应被送进影视标题识别器。
+      if (investigationFlow(trimmed, mode) === "verification") {
         const project = await ensureProject(false);
         const run = await startInvestigation(project, {
           question: trimmed,
@@ -326,22 +331,22 @@ export function Entry() {
         {SHOWCASE ? (
           <div className="clue-hero-input" aria-label="历史调查演示入口">
             <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
-            <a className="trace-btn trace-btn-primary trace-btn-lg" href={caseHref("run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6")}>
-              <Search size={16} /> 查看真实调查
+            <a className="trace-btn trace-btn-primary trace-btn-lg" href={caseHref("run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb")}>
+              <Search size={16} /> 查看侦探实战
             </a>
           </div>
         ) : (
           <div className="clue-hero-input">
             <div role="group" aria-label="调查方式" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="trace-btn" aria-pressed={heroMode === "verification"} onClick={() => setHeroMode("verification")}>查证说法</button>
-              <button type="button" className="trace-btn" aria-pressed={heroMode === "clue"} onClick={() => setHeroMode("clue")}>寻找线索</button>
+              <button type="button" className="trace-btn" aria-pressed={heroMode === "clue"} onClick={() => setHeroMode("clue")}>凭线索找作品</button>
+              <button type="button" className="trace-btn" aria-pressed={heroMode === "verification"} onClick={() => setHeroMode("verification")}>查公开信息</button>
             </div>
             <textarea
               aria-label="你想查什么"
               rows={2}
               maxLength={500}
               placeholder={heroMode === "verification"
-                ? "例如：《个人信息保护法》自2021年8月20日起施行。"
+                ? "例如：某场演唱会周六还有票吗？官方售票平台是什么？"
                 : "例如：我记得一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档。"}
               value={clueQuestion}
               onChange={(event) => setClueQuestion(event.target.value)}
@@ -354,10 +359,12 @@ export function Entry() {
               disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
               onClick={() => void submitClue()}
             >
-              <Search size={16} /> {clueBusy ? "正在调查…" : heroMode === "verification" ? "开始核查" : "开始找线索"}
+              <Search size={16} /> {clueBusy ? "正在调查…" : routedFlow === "verification" ? "查找公开资料" : "开始找线索"}
             </button>
-            {heroMode === "verification" ? (
-              <p className="clue-hero-note">写一句待核实的说法或问句即可：系统会先把问句改写成可核查的说法再检索，改写依据会显示在调查页。</p>
+            {isRedirected ? (
+              <p className="clue-hero-note" role="status">识别到{detectInvestigationDomain(clueQuestion) === "event" ? "演出票务" : "公开信息"}问题，本次将追查公开来源。票务实时库存需以对应官方售票平台为准。</p>
+            ) : heroMode === "verification" ? (
+              <p className="clue-hero-note">系统追查公开出处、核对条件并显示证据。不保证实时库存，也不会把搜索摘要当成已验证事实。</p>
             ) : null}
           </div>
         )}

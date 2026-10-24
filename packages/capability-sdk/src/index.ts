@@ -68,3 +68,5 @@ export interface PortfolioSummary {
 }
 
 export * from './runtime';
+
+export * from './investigation-intent';
