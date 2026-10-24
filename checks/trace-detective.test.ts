@@ -48,7 +48,7 @@ describe("侦探赛道：查询类型与调查决策", () => {
   });
 
   it("同一检索式不重复，已确认答案不再无意义追查", () => {
-    const plan = nextClueSearch(uncertain, ["候选甲 天台 对决 情节 资料"]);
+    const plan = nextClueSearch(uncertain, ["候选甲 天台 对决 原始资料"]);
     expect(plan).toBeNull();
     expect(nextClueSearch({ ...uncertain, decision: { state: "found" } }, [])).toBeNull();
   });
