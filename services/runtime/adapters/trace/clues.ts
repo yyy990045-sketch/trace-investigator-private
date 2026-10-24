@@ -398,6 +398,10 @@ const GENERIC_CLUE_TERMS = new Set([
   "结局", "结局场景", "两个主角", "主角设定", "男一号", "女一号", "演员表", "卡司",
 ]);
 
+/** 排他性/绝对化表述：一辈子、从未、唯一、直到……这类描述辨识度极高。 */
+const EXCLUSIVE_PHRASE =
+  /(一辈子|一生都|一生|从未|从来没|从不|始终|再也|再也没有|唯一|唯有|只有他|只有她|只有它|直到|永远|总之就是)/;
+
 /** 具体情节词：这些词一出现，线索就把候选区分开了。 */
 const PLOT_TERMS =
   /(爆炸|炸弹|拆弹|循环|穿越|重生|卧底|天台|对决|复仇|谋杀|凶杀|失踪|绑架|越狱|监狱|法庭|审判|医院|校园|丧尸|外星|机器人|人工智能|时间倒流|失忆|双胞胎|火灾|地震|海难|空难|列车|火车|飞机|潜艇|沙漠|荒岛|雪山|赛车|拳击|足球|比赛|赌场|黑帮|法医|侦探|律师|医生|刑警|警察|教师|学生|歌手|舞蹈|档案|密码|密室)/;
@@ -413,6 +417,14 @@ export function isDecisiveClue(clue: ClueItem, question = ""): boolean {
     return true;
   if (/\d|([一二三四五六七八九十百千两]+)\s*(分钟|小时|次|天|年|层|万个|万辆|万|亿)/.test(text)) return true;
   if (PLOT_TERMS.test(text)) return true;
+  // 排他性/绝对化表述：这类描述几乎只对应唯一对象（「一辈子没离开过船」），
+  // 泛线索（科幻/国产/男主角）不含这种词，因此仍不会被当成决定性依据。
+  if (EXCLUSIVE_PHRASE.test(text)) return true;
+  // 用户记得足够具体（≥8 字的实词描述）时，这条线索本身就有区分度。
+  const concrete = (clue.terms || []).filter(
+    (term) => term.length >= 2 && !GENERIC_CLUE_TERMS.has(term),
+  );
+  if (clue.text.replace(/\s/g, "").length >= 8 && concrete.length > 0) return true;
   return (
     clue.kind === "subject" &&
     (clue.terms || []).some((term) => term.length >= 2 && !GENERIC_CLUE_TERMS.has(term))
@@ -646,8 +658,40 @@ export function evaluateCandidates(
   const auxiliaryMissing = best.missingClues.filter((text) => auxiliary.includes(text));
   // 只有「决定性线索全部有直接证据」才算找到答案；普通线索缺一两条不影响。
   const coverage = total ? best.matchedClues / total : 0;
-  const enough = decisiveHit >= 2 || coverage >= 0.6;
-  if (!decisiveMissing.length && decisiveHit > 0 && enough && !tie)
+  const lead = best.matchedClues - (runnerUp?.matchedClues ?? 0);
+  // 同一条来源同时对上多条线索时，说明这段材料整体讲的就是这件事——
+  // 这是「证据组合」意义上的决定性佐证，不是靠关键词出现次数堆出来的。
+  const bySource = new Map<string, Set<string>>();
+  const bySourceConcrete = new Map<string, number>();
+  for (const match of best.matches)
+    if (match.found) {
+      const key = match.url || match.site || "";
+      if (!key) continue;
+      const set = bySource.get(key) || new Set<string>();
+      set.add(match.clue);
+      bySource.set(key, set);
+      // 泛线索（题材/身份/地区）不参与「同源共现」的强度认定。
+      const clue = clues.find((item) => item.text === match.clue);
+      const concrete = (clue?.terms || [match.clue]).some(
+        (term) => term.length >= 2 && !GENERIC_CLUE_TERMS.has(term),
+      );
+      if (concrete) bySourceConcrete.set(key, (bySourceConcrete.get(key) || 0) + 1);
+    }
+  // 两条以上不同类型的线索出现在同一条来源里，已经足以说明这段材料讲的就是这件事；
+  // 单条线索命中再多也只是关键词巧合，所以门槛不按次数、按线索种类。
+  const coOccurrence = [...bySource.entries()].some(
+    ([key, set]) => set.size >= 2 && (bySourceConcrete.get(key) || 0) >= 2,
+  );
+  const bestSourceCount = Math.max(0, ...[...bySource.values()].map((set) => set.size));
+  // 定案要点：决定性线索全部对上，且满足下面任一条件——
+  //  a) 至少两条决定性线索命中；b) 一条决定性线索 + 覆盖率过半；
+  //  c) 覆盖率≥75% 且比第二名多出至少两条（排除「只是关键词出现得多」）。
+  const enough =
+    decisiveHit >= 2 ||
+    (decisiveHit >= 1 && coverage >= 0.5) ||
+    (coverage >= 0.75 && lead >= 2) ||
+    (coOccurrence && lead >= 1);
+  if (!decisiveMissing.length && (decisiveHit > 0 || coOccurrence) && enough && !tie)
     return {
       candidates,
       relations,
@@ -658,7 +702,9 @@ export function evaluateCandidates(
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
         headline: decisiveOf(best).length
           ? `决定性线索全部对上：${best.name}`
-          : `线索全部对上：${best.name}`,
+          : coOccurrence
+            ? `同一条来源同时符合 ${bestSourceCount} 条线索：${best.name}`
+            : `线索全部对上：${best.name}`,
         nextQueries: [],
         askUser: null,
         ...(auxiliaryMissing.length ? { auxiliaryClues: auxiliaryMissing } : {}),
@@ -727,4 +773,73 @@ export function clueItemsFrom(texts: { text: string; terms?: string[]; kind?: Cl
       kind: item.kind || ("other" as const),
     }))
     .filter((item) => item.text.length > 0);
+}
+
+/**
+ * 同一部作品的「同名不同版本」（原版动画 / 真人翻拍 / 续集 / 不同年份剧集）。
+ *
+ * 用户说「小时候看的动画片」，答案就必须落在动画版，而不是同名真人版。
+ * 这里只从真实句子里抽「年份 + 形态」的组合，不推断任何没写过的东西。
+ */
+export interface WorkVariant {
+  label: string;
+  year: string;
+  form: string;
+  quote: string;
+  url: string;
+  site: string;
+  from: "body" | "excerpt";
+}
+
+const FORM_WORDS =
+  /(动画电影|动画片|动画|真人电影|真人版|真人|电视剧|剧集|网络剧|纪录片|舞台剧|话剧|游戏|小说|原著)/;
+const YEAR_NEAR_FORM = /((?:19|20)\d{2})\s*年?[^。；;]{0,12}?(动画电影|动画片|动画|真人电影|真人版|真人|电视剧|剧集|网络剧|纪录片)/;
+const FORM_NEAR_YEAR = /(动画电影|动画片|动画|真人电影|真人版|真人|电视剧|剧集|网络剧|纪录片)[^。；;]{0,12}?((?:19|20)\d{2})\s*年?/;
+
+export function extractVariants(
+  pages: PageLike[],
+  bodies: Map<string, BodyLike>,
+  name: string,
+): WorkVariant[] {
+  const key = normalized(name);
+  const found = new Map<string, WorkVariant>();
+  const consider = (sentence: string, page: PageLike, from: "body" | "excerpt") => {
+    if (!key || !normalized(sentence).includes(key)) return;
+    const hit = YEAR_NEAR_FORM.exec(sentence) || FORM_NEAR_YEAR.exec(sentence);
+    if (!hit) return;
+    // 一句话里出现多个年份时，年份很可能说的是别的版本（例如「根据1989年动画改编的2023年
+    // 真人电影」）。这种句子不能用来给「1989 · 动画」作证，否则引文和版本对不上。
+    const years = [...new Set(sentence.match(/(?:19|20)\d{2}/g) || [])];
+    if (years.length > 1) return;
+    // 「根据 1989 年动画改编的 2023 年真人电影」这类句子，年份说的是改编来源而不是本条，
+    // 拿它给「1989 · 动画」作证会把引文和版本搞错。版本证据只认直接陈述。
+    if (/根据|改编|翻拍|续集|基于|原版|致敬/.test(sentence)) return;
+    // 年份与「形态」必须和作品名出现在同一小段里，避免从无关的长页面里摘出别的年份。
+    const at = normalized(sentence).indexOf(key);
+    const yearAt = sentence.search(/(?:19|20)\d{2}/);
+    if (at < 0 || yearAt < 0) return;
+    if (Math.abs(yearAt - at) > 40) return;
+    const year = /^(19|20)\d{2}$/.test(hit[1]) ? hit[1] : hit[2];
+    const form = /^(19|20)\d{2}$/.test(hit[1]) ? hit[2] : hit[1];
+    if (!year || !form || !FORM_WORDS.test(form)) return;
+    const kind = /动画/.test(form) ? "动画" : /真人/.test(form) ? "真人" : /剧集|电视剧|网络剧/.test(form) ? "剧集" : form;
+    const id = `${year}-${kind}`;
+    if (found.has(id)) return;
+    found.set(id, {
+      label: `${year} 年 · ${kind}`,
+      year,
+      form,
+      quote: sentence.trim().slice(0, 160),
+      url: page.url || "",
+      site: page.site || "",
+      from,
+    });
+  };
+  for (const page of pages) {
+    const body = bodies.get(page.id);
+    const text = body?.ok ? String(body.text || "") : "";
+    const source = text || String(page.passage || "");
+    for (const sentence of source.split(/[。！？\n]/)) consider(sentence, page, text ? "body" : "excerpt");
+  }
+  return [...found.values()].sort((a, b) => a.year.localeCompare(b.year));
 }

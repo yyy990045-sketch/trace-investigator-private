@@ -39,6 +39,8 @@ export async function ensureSession(): Promise<void> {
   // 请求头或 HttpOnly Cookie 任一有效就沿用现有会话（清空 localStorage 也不会丢记录）。
   const probe = await fetch(root + "/v1/session", { headers: sessionHeaders() }).catch(() => null);
   if (probe && probe.ok) return;
+  // 本机模式没有会话端点（404）：直接按无会话继续，本机不需要隔离。
+  if (probe && probe.status === 404) return;
   if (probe && probe.status >= 500) throw new Error("运行服务暂时不可用，请稍后重试。");
   if (sessionToken) {
     sessionToken = null;
@@ -58,6 +60,7 @@ export async function ensureSession(): Promise<void> {
   const data = (await created.json().catch(() => null)) as
     | { token?: string; message?: string }
     | null;
+  if (created.status === 404) return;
   if (!created.ok || !data?.token)
     throw new Error(data?.message || `建立会话失败（HTTP ${created.status}）。`);
   sessionToken = data.token;
@@ -479,6 +482,18 @@ export interface TraceBundleView {
     bodyAvailable: number;
     clusters?: SourceCluster[];
     openQuestions?: string[];
+    /** 查询型问题：材料里查到、带数字或日期的原始表述（不是结论） */
+    lookup?: {
+      note: string;
+      items: {
+        quote: string;
+        url: string;
+        site: string;
+        date: string;
+        from: "body" | "excerpt";
+        authoritative: boolean;
+      }[];
+    };
     pageCount?: number;
     followupCount?: number;
     correctionCount?: number;
@@ -842,6 +857,10 @@ export interface ClueRelationView {
 }
 
 export interface ClueAssessmentView {
+  /** 同名不同版本（动画/真人/不同年份），带年份、形态与原句 */
+  variants?: { label: string; year: string; form: string; quote: string; url: string; site: string; from: "body" | "excerpt" }[];
+  /** 同名版本与用户说法的对应说明 */
+  variantNote?: string;
   mode: "clue";
   targetKind?: "screen_work" | "book" | "person" | "other" | "unknown";
   clues: ClueItemView[];

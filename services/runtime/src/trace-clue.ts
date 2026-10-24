@@ -18,6 +18,7 @@ import {
   detectTargetKind,
   evaluateCandidates,
   extractCandidates,
+  extractVariants,
   type BodyLike,
   type Candidate,
   type ClueItem,
@@ -32,6 +33,18 @@ export interface ClueAssessment {
   mode: "clue";
   targetKind: "screen_work" | "book" | "person" | "other" | "unknown";
   clues: ClueItem[];
+  /** 同名不同版本（动画/真人/不同年份），带年份、形态与原句 */
+  variants?: {
+    label: string;
+    year: string;
+    form: string;
+    quote: string;
+    url: string;
+    site: string;
+    from: "body" | "excerpt";
+  }[];
+  /** 同名版本与用户说法的对应说明 */
+  variantNote?: string;
   candidates: Candidate[];
   relations: Candidate[];
   /** 有向关系图（谁改编自谁、谁是谁的续集/翻拍/别名） */
@@ -124,10 +137,25 @@ export function clueAssessment(store: Store, runId: string): ClueAssessment {
           // 与答案无关的关系疑点照实列出，但不影响「找到答案」的结论。
           ...(pending.length ? { openRelations: pending.map((item) => item.question) } : {}),
         };
+  // 同名不同版本（动画/真人/不同年份）：把差别列出来，让「为什么选这个版本」可核对。
+  const variants = best ? extractVariants(pages, bodies, best.name) : [];
+  const wantedForm = /动画/.test(String(bundle.case?.question || ""))
+    ? "动画"
+    : /真人/.test(String(bundle.case?.question || ""))
+      ? "真人"
+      : "";
   return {
     mode: "clue",
     targetKind,
     clues,
+    variants,
+    ...(variants.length && wantedForm
+      ? {
+          variantNote: `同一个名字有 ${variants.length} 个版本；你提到的是「${wantedForm}」，对应 ${
+            variants.filter((item) => item.form.includes(wantedForm)).map((item) => item.label).join("、") || "未找到对应版本"
+          }`,
+        }
+      : {}),
     candidates,
     relations,
     graph,

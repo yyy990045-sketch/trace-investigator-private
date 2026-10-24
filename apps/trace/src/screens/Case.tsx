@@ -406,6 +406,34 @@ export function Case() {
             ) : null}
             {assessment?.openQuestions?.length ? <span className="case-now-gap">还缺 {assessment.openQuestions.length} 项证据</span> : null}
           </div>
+          {/* 查询型问题（多少/公布了吗）：答案可能是证据不足，但用户要看到材料里到底查到了什么。 */}
+          {assessment?.lookup?.items?.length ? (
+            <div className="case-now-lookup" aria-label="材料里查到的相关表述">
+              <p className="trace-hint">{assessment.lookup.note}</p>
+              <ul className="case-body-findings">
+                {assessment.lookup.items.map((item, index) => (
+                  <li key={`${item.url}-${index}`}>
+                    <span>{item.quote}</span>
+                    <span className="trace-mono">
+                      {" · "}
+                      {item.site || item.url}
+                      {item.date ? ` · ${item.date.slice(0, 10)}` : ""}
+                      {item.from === "body" ? " · 原文正文" : " · 搜索摘要"}
+                      {item.authoritative ? " · 官方/权威站点" : ""}
+                    </span>
+                    {item.url ? (
+                      <>
+                        {" "}
+                        <a href={item.url} target="_blank" rel="noreferrer noopener">
+                          打开原始页面
+                        </a>
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="case-now-actions">
             <a className="trace-btn trace-btn-ghost" href={archiveHref(run.id)}>
               打开调查档案
