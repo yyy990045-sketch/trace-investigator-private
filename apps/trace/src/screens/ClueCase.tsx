@@ -246,6 +246,30 @@ export function ClueCase({
           </p>
         ) : null}
 
+        {/* 同一个名字的不同版本（动画/真人/不同年份）：这是「多个相似候选」最常见的形态。 */}
+        {assessment?.variants?.length ? (
+          <div className="clue-explain" aria-label="同名作品的版本">
+            <h3>同名作品的版本</h3>
+            {assessment.variantNote ? <p className="clue-hint">{assessment.variantNote}</p> : null}
+            <ul>
+              {assessment.variants.map((variant) => (
+                <li key={`${variant.year}-${variant.form}`}>
+                  <b>{variant.label}</b>
+                  <span>{`：${variant.quote}`}</span>
+                  {variant.url ? (
+                    <>
+                      {" "}
+                      <a href={variant.url} target="_blank" rel="noreferrer noopener">
+                        {variant.site || "原始页面"}
+                      </a>
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {candidates.length > 1 && decision?.state === "found" ? (
           <div className="clue-explain">
             <h3>为什么不是其他候选</h3>

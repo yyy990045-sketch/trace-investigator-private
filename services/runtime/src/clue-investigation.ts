@@ -3,6 +3,8 @@
  * 这是调查决策，不能使用预置答案、网页命中次数或用户没有给出的事实。
  * 真正的检索由 TRACE 的 SearchPro 适配器执行。
  */
+import { lowSignal } from "./clue-plan.ts";
+
 export interface SearchQuestion {
   question: string;
   query: string;
@@ -57,7 +59,9 @@ export function nextClueSearch(
       const missing = candidate.matches.find((match) => match.decisive && !match.found);
       if (!missing) continue;
       const clue = snapshot.clues.find((item) => item.text === missing.clue);
-      const terms = (clue?.terms || [missing.clue]).filter((item) => item.length >= 2).slice(0, 2);
+      const terms = (clue?.terms || [missing.clue])
+        .filter((item) => item.length >= 2 && !lowSignal(item))
+        .slice(0, 2);
       const query = [candidate.name, ...terms, "原始资料"].join(" ");
       const choice = offer({
         question: `「${candidate.name}」是否真正符合「${missing.clue}」？`,

@@ -3,6 +3,8 @@ import { detectInvestigationDomain, planByRule } from "../services/runtime/src/c
 import { nextClueSearch, type InvestigationSnapshot } from "../services/runtime/src/clue-investigation.ts";
 import { evaluateCandidates, extractCandidates, type PageLike, type ClueItem } from "../services/runtime/adapters/trace/clues.ts";
 import { investigationFlow } from "@personal/capability-sdk";
+import { isDecisiveClue } from "../services/runtime/adapters/trace/clues.ts";
+import { planByRule } from "../services/runtime/src/clue-plan.ts";
 
 describe("侦探赛道：查询类型与调查决策", () => {
   it("实际入口：演出票务不送进影视候选器；找剧仍走线索追查", () => {
@@ -133,5 +135,55 @@ describe("侦探赛道：查询类型与调查决策", () => {
     expect(first?.kind).toBe("discovery");
     const second = nextClueSearch(empty, [first!.query]);
     expect(second?.query).not.toBe(first?.query);
+  });
+});
+
+describe("侦探链路的通用判定（本轮修复回归）", () => {
+  it("量词/虚词/动词碎片不进线索，也不进检索式", () => {
+    const plan = planByRule("我记得小时候看过一部动画片，美人鱼为了爱情用声音换了双腿，后来还拍过真人版，我想知道动画版是哪一年的");
+    const texts = plan.clues.map((clue) => clue.text);
+    expect(texts).toContain("美人鱼");
+    for (const noise of ["一年", "为了", "换了", "我想", "一部"]) {
+      expect(texts).not.toContain(noise);
+    }
+    expect(plan.queries.every((query) => !/\b为了\b|换了|不起/.test(query))).toBe(true);
+  });
+
+  it("分词切碎的专名会恢复成完整名词，跨词组的碎片不会拼进来", () => {
+    const plan = planByRule("一部动画片，美人鱼为了爱情用声音换了双腿");
+    const texts = plan.clues.map((clue) => clue.text);
+    expect(texts).toContain("美人鱼");
+    expect(texts).not.toContain("鱼为了");
+  });
+
+  it("排他性情节与具体长描述算决定性线索，题材/身份不算", () => {
+    const decisive = (text: string, kind: "other" | "subject" | "genre" = "other") =>
+      isDecisiveClue({ id: "c", text, terms: [text], kind } as any);
+    expect(decisive("一辈子没离开过游轮")).toBe(true);
+    expect(decisive("用声音换了双腿的情节")).toBe(true);
+    expect(decisive("科幻", "genre")).toBe(false);
+    expect(decisive("男主角", "genre")).toBe(false);
+  });
+
+  it("同一条来源同时对上多条线索即视为证据组合成立，单条关键词堆次数不算", () => {
+    const page = { id: "p1", url: "https://example.com/a", site: "example", title: "小美人鱼", date: "", passage: "" } as any;
+    const body = new Map([
+      ["p1", { ok: true, text: "小美人鱼为了爱情用声音换了双腿。小美人鱼是经典动画作品。" } as any],
+    ]);
+    const clues = [
+      { id: "c1", text: "爱情", terms: ["爱情"], kind: "other" as const },
+      { id: "c2", text: "声音", terms: ["声音"], kind: "other" as const },
+      { id: "c3", text: "美人鱼", terms: ["美人鱼"], kind: "other" as const },
+    ];
+    const { decision } = evaluateCandidates(
+      [{ name: "小美人鱼", pages: [page], score: 0, titleHits: 1 } as any],
+      clues,
+      [page],
+      body,
+      "screen_work",
+      "美人鱼为了爱情用声音换了双腿",
+    );
+    expect(decision.state).toBe("found");
+    expect(decision.headline).toContain("同一条来源");
   });
 });

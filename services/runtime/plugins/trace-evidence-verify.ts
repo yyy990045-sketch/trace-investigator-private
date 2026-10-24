@@ -153,6 +153,47 @@ export default {
     // 还缺什么证据：证据不足时给用户可执行的下一步，而不是一句结论了事。
     const missing = openQuestions(assessments);
 
+    // 「问价值」类问题（多少/公布了吗/什么时候）：结论可能是证据不足，
+    // 但用户真正要的是「官方到底怎么说」。这里只把材料里真实出现的、
+    // 带数字或日期的句子按来源权威度列出来，并明确标注「这不是结论」。
+    const claimText = String(input.case?.claim || input.case?.question || "");
+    const lookupQuestion = /多少|几多|是多少|公布|发布了吗|什么时候|哪一天|几月几号|日期/.test(claimText);
+    const authoritative =
+      /(gov\.cn|stats\.gov\.cn|mofcom\.gov\.cn|mct\.gov\.cn|pbc\.gov\.cn|nbs\.gov|people\.com\.cn|news\.cn|xinhuanet\.com|cctv\.com|chinanews\.com\.cn)/;
+    const lookup = lookupQuestion
+      ? (() => {
+          const seen = new Set<string>();
+          const hits: { quote: string; url: string; site: string; date: string; from: "body" | "excerpt"; authoritative: boolean }[] = [];
+          for (const page of pages) {
+            const body = bodies.get(page.id);
+            const text = body?.ok ? String(body.text || "") : "";
+            const source = text || String(page.passage || "");
+            for (const sentence of source.split(/[。！？\n]/)) {
+              const line = sentence.trim();
+              if (line.length < 12 || line.length > 160) continue;
+              // 必须真的带数值或日期，否则不是「查到的数据」。
+              if (!/(\d+(?:\.\d+)?\s*(?:亿|万|万人次|万人|%|％|元)|\d{4}\s*年|\d{1,2}\s*月\s*\d{1,2}\s*日)/.test(line)) continue;
+              const key = line.slice(0, 30);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              hits.push({
+                quote: line,
+                url: page.url || "",
+                site: page.site || "",
+                date: page.date || "",
+                from: text ? "body" : "excerpt",
+                authoritative: authoritative.test(page.url || ""),
+              });
+              if (hits.length >= 12) break;
+            }
+            if (hits.length >= 12) break;
+          }
+          return hits
+            .sort((a, b) => Number(b.authoritative) - Number(a.authoritative))
+            .slice(0, 3);
+        })()
+      : [];
+
     return {
       ...input,
       documents: [
@@ -167,6 +208,15 @@ export default {
         bodyAvailable,
         clusters,
         openQuestions: missing,
+        // 查询型问题的「材料里查到什么」：不是结论，不能替代结论。
+        ...(lookup.length
+          ? {
+              lookup: {
+                note: "以下是从已取得材料中摘出的、与本问题相关的原始表述（含数字或日期）；它们不构成本次结论，来源与时间以页面为准。",
+                items: lookup,
+              },
+            }
+          : {}),
         // 历史经验匹配：只展示检查提示，不参与上面的支持/反证计数与结论。
         experiences: Array.isArray(input.case?.experienceHints) ? input.case.experienceHints : [],
       },

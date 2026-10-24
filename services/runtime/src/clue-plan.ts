@@ -80,21 +80,84 @@ const INVESTIGATION_FILLERS = new Set([
   "知道", "查找", "调查", "怎么", "为什么", "是不是", "有没有", "是否", "在哪",
   "电影", "影视", "电视", "作品", "找到", "描述", "情节", "事件", "事情",
   "片名", "之前", "发生", "发生了", "好像是", "个人", "了一", "名字了", "分钟", "小时", "哪部", "男主角", "女主角",
+  // 分词残留：用户写「记不起片名」时会被切成「不起」，这种串进检索式只会拉低召回。
+  "不起", "记不起", "想不起", "记不清", "不知道怎么", "不知道", "不能", "不会", "不了", "不肯", "不在", "不是",
+  "一部电影", "一部电视剧", "一部动画片", "一部片子", "好像是部", "记得是", "我也", "都记", "记不",
+  // 时间量词没有具体年份时区分不了任何对象
+  "一年", "两年", "三年", "那年", "哪年", "哪一年", "年份", "时候看",
+  // 用户的口头意图词
+  "我想", "想知道", "想找", "想查", "帮我找", "帮我查", "告诉我", "想知道是", "知道是",
+  // 功能词/动词碎片：单独出现时不指向任何对象
+  "为了", "换了", "换成", "变得", "拍了", "拍过", "还拍", "说过", "问了", "就是", "而且", "然后",
 ]);
+
+/**
+ * 低区分度词：量词、时间虚词、泛化名词。
+ * 它们出现在网页里几乎必然（「一艘船」「那时候」），留着只会让候选永远差一条、
+ * 还会把补查检索式污染成「候选名 时候」这种搜不出东西的查询。
+ */
+const LOW_SIGNAL = new Set([
+  "时候", "当时", "那时", "这之后", "之前", "之后", "期间", "当年", "最近", "近期",
+  "一个", "一艘", "一部", "一辆", "一架", "一座", "一条", "一位", "一名", "一只", "一间",
+  "这种", "那种", "这个", "那个", "这位", "那位", "这些", "那些", "有些",
+  "情况", "东西", "内容", "方面", "样子", "事情", "问题", "地方", "时候了",
+  "然后", "后来", "最后", "一直", "反复", "每次", "自己", "感觉", "觉得",
+]);
+
+export /** 单字名词后缀：与前面的词紧邻时通常是同一个专名（美人+鱼、西游+记）。 */
+const NOUN_SUFFIX = new Set(
+  "鱼王记传纪片剧岛城国船车侠龙猫狗马鹰狼蛇鸟塔桥河山湖海港站校园厂店馆院楼营军队团社报网歌曲画书戏局堂门族星神魔怪仙佛僧".split(""),
+);
+
+export function lowSignal(term: string) {
+  if (LOW_SIGNAL.has(term)) return true;
+  // 纯否定/可能补语碎片（不起/不了/不肯）单独出现时不构成线索
+  if (/^(不|没|别|未)[起得了会能肯在是的]$/.test(term)) return true;
+  // 「一艘/那位/这种」这类指示词 + 量词开头的词没有区分度
+  if (/^(这|那|某|一)[艘部辆架座条位名只间个种些]/.test(term)) return true;
+  return false;
+}
 
 function clueTokens(question: string): string[] {
   const seg = new Intl.Segmenter("zh", { granularity: "word" });
   const cleaned = question.replace(/[？?！!。，,、；;：:\n]/g, " ").replace(FILLERS, "").trim();
   // 数字与时间单位必须完整保留，分词器可能把“八”和“分钟”拆开。
+  // 只有「数字 + 单位」才算可核对的时间/数量；「一年」「两年」这种没有具体数值的说法
+  // 区分不了任何对象，反而会被当成决定性线索而卡住结论。
   const durations = [...cleaned.matchAll(/(?:\d+|[一二三四五六七八九十百两]+)\s*(?:分钟|小时|年|个月|天|次|公里|米)/g)]
-    .map((match) => match[0].replace(/\s+/g, ""));
-  const words = [...seg.segment(cleaned)]
-    .filter((part) => part.isWordLike)
+    .map((match) => match[0].replace(/\s+/g, ""))
+    .filter((value) => /^\d/.test(value) || value.length >= 3)
+    .filter((value) => !INVESTIGATION_FILLERS.has(value) && !lowSignal(value));
+  const parts = [...seg.segment(cleaned)].filter((part) => part.isWordLike);
+  const words = parts
     .map((part) => part.segment.trim())
     .filter((term) => term.length >= 2 && term.length <= 20)
     .filter((term) => !INVESTIGATION_FILLERS.has(term) && !VAGUE_TIME.test(term))
+    .filter((term) => !lowSignal(term))
     .filter((term) => /[\p{L}\p{N}]/u.test(term));
-  return [...new Set([...durations, ...words])].slice(0, 16);
+  // 分词器会把专名切碎（「美人鱼」→「美人」+「鱼」）：只在「单字名词后缀」紧邻时合并，
+  // 避免把「爱情 用」「声音 换」这类跨词组片段当成线索。
+  const merged: string[] = [];
+  for (let index = 0; index < parts.length - 1; index++) {
+    const left = parts[index].segment.trim();
+    const right = parts[index + 1].segment.trim();
+    if (!left || right.length !== 1) continue;
+    if (!NOUN_SUFFIX.has(right)) continue;
+    const combined = left + right;
+    if (combined.length < 3 || combined.length > 8) continue;
+    if (!cleaned.includes(combined)) continue;
+    if (INVESTIGATION_FILLERS.has(combined) || lowSignal(combined)) continue;
+    merged.push(combined);
+  }
+  // 子串去重：「美人鱼」已经在线索里时，「美人」不再单列（它区分不了任何东西）。
+  const ordered = [...new Set([...durations, ...merged, ...words])];
+  const kept = ordered.filter(
+    (term) =>
+      !ordered.some(
+        (other) => other !== term && other.length > term.length && other.includes(term),
+      ),
+  );
+  return kept.slice(0, 16);
 }
 
 /** 模型未授权或不可用时，仍能从陌生中文句子生成可核验的短线索和检索式。 */
@@ -104,7 +167,7 @@ export function planByRule(question: string): CluePlan {
   const clues: PlannedClue[] = terms.slice(0, 6).map((text) => ({
     text,
     terms: expandTerms([text]),
-    kind: KINDS.find((item) => item.pattern.test(text))?.kind || "other",
+    kind: (KINDS.find((item) => item.pattern.test(text))?.kind || "other") as PlannedClue["kind"],
   }));
   if (!clues.length && question.trim().length >= 2)
     clues.push({ text: question.trim().slice(0, 40), terms: [question.trim().slice(0, 20)], kind: "other" });
@@ -161,7 +224,9 @@ function sanitize(raw: RawPlan, question: string): { goal: string; clues: Planne
     const kind = ["genre", "role", "time", "region", "subject", "other"].includes(String(source.kind))
       ? (source.kind as PlannedClue["kind"])
       : "other";
-    const usable = (terms.length ? terms : [text]).filter((term) => !GENERIC_TERMS.has(term) && term.length >= 2);
+    const usable = (terms.length ? terms : [text]).filter(
+      (term) => !GENERIC_TERMS.has(term) && !lowSignal(term) && term.length >= 2,
+    );
     // 全是「以前/大概」这类词，说明这条不是有效线索，直接丢掉，避免永远停在「尚未核实」。
     if (!usable.length) continue;
     if (usable.every((term) => VAGUE_TIME.test(term))) continue;
