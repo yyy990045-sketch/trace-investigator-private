@@ -553,7 +553,7 @@ export function Entry() {
                 maxLength={500}
                 placeholder="例如：我记得一部悬疑剧，主角是法医、搭档叫大宝；或者：网传某款手机已在官网停售，是真的吗？"
                 value={clueQuestion}
-                onChange={(event) => { setClueQuestion(event.target.value); if (importSource !== "manual") setImportConfirmed(false); }}
+                onChange={(event) => { setClueQuestion(event.target.value); setTooLongChoices(null); if (importSource !== "manual") setImportConfirmed(false); }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
                 }}
