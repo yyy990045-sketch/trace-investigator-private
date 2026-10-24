@@ -1796,3 +1796,65 @@
     font-size: 14px;
   }
 }
+
+/* 9. 输入导入（截图 OCR / 链接） -------------------------------------------- */
+.trace-v2 .t-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+.trace-v2 .t-import-tag {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--t-brand-soft);
+  color: var(--t-brand-deep);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.trace-v2 .t-import-panel {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--t-line);
+  border-radius: 12px;
+  background: var(--t-surface-2);
+  display: grid;
+  gap: 10px;
+}
+.trace-v2 .t-import-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--t-line-strong);
+  border-radius: 10px;
+  background: var(--t-surface);
+  color: var(--t-ink);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+.trace-v2 .t-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.trace-v2 .t-import-result {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--t-line-strong);
+}
+@media (max-width: 520px) {
+  .trace-v2 .t-import-row {
+    padding: 8px 12px 0;
+  }
+  .trace-v2 .t-import-panel {
+    padding: 12px;
+  }
+  .trace-v2 .t-import-panel textarea {
+    font-size: 14px;
+    min-height: 92px;
+  }
+}

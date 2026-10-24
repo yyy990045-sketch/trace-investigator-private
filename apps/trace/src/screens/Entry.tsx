@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, FileSearch, Link2, Plus, Search, ShieldQuestion, X } from "lucide-react";
+import { ArrowRight, FileSearch, Image as ImageIcon, Link2, Plus, Search, ShieldQuestion, X } from "lucide-react";
 import {
   SHOWCASE,
   bundleOf,
@@ -22,6 +22,21 @@ import { Tag, archiveHref, caseHref, formatTime } from "../components";
 import { Watershed } from "../Watershed";
 import { ensureClueProject, startClueInvestigation } from "../api";
 import { evidenceWording } from "../presentation";
+import { importFromLink } from "../api";
+import {
+  MAX_INVESTIGATION_CHARS,
+  checkImage,
+  extractUrls,
+  importSourceLabel,
+  isDouyinUrl,
+  looksUnreadable,
+  normalizeOcrText,
+  parsePastedShare,
+  planOcrInsertion,
+  rankCandidates,
+  validateForInvestigation,
+  type ImportSource,
+} from "../input-import";
 import { detectInvestigationDomain, investigationFlow } from "@personal/capability-sdk";
 
 const MAX_FACTS = 6;
@@ -121,6 +136,17 @@ export function Entry() {
   const [clueBusy, setClueBusy] = useState(false);
   const [clueModelConsent, setClueModelConsent] = useState(false);
   const [clueError, setClueError] = useState<string | null>(null);
+  // 输入导入（截图 OCR / 分享文案 / 网页链接）：只负责把文字读出来，不判断真假。
+  const [importSource, setImportSource] = useState<ImportSource>("manual");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [tooLongChoices, setTooLongChoices] = useState<string[] | null>(null);
+  const [linkPanelOpen, setLinkPanelOpen] = useState(false);
+  const [linkPaste, setLinkPaste] = useState("");
+  const [linkResult, setLinkResult] = useState<{ title: string; url: string; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const modelBlocked = useModel && model.data?.available !== true;
   const routedFlow = investigationFlow(clueQuestion, heroMode);
   const isRedirected = heroMode === "clue" && routedFlow === "verification";
@@ -204,7 +230,133 @@ export function Entry() {
     }
   }
 
+  /** 把识别/提取到的文字放进调查框，并标记来源，用户仍可修改。 */
+  function applyImportedText(text: string, source: ImportSource, notice?: string) {
+    const value = String(text || "").trim();
+    setClueQuestion(value);
+    setImportSource(value ? source : "manual");
+    setImportNotice(notice || null);
+  }
+
+  /** 截图 OCR：本地识别，进度可见，失败就说失败。 */
+  async function onPickImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setImportError(null);
+    setImportNotice(null);
+    setTooLongChoices(null);
+    const check = checkImage(file);
+    if (!check.ok) {
+      setImportError(check.reason || "这张图片不能用于识别。");
+      return;
+    }
+    setImportBusy(true);
+    setImportStatus("正在加载识别引擎（首次约 10–30 秒）…");
+    try {
+      // 动态引入：不在首页首屏加载 OCR 依赖，也不上传原图。
+      const { recognizeImage } = await import("../ocr");
+      const result = await recognizeImage(file, ({ status, progress }) => {
+        const percent = Math.round(progress * 100);
+        setImportStatus(
+          status === "recognizing text" ? `正在识别文字 ${percent}%` : `准备识别 ${percent}%`,
+        );
+      });
+      const cleaned = normalizeOcrText(result.text);
+      if (!cleaned || looksUnreadable(cleaned)) {
+        setImportStatus("");
+        setImportError(
+          "没能可靠识别出文字（截图可能太模糊、字太小或有遮挡）。请换一张清晰的截图，或直接把原话复制进来。",
+        );
+        return;
+      }
+      const plan = planOcrInsertion(cleaned);
+      const confidence = Math.round(Number(result.confidence || 0));
+      setImportStatus(`识别完成：${cleaned.length} 个字${confidence ? `，置信度 ${confidence}%` : ""}`);
+      // 置信度太低时不当作可用结果：填进去但明确要求逐字核对，绝不静默当原文。
+      if (confidence && confidence < 60) {
+        setImportError(
+          `识别置信度只有 ${confidence}%，文字很可能不准（已把结果放进输入框）。请对照截图逐字校正后再提交；看不清就换一张更清晰的截图。`,
+        );
+      }
+      if (plan.needChoice) {
+        // 超过 500 字不静默截断：让用户自己挑要核查的那一句。
+        setTooLongChoices(plan.candidates);
+        setClueQuestion(plan.text.slice(0, MAX_INVESTIGATION_CHARS));
+        setImportSource("screenshot");
+        setImportNotice(
+          `识别到 ${plan.text.length} 个字，超过 ${MAX_INVESTIGATION_CHARS} 字上限：已填前 ${MAX_INVESTIGATION_CHARS} 字，请从下面挑一句要核查的说法替换。`,
+        );
+        return;
+      }
+      applyImportedText(plan.text, "screenshot");
+    } catch (e) {
+      setImportStatus("");
+      setImportError(
+        `识别引擎没能启动：${(e as Error).message}。可以重试，或直接把原话复制进来。`,
+      );
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  /** 粘贴分享文案或链接：先看能不能拿到说法，再决定用不用抓取。 */
+  async function applyPastedShare() {
+    const raw = linkPaste.trim();
+    setImportError(null);
+    setImportNotice(null);
+    setLinkResult(null);
+    setTooLongChoices(null);
+    if (!raw) {
+      setImportError("先粘贴分享文案或链接。");
+      return;
+    }
+    const parsed = parsePastedShare(raw);
+    if (parsed.statement.length >= 4) {
+      applyImportedText(
+        parsed.statement,
+        "share",
+        parsed.urls.length
+          ? `已从分享内容提取说法，原始链接已保留：${parsed.urls[0]}`
+          : undefined,
+      );
+      return;
+    }
+    if (!parsed.urls.length) {
+      setImportError("这段内容里没有识别到可调查的说法或链接。");
+      return;
+    }
+    const url = parsed.urls[0];
+    if (parsed.douyin || isDouyinUrl(url)) {
+      setImportError(
+        "暂时无法读取这条视频的口播或字幕，请上传视频截图，或复制视频中的原话。",
+      );
+      return;
+    }
+    setImportBusy(true);
+    setImportStatus("正在读取这个网页的正文…");
+    try {
+      const result = await importFromLink(url);
+      setLinkResult({ title: result.title, url: result.url, text: result.text });
+      setImportStatus(`已读取 ${result.text.length} 个字：${result.title}`);
+      setImportNotice(result.note);
+      const plan = planOcrInsertion(result.text);
+      if (plan.needChoice) setTooLongChoices(plan.candidates);
+      else applyImportedText(plan.text, "page", result.note);
+    } catch (e) {
+      setImportStatus("");
+      setImportError((e as Error).message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   async function submitClue() {
+    const guard = validateForInvestigation(clueQuestion);
+    if (!guard.ok) {
+      setClueError(guard.reason || "这句话还不能调查。");
+      return;
+    }
     await submitClueWith(clueQuestion, heroMode);
   }
 
@@ -386,6 +538,41 @@ export function Entry() {
                   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
                 }}
               />
+              <div className="t-import-row" aria-label="其他输入方式">
+                <button
+                  type="button"
+                  className="t-btn t-btn-quiet"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={SHOWCASE || clueBusy || importBusy}
+                >
+                  <ImageIcon size={15} /> 上传截图
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  aria-label="选择截图"
+                  hidden
+                  onChange={(event) => void onPickImage(event)}
+                />
+                <button
+                  type="button"
+                  className="t-btn t-btn-quiet"
+                  onClick={() => setLinkPanelOpen((open) => !open)}
+                  disabled={SHOWCASE || clueBusy || importBusy}
+                  aria-expanded={linkPanelOpen}
+                >
+                  <Link2 size={15} /> 粘贴链接
+                </button>
+                {importSource !== "manual" ? (
+                  <span className="t-import-tag">{importSourceLabel[importSource]}</span>
+                ) : null}
+                {importBusy && importStatus ? (
+                  <span className="t-hint" role="status">
+                    {importStatus}
+                  </span>
+                ) : null}
+              </div>
               <div className="t-composer-foot">
                 <span className="t-hint">
                   {blocked
@@ -402,6 +589,110 @@ export function Entry() {
               </div>
             </form>
           )}
+
+          {!SHOWCASE && linkPanelOpen ? (
+            <div className="t-import-panel" aria-label="粘贴链接或分享文案">
+              <label className="t-hint" htmlFor="trace-link-paste">
+                粘贴抖音等平台的分享文案，或一个公开网页链接
+              </label>
+              <textarea
+                id="trace-link-paste"
+                rows={3}
+                value={linkPaste}
+                onChange={(event) => setLinkPaste(event.target.value)}
+                placeholder="例如：复制打开抖音，看看这条视频…某种食品反复加热会产生某种物质 http://v.douyin.com/xxxx；或 https://www.example.com/article"
+              />
+              <div className="t-import-actions">
+                <button
+                  type="button"
+                  className="t-btn t-btn-primary"
+                  onClick={() => void applyPastedShare()}
+                  disabled={importBusy}
+                >
+                  {importBusy ? "正在读取…" : "提取文字"}
+                </button>
+                <button
+                  type="button"
+                  className="t-btn t-btn-quiet"
+                  onClick={() => {
+                    setLinkPanelOpen(false);
+                    setLinkResult(null);
+                    setImportError(null);
+                    setImportStatus("");
+                  }}
+                >
+                  收起
+                </button>
+                <span className="t-hint">短视频链接不会被抓取；读不到时会提示补截图或原话。</span>
+              </div>
+              {linkResult ? (
+                <div className="t-import-result">
+                  <p className="t-hint">
+                    已读取：<b>{linkResult.title}</b>
+                  </p>
+                  <textarea readOnly rows={4} value={linkResult.text.slice(0, 600)} aria-label="网页正文预览" />
+                  <div className="t-import-actions">
+                    <button
+                      type="button"
+                      className="t-btn"
+                      onClick={() => {
+                        const plan = planOcrInsertion(linkResult.text);
+                        // 网页正文常把导航/字号/时间混在前面：优先用排好序的第一句完整说法。
+                        const ranked = plan.candidates.length
+                          ? plan.candidates
+                          : rankCandidates([plan.text]);
+                        applyImportedText(
+                          ranked[0] || plan.text.slice(0, MAX_INVESTIGATION_CHARS),
+                          "page",
+                          "网页正文只作为待核查材料，不作为独立支持证据。",
+                        );
+                        if (plan.needChoice && ranked.length > 1) setTooLongChoices(ranked);
+                      }}
+                    >
+                      用这段文字调查
+                    </button>
+                    <a className="t-hint" href={linkResult.url} target="_blank" rel="noreferrer noopener">
+                      打开原页面
+                    </a>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {importError ? (
+            <div className="trace-alert" role="alert" style={{ marginTop: 12 }}>
+              {importError}
+            </div>
+          ) : null}
+
+          {importNotice ? (
+            <p className="t-hint" role="status" style={{ marginTop: 8 }}>
+              {importNotice}
+            </p>
+          ) : null}
+
+          {tooLongChoices ? (
+            <div className="t-import-panel" aria-label="选择要核查的说法">
+              <p className="t-hint">识别到的文字超过 {MAX_INVESTIGATION_CHARS} 字，请挑一句要核查的说法：</p>
+              <ul className="t-plain-list">
+                {tooLongChoices.map((line, index) => (
+                  <li key={index}>
+                    <button
+                      type="button"
+                      className="t-btn t-btn-quiet"
+                      onClick={() => {
+                        applyImportedText(line, importSource, "已选用你挑的那一句，其余识别文字没有提交。");
+                        setTooLongChoices(null);
+                      }}
+                    >
+                      {line}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {clueError ? (
             <div className="trace-alert" role="alert" style={{ marginTop: 12 }}>
