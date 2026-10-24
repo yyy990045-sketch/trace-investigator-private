@@ -444,7 +444,11 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
       if (!config.available)
         throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
 
-      const budget = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
+      // 总额限制按 run 持久化，页面刷新/重复进入也不会重新花两次搜索预算。
+      // 手动追加保留原行为，自动追加只在本次调查中最多占用两次。
+      const previousAuto = followupsOf(run).filter((item) => typeof item.autoReason === "string").length;
+      const requested = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
+      const budget = Math.max(0, Math.min(requested, 2 - previousAuto));
       const executed: {
         question: string;
         query: string;
@@ -454,22 +458,34 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         after: string;
         error: unknown;
       }[] = [];
-      const tried = new Set<string>();
+      const tried = new Set<string>([
+        ...followupsOf(run).map((item) => String(item.query || "").trim()),
+        ...((baseBundle(run).searches || []) as { query?: string }[]).map((item) => String(item.query || "").trim()),
+      ].filter(Boolean));
       let current = buildAssessment(run).assessment;
-      const claimText = String(
-        (current.facts?.[0] as any)?.fact?.text || run.input?.text || "",
-      );
-      const semantics = parseClaim(claimText);
-
-      /** 每一轮都用「刚重算过的评估」找缺口：第一轮的新资料会直接改变第二轮的查询。 */
+      /** 每一轮用最新所有事实，优先解决真正缺证据的部分；不能永远只追第一条断言。 */
       const askNext = (
         snapshot: typeof current,
-      ): { query: string; reason: string; question: string } | null => {
-        const fact = snapshot.facts?.[0];
+      ): { query: string; reason: string; question: string; factId: string | null } | null => {
+        const previous = followupsOf(store.run(run.id)!).filter((item) => typeof item.autoReason === "string");
+        const facts = snapshot.facts || [];
+        const open = facts.filter((item) =>
+          item.relation === "none" || item.relation === "mixed" || item.bodyBackedClusters === 0,
+        );
+        const fact = [...(open.length ? open : facts)]
+          .sort((a, b) =>
+            previous.filter((item) => item.factId === a.factId).length -
+            previous.filter((item) => item.factId === b.factId).length,
+          )[0];
+        if (!fact) return null;
+        const claimText = String(fact.fact || run.input?.text || "");
+        const semantics = parseClaim(claimText);
         const sources = ((fact as any)?.sources || []) as any[];
         const bodies = sources.filter((item) => item.bodyAvailable).length;
         const offered = (query: string, reason: string, question: string) =>
-          query.trim().length >= 3 && !tried.has(query.trim()) ? { query: query.trim().slice(0, 120), reason, question } : null;
+          query.trim().length >= 3 && !tried.has(query.trim())
+            ? { query: query.trim().slice(0, 120), reason, question, factId: fact.factId || null }
+            : null;
         // 1) 只有摘要：先把最强来源的原文取回来（有正文才谈得上核对）
         if (sources.length && bodies === 0) {
           const top = sources.find((item) => item.url);
@@ -518,7 +534,6 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         const next = askNext(current);
         if (!next) break;
         tried.add(next.query);
-        const liveRun = store.run(run.id)!;
         const attempt = await searchPro(next.query);
         const pages = (attempt.pages || []).slice(0, MAX_FOLLOWUP_PAGES);
         const bodies: {
@@ -544,7 +559,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         }
         const payload = {
           query: next.query,
-          factId: (current.facts?.[0] as any)?.factId || null,
+          factId: next.factId,
           requestedAt: attempt.requestedAt || now(),
           requestId: attempt.requestId || null,
           httpStatus: attempt.httpStatus || null,
@@ -581,6 +596,18 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         if (attempt.error) break;
         // 已经拿到明确结论就没有必要继续查
         if ((after.verdict as any)?.outcome === "supported" || (after.verdict as any)?.outcome === "contradicted") break;
+      }
+      // 首页摘要仍从 run.evidence 的最新重算记录读取；自动补查产生新结论时
+      // 同步追加重算记录，避免结果页实时结论与首页历史摘要显示成两个答案。
+      if (executed.length) {
+        recordEvidence(store, run.id, REASSESS_KIND, {
+          reason: "autonomous_followup",
+          assessment: current,
+          changes: executed.map((item) =>
+            `自动追查「${item.question}」，结论 ${item.before} → ${item.after}`,
+          ),
+          at: now(),
+        });
       }
       return { executed, assessment: current, searchedQueries: [...tried] };
     },
