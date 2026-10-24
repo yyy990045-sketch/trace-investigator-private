@@ -230,6 +230,14 @@ export function ClueCase({
           </div>
         ) : null}
 
+        {/* 答案已确定，但有的情节并没有在资料里核到：必须单独列出来，不能默认成立。 */}
+        {decision?.state === "found" && decision.unverified?.length ? (
+          <div className="clue-hint" aria-label="尚未核实的情节">
+            <b>还没在资料里核到的情节：</b>
+            {decision.unverified.join("、")}（没查到不等于不存在，只是这次没有找到对应原文）
+          </div>
+        ) : null}
+
         {/* 用户记忆与资料冲突：有原文依据才展示，且不改写用户原话。 */}
         {decision?.conflicts?.length ? (
           <div className="clue-conflict" aria-label="记忆与资料不一致的线索">

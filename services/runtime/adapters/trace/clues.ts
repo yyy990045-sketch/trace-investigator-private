@@ -528,6 +528,10 @@ const GENERIC_CLUE_TERMS = new Set([
   "现代", "古装", "场景", "剧情", "情节", "故事",
   "破案剧", "刑侦剧", "悬疑剧", "警匪剧", "类型片", "男主", "女主", "双男主", "双女主",
   "结局", "结局场景", "两个主角", "主角设定", "男一号", "女一号", "演员表", "卡司",
+  // 泛化剧情词：几乎每部作品都写得出来，不能当作「区分作品的核心情节」。
+  "动画", "动画片", "影片", "男孩", "女孩", "爸爸", "妈妈", "父亲", "母亲", "朋友",
+  "成为", "变成", "故事", "最后", "后来", "开始", "遇到", "生活", "地方", "事情", "时间",
+  "一对", "船上", "男人", "女人", "一段", "男女", "两人", "二人",
 ]);
 
 /** 排他性/绝对化表述：一辈子、从未、唯一、直到……这类描述辨识度极高。 */
@@ -882,11 +886,13 @@ export function evaluateCandidates(
           ["film", "tv", "anime"].includes(String(type)),
         ),
     )
+    // 用户已经说了「电影/电视剧」时，类型不符的候选不能只凭多命中两个泛词就排第一：
+    // 类型相符优先，再比命中线索数。
     .sort(
       (a, b) =>
+        Number(Boolean(a.typeConflict)) - Number(Boolean(b.typeConflict)) ||
         Number(Boolean(b.identityOk)) - Number(Boolean(a.identityOk)) ||
         b.matchedClues - a.matchedClues ||
-        Number(Boolean(a.typeConflict)) - Number(Boolean(b.typeConflict)) ||
         b.score - a.score,
     )
     // 一条线索都没对上的名字（正文里的栏目名、标语）不占候选位，避免把噪声摆到用户面前。
@@ -946,6 +952,16 @@ export function evaluateCandidates(
     .filter((match) => !match.found && match.relation !== "conflicts")
     .map((match) => match.clue);
   const decisiveHit = decisiveOf(best).filter((match) => match.found).length;
+  // 有区分度的剧情线索命中数（泛词不算）：判断「身份能不能确定」看的是这个。
+  const concreteHit = best.matches.filter((match) => {
+    if (!match.found) return false;
+    const clue = clues.find((item) => item.text === match.clue);
+    if (clue?.kind === "genre" || clue?.kind === "region") return false;
+    // 单字具体名词（龙、猪、船）同样是区分度很高的剧情对象，不能因为只有一个字就不算数。
+    return (clue?.terms || [match.clue]).some(
+      (term) => term.length >= 1 && !GENERIC_CLUE_TERMS.has(term) && !/^[的了和在与及或也很就都而其之为把被]$/.test(term),
+    );
+  }).length;
   const runnerDecisiveMissing = runnerUp
     ? decisiveOf(runnerUp).filter((match) => !match.found).length
     : Number.POSITIVE_INFINITY;
@@ -1031,6 +1047,7 @@ export function evaluateCandidates(
     ((best as Candidate & { workSignals?: number }).workSignals || 0) > 0 ||
     (best.titleHits || 0) > 0 ||
     best.quoted === true;
+  // 一句里出现多个相关词仍然只算一段证据（V20）：一句话不能同时充当三条独立剧情。
   const breadthGate = best.matchedClues >= 2 && strongSentences >= 2;
   const typeGate = !(userType !== "other" && best.typeConflict) && workSignal && breadthGate;
   const typeConflictInfo =
@@ -1089,20 +1106,30 @@ export function evaluateCandidates(
         }
       : undefined;
 
-  // 「解释得足够全」：覆盖过半情节，或至少两条决定性线索命中。
-  const explainsEnough = coverage >= 0.6 || decisiveHit >= 2;
-  if (
+  // 「解释得足够全」：有区分度的情节覆盖过半，或至少两条决定性线索命中。
+  // 用「具体线索」而不是「全部线索」算覆盖率：线索拆得越细，泛词越多，
+  // 用总条数算会把已经答对的案子压在 0.6 以下。
+  const concreteTotal = clues.filter((clue) => {
+    if (clue.kind === "genre" || clue.kind === "region") return false;
+    return (clue.terms || [clue.text]).some(
+      (term) => term.length >= 1 && !GENERIC_CLUE_TERMS.has(term) && !/^[的了和在与及或也很就都而其之为把被]$/.test(term),
+    );
+  }).length;
+  const concreteCoverage = concreteTotal ? concreteHit / concreteTotal : 0;
+  const explainsEnough = concreteCoverage >= 0.6 || coverage >= 0.6 || decisiveHit >= 2;
+  // 两条判断分开：
+  //  ① 作品身份：有区分度的核心情节对上 ≥2 条，且没有合理竞争者 → 可以给答案；
+  //  ② 用户每条记忆：核到哪些、哪些还没核到（unverified）、哪些与资料不符（conflicts）。
+  // 不能因为「动画」「主角」这类泛词缺同句证据就卡住回答，也不能把两条关键词共现当成完整剧情。
+  const identityEnough =
     !decisiveMissing.length &&
-    // 还有具体剧情没在资料里核到 → 只能说「最可能」，不能说已经找到。
-    // 用户记错的主演/年份不算缺口（那条已经查过，结论写在 conflicts 里）。
-    !plotMissing.length &&
-    (decisiveHit > 0 || coOccurrence) &&
+    (decisiveHit > 0 || coOccurrence || concreteHit >= 2) &&
     enough &&
     explainsEnough &&
     !tie &&
     typeGate &&
-    !competitor
-  )
+    !competitor;
+  if (identityEnough)
     return {
       candidates,
       relations,
@@ -1113,9 +1140,11 @@ export function evaluateCandidates(
         ...conflictFields,
         ...(yearCheck ? { yearCheck } : {}),
         decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
-        // 只有「具体剧情线索全部有下落」时才可能走到这里，所以文案如实写「剧情线索都已核到」，
-        // 不再用「全部线索都对上」这种会把用户记忆也算成已核实的说法。
-        headline: `你说的剧情线索都在资料里找到了：${best.name}${conflictNote ? `；${conflictNote}` : ""}`,
+        // 身份已经能确定，但没核到的具体情节要单独列出来，不能默认都成立。
+        ...(plotMissing.length ? { unverified: plotMissing } : {}),
+        headline: plotMissing.length
+          ? `答案基本可以确定：${best.name}；还有 ${plotMissing.length} 条情节没在资料里核到${conflictNote ? `；${conflictNote}` : ""}`
+          : `你说的剧情线索都在资料里找到了：${best.name}${conflictNote ? `；${conflictNote}` : ""}`,
         nextQueries: [],
         askUser: null,
         ...(auxiliaryMissing.length ? { auxiliaryClues: auxiliaryMissing } : {}),
