@@ -73,7 +73,62 @@ export async function ensureSession(): Promise<void> {
     const data = (await created.json().catch(() => null)) as { message?: string } | null;
     throw new Error(data?.message || `建立会话失败（HTTP ${created.status}）。`);
   }
+  // 两种下发方式都要支持：
+  //  - 现网只经 HttpOnly Cookie 下发会话：前端不持有令牌；
+  //  - 老实例仍在响应体给 token：保留回退，避免本地/旧部署无法建立会话。
+  const data = (await created.json().catch(() => null)) as
+    | { token?: string; sessionId?: string }
+    | null;
+  if (data?.token) {
+    sessionToken = data.token;
+    try {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, data.token);
+    } catch {
+      /* 忽略隐私模式下的存储失败 */
+    }
+  } else {
+    sessionToken = null;
+    try {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      /* 忽略 */
+    }
+  }
   // 会话已通过 Set-Cookie 下发，页面不再保存令牌。
+}
+
+/**
+ * 输入导入：读一个公开网页链接的标题与正文。
+ *
+ * 抓取在服务端完成（SSRF/重定向/超时/字节上限都在 fetch-source.ts 里），
+ * 短视频平台直接返回「读不到」的提示，不会伪造正文。
+ */
+export interface LinkImport {
+  url: string;
+  title: string;
+  text: string;
+  truncated: boolean;
+  note: string;
+}
+
+export async function importFromLink(url: string): Promise<LinkImport> {
+  const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
+  const response = await fetch(`${root}/v1/ingest/link`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-platform-client": "workbench-v1",
+      ...sessionHeaders(),
+    },
+    body: JSON.stringify({ url }),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | (LinkImport & { message?: string })
+    | null;
+  if (!response.ok)
+    throw new Error(data?.message || `读取链接失败（HTTP ${response.status}）。`);
+  if (!data) throw new Error("读取链接失败：服务返回内容无法解析。");
+  return data;
 }
 
 const liveClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "/api", {

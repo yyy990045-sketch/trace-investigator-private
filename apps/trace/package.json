@@ -9,16 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@personal/agent-ui": "*",
     "@personal/app-shell": "*",
-    "@personal/ui-core": "*",
     "@personal/business-ui": "*",
+    "@personal/capability-sdk": "*",
+    "@personal/ui-core": "*",
+    "@tanstack/react-query": "^5.90.5",
+    "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.4",
-    "@tanstack/react-query": "^5.90.5",
-    "lucide-react": "^0.468.0",
-    "@personal/capability-sdk": "*",
-    "@personal/agent-ui": "*"
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "vite": "^7.1.12"
