@@ -112,6 +112,7 @@ export interface LinkImport {
 }
 
 export async function importFromLink(url: string): Promise<LinkImport> {
+  await ensureSession();
   const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
   const response = await fetch(`${root}/v1/ingest/link`, {
     method: "POST",
