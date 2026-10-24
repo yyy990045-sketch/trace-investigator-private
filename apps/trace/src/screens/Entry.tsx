@@ -366,7 +366,7 @@ export function Entry() {
           </label>
         ) : null}
         <div className="clue-hero-examples">
-          {clueExamples.filter((example) => !SHOWCASE || example.showcaseRunId).map((example) => (
+          {clueExamples.filter((example) => example.mode === "clue" && (!SHOWCASE || example.showcaseRunId)).map((example) => (
             <button
               key={example.key}
               className="clue-example"
