@@ -597,6 +597,18 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         // 已经拿到明确结论就没有必要继续查
         if ((after.verdict as any)?.outcome === "supported" || (after.verdict as any)?.outcome === "contradicted") break;
       }
+      // 首页摘要仍从 run.evidence 的最新重算记录读取；自动补查产生新结论时
+      // 同步追加重算记录，避免结果页实时结论与首页历史摘要显示成两个答案。
+      if (executed.length) {
+        recordEvidence(store, run.id, REASSESS_KIND, {
+          reason: "autonomous_followup",
+          assessment: current,
+          changes: executed.map((item) =>
+            `自动追查「${item.question}」，结论 ${item.before} → ${item.after}`,
+          ),
+          at: now(),
+        });
+      }
       return { executed, assessment: current, searchedQueries: [...tried] };
     },
   );
