@@ -15,6 +15,7 @@ import {
 } from "../api";
 import type { RunRecord } from "@personal/capability-sdk";
 import { formatTime } from "../components";
+import { needsDetectiveFollowup } from "../clue-followup-policy";
 
 const clueKindName: Record<ClueItemView["kind"], string> = {
   genre: "题材",
@@ -125,7 +126,13 @@ export function ClueCase({
   // 发现关系疑点就自动补查（只读回放不发请求；同一页面只自动触发一次）。
   const pendingCount = assessment?.pending?.length || 0;
   const decision = assessment?.decision;
-  const actionable = pendingCount > 0 || (decision?.state !== "found" && (decision?.nextQueries?.length || 0) > 0) || (decision?.state === "insufficient" && candidates.length === 0);
+  const actionable = needsDetectiveFollowup({
+    status: run.status,
+    decision,
+    pendingCount,
+    candidates,
+    followupCount: assessment?.followupCount || 0,
+  });
   useEffect(() => {
     if (SHOWCASE || autoState !== "idle" || !actionable) return;
     if ((assessment?.followupCount || 0) >= 4) {

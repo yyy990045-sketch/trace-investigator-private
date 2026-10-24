@@ -485,6 +485,17 @@ export interface TraceBundleView {
     /** 查询型问题：材料里查到、带数字或日期的原始表述（不是结论） */
     lookup?: {
       note: string;
+      answer?: {
+        value: string;
+        label: string;
+        limitation: string;
+        quote: string;
+        url: string;
+        site: string;
+        date: string;
+        from: "body" | "excerpt";
+        authoritative: boolean;
+      };
       items: {
         quote: string;
         url: string;

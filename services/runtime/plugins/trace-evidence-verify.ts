@@ -9,6 +9,7 @@
  *    否则明确输出证据不足，并列出还缺什么证据。
  */
 import { type CapabilityDefinition } from "../src/contracts.ts";
+import { findSourcedLookupAnswer } from "../src/lookup-answer.ts";
 import {
   aggregateCase,
   assessFact,
@@ -194,6 +195,8 @@ export default {
         })()
       : [];
 
+    const sourcedLookupAnswer = lookupQuestion ? findSourcedLookupAnswer(claimText, lookup) : null;
+
     return {
       ...input,
       documents: [
@@ -212,7 +215,10 @@ export default {
         ...(lookup.length
           ? {
               lookup: {
-                note: "以下是从已取得材料中摘出的、与本问题相关的原始表述（含数字或日期）；它们不构成本次结论，来源与时间以页面为准。",
+                note: sourcedLookupAnswer
+                  ? "已找到与所问指标直接对应的数值。数值是来源中的原文记录，不等同于独立核实官方发布或统计口径。"
+                  : "只找到可能相关的公开材料，目前没有与所问指标直接对应、且时间条件一致的数值，不能自行推断答案。",
+                ...(sourcedLookupAnswer ? { answer: sourcedLookupAnswer } : {}),
                 items: lookup,
               },
             }
