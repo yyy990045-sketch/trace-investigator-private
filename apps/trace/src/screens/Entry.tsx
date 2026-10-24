@@ -351,6 +351,9 @@ export function Entry() {
             说出你记得的情节、听来的说法，或没把握的公开信息。TRACE 会自己上网查、遇到疑点接着追，
             带着可点击的来源回来；查不到就说查不到。
           </p>
+          <p className="t-hint t-lede-note">
+            从短视频或家庭群看到的说法，也可以复制原话来查。
+          </p>
 
           {SHOWCASE ? (
             <div className="t-composer" aria-label="历史调查演示入口">
@@ -387,7 +390,7 @@ export function Entry() {
                 <span className="t-hint">
                   {blocked
                     ? `联网检索当前不可用：${blockerReason}`
-                    : "真实元宝搜索 · 关键线索补证 · 原文可追溯；证据不够时明确说出缺口。"}
+                    : "真实元宝搜索 · 原文可追溯；不查时政及真人消息，支持公开作品与知识查询。"}
                 </span>
                 <button
                   type="submit"

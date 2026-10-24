@@ -45,6 +45,9 @@ export function Case() {
   const [followupError, setFollowupError] = useState<string | null>(null);
   const autoStarted = useRef(new Set<string>());
   const [autoState, setAutoState] = useState<"idle" | "running" | "done" | "failed">("idle");
+  // 「分享简明结论」的复制状态：HTTP 环境没有 clipboard API 时退回手动选中复制。
+  const [shareCopy, setShareCopy] = useState<"idle" | "done" | "failed">("idle");
+  const shareRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [searchParams] = useSearchParams();
   const compareId = searchParams.get("compare") || "";
@@ -79,7 +82,7 @@ export function Case() {
   // 公开信息核验和影视线索一样：进入调查结果后自动解决关键来源缺口。
   // 只在首次核验完成时开始；浏览器反复渲染不重复发请求，服务器也会按 run 记录预算。
   useEffect(() => {
-    if (SHOWCASE || !run || autoStarted.current.has(runId) || !assessmentQuery.isSuccess) return;
+    if (SHOWCASE || !run || autoStarted.current.has(runId) || !assessmentQuery.isSuccess || !revisionsQuery.isSuccess || revisions?.readOnly) return;
     if (run.status !== "completed" && run.status !== "waiting_approval") return;
     const outcome = assessmentQuery.data?.assessment?.verdict?.outcome;
     if (!outcome || outcome === "supported" || outcome === "contradicted") return;
@@ -96,7 +99,7 @@ export function Case() {
         setFollowupError(cause instanceof Error ? cause.message : "自动补查失败，仍保留现有调查结果。");
       }
     })();
-  }, [runId, run?.status, run?.input?.dataConsent, assessmentQuery.isSuccess, assessmentQuery.data?.assessment?.verdict?.outcome]);
+  }, [runId, run?.status, run?.input?.dataConsent, assessmentQuery.isSuccess, assessmentQuery.data?.assessment?.verdict?.outcome, revisionsQuery.isSuccess, revisions?.readOnly]);
 
   const freshPageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -165,6 +168,61 @@ export function Case() {
         }
     return [...map.entries()].map(([key, value]) => ({ source: key.split("|")[0], ...value }));
   })();
+  /**
+   * 分享用的结论文案与那一条真正支持它的来源。
+   * 来源优先取与结论方向一致的：结论说「相反」就配反证来源，说「支持」就配支持来源。
+   */
+  const share = (() => {
+    // 只用重新计算后的评估：run 里保存的旧评估可能已被追加检索改变，
+    // 拿它生成「分享给家人」的文本会把过期结论发出去。
+    if (!verdict || !assessmentQuery.data?.assessment) return null;
+    const wanted = verdict.outcome === "contradicted" ? "contradicts" : verdict.outcome === "supported" ? "supports" : null;
+    const pool = facts.flatMap((fact) => fact.sources || []).filter((source) => source.url);
+    const source =
+      (wanted ? pool.find((item) => item.relation === wanted && item.bodyAvailable) : null) ||
+      (wanted ? pool.find((item) => item.relation === wanted) : null) ||
+      keySources[0] ||
+      pool.find((item) => item.bodyAvailable) ||
+      pool[0] ||
+      null;
+    const body = buildShareText({
+      claim: claimText,
+      outcome: verdict.outcome,
+      headline: verdict.headline || "",
+      reasons: (verdict.reasons || []) as string[],
+      partialAnswer: (verdict.partialAnswer || []) as string[],
+      quantities: quantityBySource,
+      counterSentence: (source as SourceAssessment | null)?.keySentence || "",
+    });
+    if (!body) return null;
+    const sourceLine = source
+      ? `原文：${source.site || "原始来源"} ${source.url}`
+      : "原文：本次没有取得可公开引用的来源链接";
+    return { body, sourceLine, text: `${body}\n${sourceLine}`, source };
+  })();
+
+  async function copyShare() {
+    if (!share) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(share.text);
+        setShareCopy("done");
+        return;
+      }
+      throw new Error("clipboard-unavailable");
+    } catch {
+      // HTTP 环境下浏览器不给 clipboard API：退回「选中 + 执行复制」。
+      const element = shareRef.current;
+      if (!element) {
+        setShareCopy("failed");
+        return;
+      }
+      element.focus();
+      element.select();
+      const ok = typeof document.execCommand === "function" && document.execCommand("copy");
+      setShareCopy(ok ? "done" : "failed");
+    }
+  }
   /** 真正取得网页正文的来源（含正文里没有相关句子的）：取得就是取得，不能笼统说没有原文。 */
   const bodiesFetched = facts
     .flatMap((fact) => fact.sources)
@@ -507,6 +565,35 @@ export function Case() {
               )}
             </div>
           ) : null}
+          {share ? (
+            <div className="t-share" aria-label="分享简明结论">
+              <div className="t-share-head">
+                <strong>分享简明结论</strong>
+                <span className="t-hint">只用这次已经查到的结论与来源，可以直接复制给家人</span>
+              </div>
+              <textarea
+                ref={shareRef}
+                className="t-share-text"
+                aria-label="可复制的简明结论"
+                readOnly
+                rows={4}
+                value={share.text}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <div className="t-share-foot">
+                <button type="button" className="t-btn" onClick={() => void copyShare()}>
+                  {shareCopy === "done" ? "已复制" : shareCopy === "failed" ? "请手动选中复制" : "复制这段"}
+                </button>
+                {share.source?.url ? (
+                  <a className="t-hint t-share-source" href={share.source.url} target="_blank" rel="noreferrer noopener">
+                    {share.source.site || "原始来源"} · 打开原文
+                  </a>
+                ) : (
+                  <span className="t-hint">本次没有取得可公开引用的来源链接</span>
+                )}
+              </div>
+            </div>
+          ) : null}
           <details className="t-disclose" aria-label="来源统计与核对口径">
             <summary>来源统计与核对口径</summary>
             <div className="t-disclose-body">
@@ -650,7 +737,7 @@ export function Case() {
                 ))}
               </ul>
               <div className="trace-versions-actions">
-                {SHOWCASE ? null : (
+                {SHOWCASE || revisions.readOnly ? null : (
                 <label className="trace-label trace-actor-inline" htmlFor="trace-redeliver-actor">
                   确认人
                   <input
@@ -662,7 +749,7 @@ export function Case() {
                   />
                 </label>
                 )}
-                {SHOWCASE ? null : (
+                {SHOWCASE || revisions.readOnly ? null : (
                 <button className="trace-btn trace-btn-primary" onClick={redeliver} disabled={busy !== null}>
                   {busy === "redeliver"
                     ? "正在生成新版本…"
@@ -973,6 +1060,87 @@ export function Case() {
 }
 
 /** 这条来源属于哪条事实：人工修正要同时记录事实与来源，重算才能定位。 */
+/**
+ * 「分享简明结论」的文案。
+ *
+ * 只允许使用本页已经得到的结论、证据与限制：不推理、不补充、不调用模型。
+ * 因此这里的每个分支都只搬运已有字段（outcome / statement / partialAnswer /
+ * reasons / 关键来源 / 已找到的数字），措辞克制，不指责转发的人。
+ */
+const SHARE_MAX_CHARS = 120;
+
+function clipText(value: string, max: number) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length <= max ? text : text.slice(0, max - 1).replace(/[，。、；：]$/, "") + "…";
+}
+
+/** 后端给的理由里，最接近「还缺什么」的那一条。 */
+function shareGap(reasons: string[]) {
+  const hit =
+    reasons.find((reason) => /局部|范围|口径|只支持|条件|相关|因果/.test(reason)) ||
+    reasons.find((reason) => /只|没有|尚未|还没|不足以|不能/.test(reason)) ||
+    "";
+  // 拼进句子的是从句，去掉结尾标点，避免出现「。，」这样的重复。
+  return hit.replace(/[。；;，,]+$/, "").trim();
+}
+
+export interface ShareInput {
+  claim: string;
+  outcome: string;
+  headline: string;
+  reasons: string[];
+  partialAnswer: string[];
+  quantities: { source: string; value: number; unit: string }[];
+  /** 反证来源里真正写出相反内容的那一句（有则优先于 headline 使用）。 */
+  counterSentence?: string;
+}
+
+/** 生成可复制的说明正文（不含链接）。没有结论时返回空字符串。 */
+export function buildShareText(input: ShareInput): string {
+  const claim = clipText(input.claim, 36);
+  const gap = clipText(shareGap(input.reasons), 32);
+  const items = input.quantities
+    .slice(0, 2)
+    .map((item) => `${item.source} ${item.value}${item.unit}`);
+  const firstPartial = clipText(input.partialAnswer[0] || "", 38);
+  let body = "";
+  switch (input.outcome) {
+    case "supported":
+      body = `我查了一下，公开来源支持这个说法：${claim}。下面的原文链接可以自己核对。`;
+      break;
+    case "contradicted":
+      body = `我查了一下，公开来源和这句话相反：${claim}。${
+        clipText(input.counterSentence || "", 42) ||
+        firstPartial ||
+        clipText(input.headline, 30)
+      }原文在下面，可以对照。`;
+      break;
+    case "disputed":
+      body = `我查了一下，不同来源对这事的说法不一致：${claim}。两边原文都在下面，暂时不下结论。`;
+      break;
+    case "outdated":
+      body = `我查了一下，相关内容确实有，但时效和现在对不上：${claim}。原文在下面，能看出时间差。`;
+      break;
+    case "partial":
+      body =
+        items.length > 1
+          ? `我查了一下，同一件事有两个口径：${items.join("、")}。差异原因还没核实，两边原文都在下面。`
+          : `我查了一下，只查到其中一部分：${firstPartial || clipText(input.headline, 30)}${
+              gap ? `。还不能确定的是：${gap}` : ""
+            }。细节和原文在下面。`;
+      break;
+    default:
+      body = `我查了一下，目前还不能确认这句话：${claim}。${
+        gap ? `现在缺的是：${gap}` : "还没找到能直接对应的原文"
+      }，暂时还不能当依据。`;
+      break;
+  }
+  // 截断后的省略号后面不要再跟句号，读起来才不会出现「…。」。
+  const tidy = body.replace(/…+\s*。/g, "……").replace(/。{2,}/g, "。").trim();
+  return tidy.length <= SHARE_MAX_CHARS ? tidy : clipText(tidy, SHARE_MAX_CHARS);
+}
+
 function factIdOf(source: SourceAssessment, facts?: FactAssessment[]) {
   const hit = (facts || []).find((fact) => fact.sources.some((item) => item.pageId === source.pageId));
   return hit?.factId || (facts?.[0]?.factId ?? "fact-1");
