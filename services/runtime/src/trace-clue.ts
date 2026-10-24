@@ -13,6 +13,7 @@ import type { Store } from "./store.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { nextClueSearch } from "./clue-investigation.ts";
+import { renderClueReport } from "../adapters/trace/clue-report.ts";
 import { guardReserveSearch } from "./public-guard.ts";
 import {
   detectTargetKind,
@@ -234,6 +235,61 @@ export function registerClueEndpoints(app: FastifyInstance, store: Store) {
   app.get<{ Params: { id: string } }>("/v1/runs/:id/trace/clue", async (req) =>
     clueAssessment(store, req.params.id),
   );
+
+  /**
+   * 结果导出：线索调查没有「人工确认 → 版本冻结」那条链路，
+   * 但她同样需要一个能保存下来的记录。这里按当前已保存状态渲染，
+   * 与页面上的结论同源（同一个 clueAssessment），不是第二套档案。
+   */
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/report.md", async (req, reply) => {
+    const { run, bundle } = clueRun(store, req.params.id);
+    if (run.status !== "completed")
+      throw new ExecutionError("RUN_NOT_COMPLETED", "调查还没结束，暂时没有可保存的结果。");
+    const clue = clueAssessment(store, req.params.id);
+    const { rounds } = clueState(store, req.params.id);
+    const report = renderClueReport({
+      runId: req.params.id,
+      question: String(bundle.case?.question || run.input?.text || ""),
+      generatedAt: now(),
+      clue,
+      searches: rounds
+        .filter((item: any) => item.kind !== "trace.followup")
+        .map((item: any) => ({ query: String(item.query || ""), resultCount: item.resultCount })),
+      followups: rounds
+        .filter((item: any) => item.kind === "trace.followup")
+        .map((item: any) => ({ query: String(item.query || ""), reason: item.reason })),
+    });
+    return reply
+      .header("content-type", "text/markdown; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${report.markdownFilename}"`)
+      .header("cache-control", "no-store")
+      .send(report.markdown);
+  });
+
+  app.get<{ Params: { id: string } }>("/v1/runs/:id/report.json", async (req, reply) => {
+    const { run, bundle } = clueRun(store, req.params.id);
+    if (run.status !== "completed")
+      throw new ExecutionError("RUN_NOT_COMPLETED", "调查还没结束，暂时没有可保存的结果。");
+    const clue = clueAssessment(store, req.params.id);
+    const { rounds } = clueState(store, req.params.id);
+    const report = renderClueReport({
+      runId: req.params.id,
+      question: String(bundle.case?.question || run.input?.text || ""),
+      generatedAt: now(),
+      clue,
+      searches: rounds
+        .filter((item: any) => item.kind !== "trace.followup")
+        .map((item: any) => ({ query: String(item.query || ""), resultCount: item.resultCount })),
+      followups: rounds
+        .filter((item: any) => item.kind === "trace.followup")
+        .map((item: any) => ({ query: String(item.query || ""), reason: item.reason })),
+    });
+    return reply
+      .header("content-type", "application/json; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${report.jsonFilename}"`)
+      .header("cache-control", "no-store")
+      .send(report.json);
+  });
 
   /** 继续追查：用真实搜索再查一轮，然后重新比对候选。 */
   app.post<{ Params: { id: string }; Body: { query: string; reason?: string } }>(

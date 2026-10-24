@@ -1,0 +1,69 @@
+{
+  "question": "一部电影，讲一个宇航员被困在火星上，靠在基地里种土豆活下来，最后被救回地球",
+  "runId": "run_8fbf6a86-5d12-41e0-ac9b-32dd7cb98585",
+  "status": "completed",
+  "before": {
+    "state": "found",
+    "headline": "火星救援",
+    "verdict": "作品已确定 · 细节待核\n5/8 条线索在资料里核到 · 3 条待核\n\n火星救援\n\n已核实\n宇航\n困在\n火星\n基地\n土豆\n待核实\n靠在\n下来\n救回\n\n「待核实」的 3 条情节没有找到对应原文——没查到不等于不存在，只是这次资料里没有。\n\n作品身份\n电影\n百度百科\n年份\n2015 年\n导演\n雷德利·斯科特\n主演\n马特·达蒙\n剧情依据\n对应线索：宇航、火星\n\n马克·沃特尼 2015年电影《火星救援》中的角色 马克·沃特尼,是美国宇航局阿瑞斯3号任务的宇航员,电影《火星救援》中的核心角色,由马特·达蒙饰演。\n\n百度百科\n搜索摘要\n打开原始页面\n剧情依据\n对应线索：困在\n\n在前几年有一部电影叫《火星救援》,讲的是宇航员马克和他的团队失联后,被困在了火星上,想办法返回地球的故事。\n\n科普中国网\n搜索摘要\n打开原始页面\n次级来源：1 条页面摘要（非剧情原句）\n候选比较：各自符合与缺少的情节\n同名版本、排除理由与继续追查\n这次用到的来源（36 条网页）",
+    "links": [
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://www.kepuchina.cn/article/articleinfo?business_type=100&ar_id=162826",
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://so.html5.qq.com/page/real/search_news?docid=70000021_424695684cd42952",
+      "https://www.sohu.com/a/240677927_762500",
+      "https://www.sohu.com/a/334722504_100204615",
+      "https://www.sohu.com/a/334722504_100204615",
+      "https://www.sohu.com/a/334722504_100204615"
+    ]
+  },
+  "followup": {
+    "clicked": null,
+    "note": "页面上没有可点的追查入口"
+  },
+  "afterReload": {
+    "state": "found",
+    "headline": "火星救援",
+    "verdict": "作品已确定 · 细节待核\n5/8 条线索在资料里核到 · 3 条待核\n\n火星救援\n\n已核实\n宇航\n困在\n火星\n基地\n土豆\n待核实\n靠在\n下来\n救回\n\n「待核实」的 3 条情节没有找到对应原文——没查到不等于不存在，只是这次资料里没有。\n\n作品身份\n电影\n百度百科\n年份\n2015 年\n导演\n雷德利·斯科特\n主演\n马特·达蒙\n剧情依据\n对应线索：宇航、火星\n\n马克·沃特尼 2015年电影《火星救援》中的角色 马克·沃特尼,是美国宇航局阿瑞斯3号任务的宇航员,电影《火星救援》中的核心角色,由马特·达蒙饰演。\n\n百度百科\n搜索摘要\n打开原始页面\n剧情依据\n对应线索：困在\n\n在前几年有一部电影叫《火星救援》,讲的是宇航员马克和他的团队失联后,被困在了火星上,想办法返回地球的故事。\n\n科普中国网\n搜索摘要\n打开原始页面\n次级来源：1 条页面摘要（非剧情原句）\n候选比较：各自符合与缺少的情节\n同名版本、排除理由与继续追查\n这次用到的来源（36 条网页）",
+    "links": [
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://www.kepuchina.cn/article/articleinfo?business_type=100&ar_id=162826",
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://baike.baidu.com/item/%E9%A9%AC%E5%85%8B%C2%B7%E6%B2%83%E7%89%B9%E5%B0%BC/63828964",
+      "https://so.html5.qq.com/page/real/search_news?docid=70000021_424695684cd42952",
+      "https://www.sohu.com/a/240677927_762500",
+      "https://www.sohu.com/a/334722504_100204615",
+      "https://www.sohu.com/a/334722504_100204615",
+      "https://www.sohu.com/a/334722504_100204615"
+    ]
+  },
+  "report": {
+    "status": 200,
+    "length": 1139,
+    "hasQuestion": true,
+    "head": "# 线索调查记录：一部电影，讲一个宇航员被困在火星上，靠在基地里种土豆活下来，最后被救回地球\n\n- 运行 ID：run_8fbf6a86-5d12-41e0-ac9b-32dd7cb98585\n- 记录生成时间：2026-10-24T13:23:08.309Z（当前已保存状态快照，不是版本冻结档案）\n- 判断状态：**已确认**\n- 结论：答案基本可以确定：火星救援；还有 3 条情节没在资料里核到"
+  },
+  "archiveLink": 0,
+  "mobile": {
+    "overflow": true
+  },
+  "diag": {
+    "runStatus": 200,
+    "steps": [
+      "trace.clue.intake:completed:true",
+      "trace.facts.confirm:completed:true",
+      "trace.web.search:completed:true",
+      "trace.clue.candidates:completed:true"
+    ],
+    "clueStatus": 200,
+    "decision": "found",
+    "candidates": 1
+  },
+  "errors": [
+    "http 401 /v1/session",
+    "console: Failed to load resource: the server responded with a status of 401 ()"
+  ]
+}

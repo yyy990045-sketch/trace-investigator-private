@@ -369,11 +369,19 @@ export async function createPlatform(
   );
   app.get<{ Querystring: { projectId?: string } }>("/v1/runs", async (req) => {
     const session = publicMode() ? sessionOfRequest(req) : null;
+    // 公网模式下 owner 过滤必须始终生效：带 projectId 查询也一样，
+    // 否则任意会话只要猜到项目 ID 就能列出别人的调查。
     const rows = req.query.projectId
-      ? store.all(
-          "SELECT id FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 100",
-          req.query.projectId,
-        )
+      ? session
+        ? store.all(
+            "SELECT id FROM runs WHERE project_id=? AND owner=? ORDER BY created_at DESC LIMIT 100",
+            req.query.projectId,
+            session.id,
+          )
+        : store.all(
+            "SELECT id FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 100",
+            req.query.projectId,
+          )
       : session
         ? store.all(
             "SELECT id FROM runs WHERE owner=? ORDER BY created_at DESC LIMIT 100",

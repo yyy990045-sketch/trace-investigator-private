@@ -1,0 +1,83 @@
+{
+  "question": "《生成式人工智能服务管理暂行办法》是什么时候正式施行的？",
+  "runId": "run_3c4b1da8-bb1d-42fd-834e-f9534fb85f53",
+  "status": "completed",
+  "before": {
+    "state": "supported",
+    "headline": "现有公开来源支持这个说法。",
+    "verdict": "当前规则结论\n有依据支持\n调查已完成\n\n现有公开来源支持这个说法。\n\n还不能确定：1/1 条事实满足规则条件：≥2 个未检测到重复的支持来源簇，且至少一个取得网页正文。来源独立性与原始出处仍需人工核对。\n\n来源统计与核对口径\n材料里查到的相关表述（3 条）\n完整判断说明（后端原始结论，未做改动）\n关键来源：\n中国人大网\n原文\n中国网信网\n原文\n中国政府网\n原文\n打开调查档案\n已交付第 1 版，档案按版本冻结",
+    "links": [
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+      "https://www.gov.cn/gongbao/2023/issue_10666/202308/content_6900864.html",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm"
+    ]
+  },
+  "followup": {
+    "clicked": "追加检索：检索并重算",
+    "status": "completed",
+    "after": {
+      "state": "supported",
+      "headline": "现有公开来源支持这个说法。",
+      "verdict": "当前规则结论\n有依据支持\n调查已完成\n\n现有公开来源支持这个说法。\n\n还不能确定：1/1 条事实满足规则条件：≥2 个未检测到重复的支持来源簇，且至少一个取得网页正文。来源独立性与原始出处仍需人工核对。\n\n来源统计与核对口径\n材料里查到的相关表述（3 条）\n完整判断说明（后端原始结论，未做改动）\n关键来源：\n中国人大网\n原文\n中国网信网\n原文\n中国政府网\n原文\n打开调查档案\n已交付第 1 版，档案按版本冻结",
+      "links": [
+        "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+        "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+        "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+        "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+        "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+        "https://www.gov.cn/gongbao/2023/issue_10666/202308/content_6900864.html",
+        "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+        "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+        "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+        "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm"
+      ]
+    }
+  },
+  "afterReload": {
+    "state": "supported",
+    "headline": "现有公开来源支持这个说法。",
+    "verdict": "当前规则结论\n有依据支持\n调查已完成\n\n现有公开来源支持这个说法。\n\n还不能确定：1/1 条事实满足规则条件：≥2 个未检测到重复的支持来源簇，且至少一个取得网页正文。来源独立性与原始出处仍需人工核对。\n\n来源统计与核对口径\n材料里查到的相关表述（3 条）\n完整判断说明（后端原始结论，未做改动）\n关键来源：\n中国人大网\n原文\n中国网信网\n原文\n中国政府网\n原文\n打开调查档案\n已交付第 1 版，档案按版本冻结",
+    "links": [
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+      "https://www.gov.cn/gongbao/2023/issue_10666/202308/content_6900864.html",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "http://npc.gov.cn/c2/c30834/202403/t20240326_436138.html",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm",
+      "https://www.cac.gov.cn/2023-07/13/c_1690898326795531.htm"
+    ]
+  },
+  "archiveLink": 3,
+  "mobile": {
+    "overflow": true
+  },
+  "diag": {
+    "runStatus": 200,
+    "steps": [
+      "trace.case.intake:completed:true",
+      "trace.facts.confirm:completed:true",
+      "trace.web.search:completed:true",
+      "trace.evidence.verify:completed:true",
+      "human.confirm:completed:true",
+      "trace.archive.export:completed:true"
+    ],
+    "clueStatus": 400,
+    "clueBody": "{\"code\":\"NOT_CLUE_RUN\",\"message\":\"这不是一次线索调查。\"}"
+  },
+  "errors": [
+    "http 401 /v1/session",
+    "console: Failed to load resource: the server responded with a status of 401 ()",
+    "http 400 /v1/runs/run_3c4b1da8-bb1d-42fd-834e-f9534fb85f53/trace/clue",
+    "console: Failed to load resource: the server responded with a status of 400 ()"
+  ]
+}
