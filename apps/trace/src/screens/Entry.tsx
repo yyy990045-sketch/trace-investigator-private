@@ -138,6 +138,7 @@ export function Entry() {
   const [clueError, setClueError] = useState<string | null>(null);
   // 输入导入（截图 OCR / 分享文案 / 网页链接）：只负责把文字读出来，不判断真假。
   const [importSource, setImportSource] = useState<ImportSource>("manual");
+  const [importConfirmed, setImportConfirmed] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importStatus, setImportStatus] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
@@ -235,6 +236,7 @@ export function Entry() {
     const value = String(text || "").trim();
     setClueQuestion(value);
     setImportSource(value ? source : "manual");
+    setImportConfirmed(false);
     setImportNotice(notice || null);
   }
 
@@ -246,6 +248,7 @@ export function Entry() {
     setImportError(null);
     setImportNotice(null);
     setTooLongChoices(null);
+    setImportConfirmed(false);
     const check = checkImage(file);
     if (!check.ok) {
       setImportError(check.reason || "这张图片不能用于识别。");
@@ -282,10 +285,10 @@ export function Entry() {
       if (plan.needChoice) {
         // 超过 500 字不静默截断：让用户自己挑要核查的那一句。
         setTooLongChoices(plan.candidates);
-        setClueQuestion(plan.text.slice(0, MAX_INVESTIGATION_CHARS));
+        setClueQuestion("");
         setImportSource("screenshot");
         setImportNotice(
-          `识别到 ${plan.text.length} 个字，超过 ${MAX_INVESTIGATION_CHARS} 字上限：已填前 ${MAX_INVESTIGATION_CHARS} 字，请从下面挑一句要核查的说法替换。`,
+          `识别到 ${plan.text.length} 个字，超过 ${MAX_INVESTIGATION_CHARS} 字上限：没有自动填写。请从下方挑一句要核查的说法。`,
         );
         return;
       }
@@ -307,12 +310,21 @@ export function Entry() {
     setImportNotice(null);
     setLinkResult(null);
     setTooLongChoices(null);
+    setImportConfirmed(false);
     if (!raw) {
       setImportError("先粘贴分享文案或链接。");
       return;
     }
     const parsed = parsePastedShare(raw);
     if (parsed.statement.length >= 4) {
+      if (parsed.statement.length > MAX_INVESTIGATION_CHARS) {
+        const plan = planOcrInsertion(parsed.statement);
+        setImportSource("share");
+        setClueQuestion("");
+        setTooLongChoices(plan.candidates);
+        setImportNotice("分享文案超过500字，请选择一句要核查的公开说法，不自动截断。");
+        return;
+      }
       applyImportedText(
         parsed.statement,
         "share",
@@ -352,6 +364,14 @@ export function Entry() {
   }
 
   async function submitClue() {
+    if (tooLongChoices || (importSource !== "manual" && !importConfirmed)) {
+      setClueError("请先选定并校对这句公开事实，移除个人信息，然后勾选确认后调查。");
+      return;
+    }
+    if (clueQuestion.length > MAX_INVESTIGATION_CHARS) {
+      setClueError("单次核查最多500字，请只保留要查证的一句话。");
+      return;
+    }
     const guard = validateForInvestigation(clueQuestion);
     if (!guard.ok) {
       setClueError(guard.reason || "这句话还不能调查。");
@@ -533,7 +553,7 @@ export function Entry() {
                 maxLength={500}
                 placeholder="例如：我记得一部悬疑剧，主角是法医、搭档叫大宝；或者：网传某款手机已在官网停售，是真的吗？"
                 value={clueQuestion}
-                onChange={(event) => setClueQuestion(event.target.value)}
+                onChange={(event) => { setClueQuestion(event.target.value); setTooLongChoices(null); if (importSource !== "manual") setImportConfirmed(false); }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
                 }}
@@ -573,6 +593,12 @@ export function Entry() {
                   </span>
                 ) : null}
               </div>
+              {importSource !== "manual" ? (
+                <label className="t-hint" style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 12px" }}>
+                  <input type="checkbox" checked={importConfirmed} onChange={(event) => setImportConfirmed(event.target.checked)} />
+                  已校对识别的原话并移除昵称等个人信息，同意把这句公开事实用于联网核查。
+                </label>
+              ) : null}
               <div className="t-composer-foot">
                 <span className="t-hint">
                   {blocked
@@ -582,7 +608,7 @@ export function Entry() {
                 <button
                   type="submit"
                   className="t-btn t-btn-primary"
-                  disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
+                  disabled={SHOWCASE || clueBusy || blocked || importBusy || Boolean(tooLongChoices) || (importSource !== "manual" && !importConfirmed) || clueQuestion.trim().length < 4 || clueQuestion.length > MAX_INVESTIGATION_CHARS}
                 >
                   <Search size={16} /> {clueBusy ? "正在调查…" : "开始调查"}
                 </button>
@@ -682,6 +708,10 @@ export function Entry() {
                       type="button"
                       className="t-btn t-btn-quiet"
                       onClick={() => {
+                        if (line.length > MAX_INVESTIGATION_CHARS) {
+                          setClueError("这一段仍超过500字，请手动只保留其中一句再输入。");
+                          return;
+                        }
                         applyImportedText(line, importSource, "已选用你挑的那一句，其余识别文字没有提交。");
                         setTooLongChoices(null);
                       }}
