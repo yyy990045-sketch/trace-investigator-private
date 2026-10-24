@@ -9,7 +9,17 @@
  *    否则明确输出证据不足，并列出还缺什么证据。
  */
 import { type CapabilityDefinition } from "../src/contracts.ts";
-import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion, lookupStatement } from "../src/lookup-answer.ts";
+import {
+  collectEntityEvidence,
+  collectLookupEvidence,
+  entityQuestionParts,
+  entityStatement,
+  findSourcedEntityAnswer,
+  findSourcedLookupAnswer,
+  isEntityQuestion,
+  isLookupQuestion,
+  lookupStatement,
+} from "../src/lookup-answer.ts";
 import {
   aggregateCase,
   assessFact,
@@ -162,6 +172,25 @@ export default {
     // 与 buildAssessment 用同一个收集函数：两条读取路径不能给出不同的直接答案。
     const lookup = lookupQuestion ? collectLookupEvidence(pages, bodies) : [];
     const sourcedLookupAnswer = lookupQuestion ? findSourcedLookupAnswer(claimText, lookup) : null;
+    // 实体型问句（谁 / 叫什么名字 / 在哪里）：答案同样必须绑在真实原句上。
+    const entityParts = !lookupQuestion && isEntityQuestion(claimText) ? entityQuestionParts(claimText) : null;
+    const entityEvidence = entityParts ? collectEntityEvidence(pages, bodies, entityParts) : [];
+    const sourcedEntityAnswer = entityParts ? findSourcedEntityAnswer(claimText, entityEvidence) : null;
+
+    // 问句本身不是断言，但原句里读到了答案就不能继续笼统说「证据不足」：
+    // 升级为「答了一部分」，并保留「未独立核实」的限制。
+    const finalVerdict =
+      sourcedEntityAnswer && verdict.outcome === "insufficient"
+        ? {
+            ...verdict,
+            outcome: "partial" as const,
+            headline: "已找到来源中的对应答案，仍需人工核对。",
+            reasons: [
+              ...(verdict.reasons || []),
+              `原句给出「${sourcedEntityAnswer.value}」，但这只是该来源的表述，不等同于已核实的唯一答案。`,
+            ],
+          }
+        : verdict;
 
     return {
       ...input,
@@ -172,11 +201,30 @@ export default {
       claims,
       assessment: {
         facts: assessments,
-        verdict: { ...verdict, statement: sourcedLookupAnswer ? lookupStatement(sourcedLookupAnswer) : statement },
+        verdict: {
+          ...finalVerdict,
+          statement: sourcedLookupAnswer
+            ? lookupStatement(sourcedLookupAnswer)
+            : sourcedEntityAnswer
+              ? entityStatement(sourcedEntityAnswer)
+              : statement,
+        },
         independentSources,
         bodyAvailable,
         clusters,
         openQuestions: missing,
+        // 实体型问句：把找到的答案、原句与限制放在同一处；没找到就如实空着。
+        ...(entityParts && entityEvidence.length
+          ? {
+              lookup: {
+                note: sourcedEntityAnswer
+                  ? "已找到与所问对象直接对应的原句。答案是来源自己写的，不等同于已核实的唯一答案。"
+                  : "找到了相关原句，但没有能直接回答这个问题的表述（或多处说法互相冲突），因此不给出答案。",
+                ...(sourcedEntityAnswer ? { answer: sourcedEntityAnswer } : {}),
+                items: entityEvidence,
+              },
+            }
+          : {}),
         // 查询型问题的「材料里查到什么」：不是结论，不能替代结论。
         ...(lookup.length
           ? {

@@ -334,7 +334,13 @@ export function Case() {
         <section className="case-now t-verdict" data-outcome={verdict.outcome}>
           <div className="case-now-head">
             <span className="case-now-label">{assessment?.lookup?.answer ? "从真实来源查到的回答" : "当前规则结论"}</span>
-            <b>{assessment?.lookup?.answer ? "已找到对应数值" : outcomeText[verdict.outcome] || "答了一部分"}</b>
+            <b>
+              {assessment?.lookup?.answer
+                ? assessment.lookup.answer.kind === "entity"
+                  ? "已找到对应答案"
+                  : "已找到对应数值"
+                : outcomeText[verdict.outcome] || "答了一部分"}
+            </b>
             <span className="case-now-state">
               {run.status === "completed"
                 ? "调查已完成"
@@ -351,8 +357,12 @@ export function Case() {
           </div>
 
           {assessment?.lookup?.answer ? (
-            <div className="case-now-lookup" aria-label="问题所问的数值及原始出处">
-              <p className="t-hint">查到公开来源中与所问指标对应的记录</p>
+            <div className="case-now-lookup" aria-label="问题所问内容及原始出处">
+              <p className="t-hint">
+                {assessment.lookup.answer.kind === "entity"
+                  ? "查到公开来源中与所问对象对应的原句"
+                  : "查到公开来源中与所问指标对应的记录"}
+              </p>
               <p className="t-value">{assessment.lookup.answer.value}</p>
               <div className="t-evidence" style={{ marginTop: 16 }}>
                 <div className="t-evidence-item">
@@ -370,6 +380,9 @@ export function Case() {
                 <p className="trace-hint">
                   这份资料能证明：{assessment.lookup.answer.profile.authority}
                 </p>
+              ) : null}
+              {assessment.lookup.answer.kind === "entity" && assessment.lookup.answer.relation ? (
+                <p className="trace-hint">所问关系：{assessment.lookup.answer.relation}</p>
               ) : null}
               {assessment.lookup.answer.dataYear ? (
                 <p className="trace-hint">
@@ -397,7 +410,9 @@ export function Case() {
             // 措辞全部由结构化字段（partialAnswer / reasons / openQuestions）拼出，不写死任何具体问题。
             const partialItems = assessment?.verdict?.partialAnswer || [];
             const lead = assessment?.lookup?.answer
-              ? "已经找到对应数值的来源记录；它是否等同主管部门原始发布，还没有核实。"
+              ? assessment.lookup.answer.kind === "entity"
+                ? "已经在来源原句里读到对应答案；这是该来源的说法，不等同于已核实的唯一答案。"
+                : "已经找到对应数值的来源记录；它是否等同主管部门原始发布，还没有核实。"
               : partialItems.length
                 ? "已经查到与问题直接相关的来源表述，但它们只支持这句话的一部分。"
                 : {

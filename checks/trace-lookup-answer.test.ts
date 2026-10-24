@@ -53,3 +53,90 @@ describe("查询型侦探：带来源的具体回答", () => {
     expect(onlyExcerpt?.from).toBe("excerpt");
   });
 });
+
+describe("实体型问句：有原句才回答", () => {
+  const base: LookupEvidence = {
+    quote: "",
+    url: "https://www.example.com/lion.html",
+    site: "示例媒体",
+    date: "2024-11-12",
+    from: "body",
+    authoritative: false,
+  };
+  const question = "《狮子王》里辛巴的父亲叫什么名字？";
+
+  it("从原句里读出答案，并保留来源与限制", async () => {
+    const { collectEntityEvidence, entityQuestionParts, findSourcedEntityAnswer } = await import(
+      "../services/runtime/src/lookup-answer.ts"
+    );
+    const parts = entityQuestionParts(question)!;
+    expect(parts.relation).toBe("父亲");
+    const passage = "辛巴的父亲木法沙是荣耀王国的狮王，后被弟弟刀疤设计害死。";
+    const evidence = collectEntityEvidence(
+      [{ id: "a", url: base.url, site: base.site, date: base.date, passage, title: "狮子王" }],
+      new Map([["a", { ok: true, text: passage }]]),
+      parts,
+    );
+    const answer = findSourcedEntityAnswer(question, evidence);
+    expect(answer?.value).toBe("木法沙");
+    expect(answer?.kind).toBe("entity");
+    expect(answer?.limitation).toContain("人工核对");
+  });
+
+  it("原句里没有直接对应关系时不回答", async () => {
+    const { findSourcedEntityAnswer } = await import("../services/runtime/src/lookup-answer.ts");
+    const answer = findSourcedEntityAnswer(question, [
+      { ...base, quote: "辛巴出生时被高高举起，成为狮群未来的领袖，观众记住了这个名字。" },
+      { ...base, quote: "《狮子王》三十周年纪念重映，影迷再次走进影院。" },
+    ]);
+    expect(answer).toBeNull();
+  });
+
+  it("两处说法冲突时不硬选一个", async () => {
+    const { findSourcedEntityAnswer } = await import("../services/runtime/src/lookup-answer.ts");
+    const answer = findSourcedEntityAnswer(question, [
+      { ...base, quote: "辛巴的父亲是木法沙，这一点在首部作品中写明。" },
+      { ...base, quote: "辛巴的父亲是阿哈迪，不同版本的译制把名字翻错了。", from: "body" },
+    ]);
+    expect(answer).toBeNull();
+  });
+
+  it("否定表述不能当成答案", async () => {
+    const { findSourcedEntityAnswer } = await import("../services/runtime/src/lookup-answer.ts");
+    const answer = findSourcedEntityAnswer(question, [{ ...base, quote: "辛巴的父亲并非木法沙，这是误传。" }]);
+    expect(answer).toBeNull();
+  });
+
+  it("「作者」写成「创作」也能认出答案", async () => {
+    const { collectEntityEvidence, entityQuestionParts } = await import("../services/runtime/src/lookup-answer.ts");
+    const parts = entityQuestionParts("《哈利·波特》的作者是谁？")!;
+    expect(parts.relation).toBe("作者");
+    const passage = "《哈利·波特》系列由英国作家J.K.罗琳创作，首部作品于1997年出版。";
+    const evidence = collectEntityEvidence(
+      [{ id: "a", url: base.url, site: base.site, date: base.date, passage, title: "哈利波特" }],
+      new Map([["a", { ok: true, text: passage }]]),
+      parts,
+    );
+    expect(evidence.length).toBeGreaterThan(0);
+  });
+
+  it("间隔号不同不影响主体匹配，单字关系不切碎人名", async () => {
+    const { collectEntityEvidence, entityCandidatesIn, entityQuestionParts } = await import(
+      "../services/runtime/src/lookup-answer.ts"
+    );
+    const parts = entityQuestionParts("《哈利·波特》的作者是谁？")!;
+    const passage = "哈利波特系列小说的作者是J.K.罗琳，作品风靡全球。";
+    const evidence = collectEntityEvidence(
+      [{ id: "a", url: base.url, site: base.site, date: base.date, passage, title: "哈利波特" }],
+      new Map([["a", { ok: true, text: passage }]]),
+      parts,
+    );
+    expect(evidence.length).toBeGreaterThan(0);
+    const candidates = entityCandidatesIn("辛巴的父亲木法沙是荣耀王国的狮王。", {
+      subject: "《狮子王》里辛巴",
+      relation: "父亲",
+    });
+    expect(candidates.map((item) => item.value)).toContain("木法沙");
+    expect(candidates.some((item) => item.value.includes("亲木"))).toBe(false);
+  });
+});
