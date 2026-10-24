@@ -240,6 +240,7 @@ export function Entry() {
       detail: "火车、八分钟、爆炸：追查片名和关键剧情。",
       text: "我记得一部电影，主角在火车里每次只有八分钟，反复调查同一起爆炸，电影叫什么？",
       mode: "clue" as const,
+      showcaseRunId: "run_1413b04d-4b42-4806-9060-da6b40d1a432",
     },
     {
       key: "天台",
@@ -247,6 +248,7 @@ export function Entry() {
       detail: "香港卧底、警察、天台对决，分清原版与翻拍。",
       text: "香港警匪片，两个主角一个是警察一个是卧底，最后在天台对决，想不起名字了。",
       mode: "clue" as const,
+      showcaseRunId: "run_1b4e678d-eb31-4e39-b467-a4ed80db4db0",
     },
     {
       key: "冲突",
