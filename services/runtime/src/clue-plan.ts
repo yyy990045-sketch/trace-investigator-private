@@ -67,32 +67,47 @@ export function expandTerms(terms: string[]): string[] {
 }
 
 
-function usableQuestionChunks(question: string) {
-  const cleaned = question.replace(/[？?！!。，,、；;：:\n]/g, " ").replace(/\s+/g, " ").trim();
-  return cleaned.split(/\s+/).flatMap((chunk) => {
-    const simple = chunk.replace(FILLERS, "").trim();
-    // 中文长问句没有空格；以前整句超过 24 字直接丢弃，导致完全无法规划检索。
-    return simple.length > 20 ? simple.match(/.{1,20}/g) || [] : [simple];
-  }).filter((chunk) => chunk.length >= 2);
+/**
+ * 规则退化路径：中文长句按词边界切分，同时保留完整数值/时长。
+ * 去掉“每20字一刀”的逻辑；用户说“天台对决”，网页写“天台上的对决”也能分开核验。
+ * 规则只生成调查线索，不生成事实或猜测的答案。
+ */
+const INVESTIGATION_FILLERS = new Set([
+  ...GENERIC_TERMS,
+  "记得", "忘记", "忘了", "以前", "好像", "大概", "似乎", "其中", "后来",
+  "可以", "帮我", "请问", "什么", "哪个", "哪些", "名字", "一部", "这个", "那个",
+  "里面", "最后", "可能", "其实", "自己", "一直", "每次", "只有", "重复", "进行",
+  "知道", "查找", "调查", "怎么", "为什么", "是不是", "有没有", "是否", "在哪",
+  "电影", "影视", "电视", "作品", "找到", "描述", "情节", "事件", "事情",
+]);
+
+function clueTokens(question: string): string[] {
+  const seg = new Intl.Segmenter("zh", { granularity: "word" });
+  const cleaned = question.replace(/[？?！!。，,、；;：:\n]/g, " ").replace(FILLERS, "").trim();
+  // 数字与时间单位必须完整保留，分词器可能把“八”和“分钟”拆开。
+  const durations = [...cleaned.matchAll(/(?:\d+|[一二三四五六七八九十百两]+)\s*(?:分钟|小时|年|个月|天|次|公里|米)/g)]
+    .map((match) => match[0].replace(/\s+/g, ""));
+  const words = [...seg.segment(cleaned)]
+    .filter((part) => part.isWordLike)
+    .map((part) => part.segment.trim())
+    .filter((term) => term.length >= 2 && term.length <= 20)
+    .filter((term) => !INVESTIGATION_FILLERS.has(term) && !VAGUE_TIME.test(term))
+    .filter((term) => /[\p{L}\p{N}]/u.test(term));
+  return [...new Set([...durations, ...words])].slice(0, 16);
 }
 
-/** 保留原始线索，但检索式应按调查对象扩展，而非无条件附加“电视剧”。 */
+/** 模型未授权或不可用时，仍能从陌生中文句子生成可核验的短线索和检索式。 */
 export function planByRule(question: string): CluePlan {
   const domain = detectInvestigationDomain(question);
-  const chunks = usableQuestionChunks(question);
-  const clues: PlannedClue[] = [];
-  const seen = new Set<string>();
-  for (const chunk of chunks) {
-    if (seen.has(chunk) || GENERIC_TERMS.has(chunk) || VAGUE_TIME.test(chunk)) continue;
-    seen.add(chunk);
-    const kind = KINDS.find((item) => item.pattern.test(chunk))?.kind || "other";
-    clues.push({ text: chunk, terms: expandTerms([chunk]), kind });
-  }
+  const terms = clueTokens(question);
+  const clues: PlannedClue[] = terms.slice(0, 6).map((text) => ({
+    text,
+    terms: expandTerms([text]),
+    kind: KINDS.find((item) => item.pattern.test(text))?.kind || "other",
+  }));
   if (!clues.length && question.trim().length >= 2)
     clues.push({ text: question.trim().slice(0, 40), terms: [question.trim().slice(0, 20)], kind: "other" });
-  const trimmed = clues.slice(0, 6);
-  const keywords = trimmed.map((clue) => clue.text).slice(0, 5).join(" ");
-  const base = keywords.slice(0, 100);
+  const base = terms.slice(0, 9).join(" ").slice(0, 100);
   const context = domain === "screen"
     ? ["剧情 电影 电视剧", "剧名 主演 角色"]
     : domain === "event"
@@ -100,12 +115,12 @@ export function planByRule(question: string): CluePlan {
       : domain === "verification"
         ? ["官方 原始声明", "来源 事实核实"]
         : ["相关事实 原始出处", "官方资料 依据"];
-  const queries = [base, ...context.map((suffix) => `${base} ${suffix}`)]
+  const queries = [base || question.slice(0, 90), ...context.map((suffix) => `${base || question.slice(0, 80)} ${suffix}`)]
     .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
     .filter((query) => query.length >= 2);
   return {
     goal: `查清用户给出的线索：${question.slice(0, 100)}`,
-    clues: trimmed,
+    clues,
     queries: [...new Set(queries)].slice(0, 3),
     source: "rule",
     durationMs: 0,
