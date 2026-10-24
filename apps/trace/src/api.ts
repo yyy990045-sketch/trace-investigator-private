@@ -795,6 +795,8 @@ export interface RevisionsView {
   deliveredRevision: number;
   /** 交付之后又有了新的追问/修正，当前结论尚未成档 */
   dirty: boolean;
+  /** Public demo runs are readable but belong to another session. */
+  readOnly?: boolean;
   pendingFollowups: number;
   pendingCorrections: number;
   current: NonNullable<TraceBundleView["assessment"]>;
