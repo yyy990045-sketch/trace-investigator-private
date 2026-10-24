@@ -1,8 +1,11 @@
 # 案例C·证据不足与继续追问：全国氢能重卡加氢网络
 
+
+> 入口说明（2026-10-24 更新）：公网入口以服务器端口 http://134.175.111.217:8090 为主（实时联网版，匿名可访问）。原静态展示地址 trace-showcase-eight.vercel.app 已下线；A/B/C 三题可直接用新地址打开，D 与更早的调查记录未迁入线上库，仅在本机档案中保留。
+
 - 类别：补充调查后仍然证据不足
-- 在线页面（只读展示，历史记录）：https://trace-showcase-eight.vercel.app/#/cases/run_d34a959a-e748-4208-b9a6-eac33c1de13a
-- 调查档案页：https://trace-showcase-eight.vercel.app/#/archive/run_d34a959a-e748-4208-b9a6-eac33c1de13a
+- 线上页面（C 全国氢能重卡加氢网络，实时版可直接打开）：http://134.175.111.217:8090/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95
+- 调查档案页：http://134.175.111.217:8090/archive/run_8f812ae8-42f3-48d1-a353-84942f770e95
 
 ## 一、原始问题
 

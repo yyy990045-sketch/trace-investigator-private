@@ -1,5 +1,8 @@
 # undefined
 
+
+> 入口说明（2026-10-24 更新）：公网入口以服务器端口 http://134.175.111.217:8090 为主（实时联网版，匿名可访问）。原静态展示地址 trace-showcase-eight.vercel.app 已下线；A/B/C 三题可直接用新地址打开，D 与更早的调查记录未迁入线上库，仅在本机档案中保留。
+
 - 类别：undefined
 - 在线页面（只读展示，历史记录）：https://trace-showcase-eight.vercel.app/#/cases/run_895b5bfe-69f8-4878-ab41-af4fc3f3fe82
 - 调查档案页：https://trace-showcase-eight.vercel.app/#/archive/run_895b5bfe-69f8-4878-ab41-af4fc3f3fe82
