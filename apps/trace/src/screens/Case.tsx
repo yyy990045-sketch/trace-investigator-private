@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, RotateCcw, X } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   followupsOf,
   outcomeText,
   pendingApproval,
+  postAutoInvestigation,
   postCorrection,
   postFollowup,
   postReassess,
@@ -43,6 +44,8 @@ export function Case() {
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ factId?: string; label?: string; query: string } | null>(null);
   const [followupError, setFollowupError] = useState<string | null>(null);
+  const autoStarted = useRef(new Set<string>());
+  const [autoState, setAutoState] = useState<"idle" | "running" | "done" | "failed">("idle");
 
   const [searchParams] = useSearchParams();
   const compareId = searchParams.get("compare") || "";
@@ -74,6 +77,27 @@ export function Case() {
   const followups: FollowupRecord[] = run ? followupsOf(run) : [];
   const revisions = revisionsQuery.data;
   const pendingVersion = revisions && revisions.dirty && revisions.revisions.length ? revisions : null;
+  // 公开信息核验和影视线索一样：进入调查结果后自动解决关键来源缺口。
+  // 只在首次核验完成时开始；浏览器反复渲染不重复发请求，服务器也会按 run 记录预算。
+  useEffect(() => {
+    if (SHOWCASE || !run || autoStarted.current.has(runId) || !assessmentQuery.isSuccess) return;
+    if (run.status !== "completed" && run.status !== "waiting_approval") return;
+    const outcome = assessmentQuery.data?.assessment?.verdict?.outcome;
+    if (!outcome || outcome === "supported" || outcome === "contradicted") return;
+    if (run.input?.dataConsent !== true) return;
+    autoStarted.current.add(runId);
+    setAutoState("running");
+    void (async () => {
+      try {
+        await postAutoInvestigation(runId);
+        await Promise.all([runQuery.refetch(), assessmentQuery.refetch(), revisionsQuery.refetch()]);
+        setAutoState("done");
+      } catch (cause) {
+        setAutoState("failed");
+        setFollowupError(cause instanceof Error ? cause.message : "自动补查失败，仍保留现有调查结果。");
+      }
+    })();
+  }, [runId, run?.status, run?.input?.dataConsent, assessmentQuery.isSuccess, assessmentQuery.data?.assessment?.verdict?.outcome]);
 
   const freshPageIds = useMemo(() => {
     const ids = new Set<string>();
@@ -300,6 +324,12 @@ export function Case() {
           <strong>{run.status === "rejected" ? "人工确认已驳回" : "调查已取消"}</strong>
           <p>这次调查已终止，没有交付档案。已取得的证据和模型返回仅作为过程记录保留。</p>
         </section>
+      ) : null}
+
+      {autoState === "running" ? (
+        <p role="status" aria-live="polite" className="trace-hint">
+          正在针对未解决的关键疑点自动追查，完成后将更新这里的答案。
+        </p>
       ) : null}
 
       {verdict ? (
