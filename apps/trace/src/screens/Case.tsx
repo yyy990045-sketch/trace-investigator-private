@@ -304,8 +304,8 @@ export function Case() {
       {verdict ? (
         <section className="case-now" data-outcome={verdict.outcome}>
           <div className="case-now-head">
-            <span className="case-now-label">当前规则结论</span>
-            <b>{outcomeText[verdict.outcome]}</b>
+            <span className="case-now-label">{assessment?.lookup?.answer ? "从真实来源查到的回答" : "当前规则结论"}</span>
+            <b>{assessment?.lookup?.answer ? "已找到对应数值" : outcomeText[verdict.outcome]}</b>
             <span className="case-now-state">
               {run.status === "completed"
                 ? "调查已完成"
@@ -320,7 +320,29 @@ export function Case() {
                     : "正在检索与核验"}
             </span>
           </div>
-          <p className="case-now-text">{evidenceWording(verdict.statement)}</p>
+          {assessment?.lookup?.answer ? (
+            <div className="case-now-lookup" aria-label="问题所问的数值及原始出处">
+              <p className="trace-hint">查到公开来源中与所问指标对应的记录</p>
+              <h2 style={{ fontSize: "clamp(1.6rem, 3vw, 2.2rem)", margin: "0.4rem 0" }}>
+                {assessment.lookup.answer.value}
+              </h2>
+              <p>{assessment.lookup.answer.quote}</p>
+              <p className="trace-hint">
+                来源：{assessment.lookup.answer.site || "公开网页"}
+                {assessment.lookup.answer.date ? ` · ${assessment.lookup.answer.date.slice(0, 10)}` : ""}
+                · {assessment.lookup.answer.from === "body" ? "原文正文" : "搜索摘要"}
+              </p>
+              <a href={assessment.lookup.answer.url} target="_blank" rel="noreferrer noopener">
+                查看对应的原始来源
+              </a>
+              <p className="trace-hint">{assessment.lookup.answer.limitation}</p>
+            </div>
+          ) : null}
+          <p className="case-now-text">
+            {assessment?.lookup?.answer
+              ? `关于原始公告与完整事实的核验状态：${outcomeText[verdict.outcome]}。来源数字可以引用，仍需区分报道引述和官方原始发布。`
+              : evidenceWording(verdict.statement)}
+          </p>
           {(() => {
             // 问句被改写成可核查说法时，把改写依据写在这里：用户要能看出系统改了什么、
             // 为什么改，而不是以为自己的原话被悄悄换掉了。
