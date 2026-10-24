@@ -133,6 +133,18 @@ export function Case() {
   const contradictionCount = facts.reduce((sum, fact) => sum + fact.contradicts, 0);
   const supportCount = facts.reduce((sum, fact) => sum + fact.supports, 0);
   /** 有相关来源，但它们都是摘要/未通过独立性核对，因此结论只能停在「证据不足」。 */
+  // 首屏「关键来源」：直接取这次真正拿到正文/摘要的支持性来源，点得开才算数。
+  const keySources = [
+    ...new Map(
+      facts
+        .flatMap((fact) => fact.sources || [])
+        .filter((source) => (source.relation === "supports" || source.relation === "contradicts") && source.url)
+        .map((source) => [source.url, source]),
+    ).values(),
+  ]
+    .sort((a, b) => Number(b.bodyAvailable) - Number(a.bodyAvailable) || (b.relevance || 0) - (a.relevance || 0))
+    .slice(0, 3);
+
   const weakOpposition =
     verdict?.outcome === "insufficient" && supportCount + contradictionCount > 0;
   /** 两个以上机构各自给出数字：这是「口径对照」而不是「谁错了」。 */
@@ -281,8 +293,8 @@ export function Case() {
 
   return (
     <div className="trace-page trace-page-wide">
-      <header className="trace-masthead">
-        <span className="trace-eyebrow">
+      <header className="trace-masthead t-case-top-group">
+        <span className="t-eyebrow">
           调查过程 ·{" "}
           {run.status === "completed"
             ? "已完成"
@@ -296,27 +308,14 @@ export function Case() {
                 ? "等待你确认"
                 : "进行中"}
         </span>
-        <h1>{claimText}</h1>
-        <p className="trace-lede">
+        <h1 className="t-question">{claimText}</h1>
+        <p className="t-hint">
           立案 {formatTime(run.createdAt)}
           {search ? ` · 已检索 ${search.totalQueries + followups.length} 次` : ""}
           {assessment ? ` · 未检测到重复的来源簇 ${assessment.independentSources} 个` : ""}
           {followups.length ? ` · 追加检索 ${followups.length} 次` : ""}
         </p>
       </header>
-
-      {compareId && compareQuery.data && assessment?.verdict ? (
-        <Watershed
-          historical={false}
-          left={{
-            label: "原始调查",
-            claim: digestOf(compareQuery.data).claim,
-            digest: digestOf(compareQuery.data),
-          }}
-          right={{ label: "改条件后重新调查", claim: claimText, digest: digestOf(run) }}
-        />
-      ) : null}
-      {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
 
       {run.status === "rejected" || run.status === "canceled" ? (
         <section className="trace-blocker" role="status">
@@ -332,10 +331,10 @@ export function Case() {
       ) : null}
 
       {verdict ? (
-        <section className="case-now" data-outcome={verdict.outcome}>
+        <section className="case-now t-verdict" data-outcome={verdict.outcome}>
           <div className="case-now-head">
             <span className="case-now-label">{assessment?.lookup?.answer ? "从真实来源查到的回答" : "当前规则结论"}</span>
-            <b>{assessment?.lookup?.answer ? "已找到对应数值" : outcomeText[verdict.outcome]}</b>
+            <b>{assessment?.lookup?.answer ? "已找到对应数值" : outcomeText[verdict.outcome] || "答了一部分"}</b>
             <span className="case-now-state">
               {run.status === "completed"
                 ? "调查已完成"
@@ -350,27 +349,16 @@ export function Case() {
                     : "正在检索与核验"}
             </span>
           </div>
-          {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
-          {assessment?.verdict?.partialAnswer?.length ? (
-            <div className="case-now-counts" aria-label="已经找到但仍需核实的来源表述">
-              <p className="trace-hint">目前找到的相关来源表述（仍需核实，不代表事实已经确认）</p>
-              <ul>
-                {assessment.verdict.partialAnswer.map((item: string, index: number) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ul>
-              <p className="trace-hint">
-                还缺：能把它定案的官方原始页面或研究原文；因此在结论里只算「答了一部分」。
-              </p>
-            </div>
-          ) : null}
+
           {assessment?.lookup?.answer ? (
             <div className="case-now-lookup" aria-label="问题所问的数值及原始出处">
-              <p className="trace-hint">查到公开来源中与所问指标对应的记录</p>
-              <h2 style={{ fontSize: "clamp(1.6rem, 3vw, 2.2rem)", margin: "0.4rem 0" }}>
-                {assessment.lookup.answer.value}
-              </h2>
-              <p>{assessment.lookup.answer.quote}</p>
+              <p className="t-hint">查到公开来源中与所问指标对应的记录</p>
+              <p className="t-value">{assessment.lookup.answer.value}</p>
+              <div className="t-evidence" style={{ marginTop: 16 }}>
+                <div className="t-evidence-item">
+                  <p className="t-evidence-quote">{assessment.lookup.answer.quote}</p>
+                </div>
+              </div>
               <p className="trace-hint">
                 来源：{assessment.lookup.answer.site || "公开网页"}
                 {assessment.lookup.answer.date ? ` · 发布于 ${assessment.lookup.answer.date.slice(0, 10)}` : ""}
@@ -399,11 +387,61 @@ export function Case() {
               <p className="trace-hint">{assessment.lookup.answer.limitation}</p>
             </div>
           ) : null}
-          <p className="case-now-text">
-            {assessment?.lookup?.answer
-              ? `关于原始公告与完整事实的核验状态：${outcomeText[verdict.outcome]}。来源数字可以引用，仍需区分报道引述和官方原始发布。`
-              : evidenceWording(verdict.statement)}
-          </p>
+
+          {/*
+            第一层：一句直接回答。只根据后端给出的结论状态组织措辞，不新增任何事实判断；
+            完整判断原文原样保留在下方「完整判断说明」里，不清洗、不删改。
+          */}
+          {(() => {
+            // 首屏回答优先说「后端证据真正支持到了什么」，再说明还缺什么；
+            // 措辞全部由结构化字段（partialAnswer / reasons / openQuestions）拼出，不写死任何具体问题。
+            const partialItems = assessment?.verdict?.partialAnswer || [];
+            const lead = assessment?.lookup?.answer
+              ? "已经找到对应数值的来源记录；它是否等同主管部门原始发布，还没有核实。"
+              : partialItems.length
+                ? "已经查到与问题直接相关的来源表述，但它们只支持这句话的一部分。"
+                : {
+                    supported: "现有公开来源支持这个说法。",
+                    contradicted: "现有公开来源与这个说法相反。",
+                    disputed: "不同来源对这个说法给出不一致的表述。",
+                    outdated: "相关内容存在，但时效不满足当前结论。",
+                    partial: "只查到一部分材料，还不能给出确定答案。",
+                    insufficient: "目前的材料不足以判断这句话是真是假。",
+                  }[verdict.outcome] || "这次调查还没有形成可展示的结论。";
+            // 「还不能确定」用后端自己给出的理由（例如「来源只给出相关性，没有证明因果」），
+            // 前端只做展示，不额外推断。
+            // 优先用后端明确讲清「相关性 vs 因果」「只覆盖部分条件」的那条理由，
+            // 其次才是「只有摘要」这类过程性理由。
+            const reasons = (verdict.reasons || []) as string[];
+            const gap =
+              reasons.find((reason) => /相关|因果|只支持|条件|范围|口径/.test(reason)) ||
+              reasons.find((reason) => /只|没有|尚未|还没|不足以|不能/.test(reason)) ||
+              (assessment?.openQuestions || [])[0] ||
+              "";
+            return (
+              <>
+                <p className="case-now-text t-answer-lead">{lead}</p>
+                {gap ? (
+                  <p className="t-hint t-answer-gap">
+                    <b>还不能确定：</b>
+                    {evidenceWording(String(gap)).slice(0, 160)}
+                  </p>
+                ) : null}
+              </>
+            );
+          })()}
+
+          {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
+          {assessment?.verdict?.partialAnswer?.length ? (
+            <div className="case-now-counts" aria-label="已经找到但仍需核实的来源表述">
+              <p className="t-hint" style={{ marginBottom: 8 }}>目前找到的相关来源表述（仍需核实，不代表事实已经确认）</p>
+              <ul className="t-plain-list">
+                {assessment.verdict.partialAnswer.map((item: string, index: number) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {(() => {
             // 问句被改写成可核查说法时，把改写依据写在这里：用户要能看出系统改了什么、
             // 为什么改，而不是以为自己的原话被悄悄换掉了。
@@ -469,7 +507,10 @@ export function Case() {
               )}
             </div>
           ) : null}
-          <p className="trace-hint">来源簇仅按已识别的同源线索归并；未检测到重复不等于已证明来源独立。</p>
+          <details className="t-disclose" aria-label="来源统计与核对口径">
+            <summary>来源统计与核对口径</summary>
+            <div className="t-disclose-body">
+          <p className="t-hint">来源簇仅按已识别的同源线索归并；未检测到重复不等于已证明来源独立。</p>
           <div className="case-now-counts">
             <span title="未检测到与其它来源重复的来源簇，不等于已证实独立">
               未检测到重复 <b>{assessment?.independentSources ?? "—"}</b>
@@ -489,8 +530,13 @@ export function Case() {
             ) : null}
             {assessment?.openQuestions?.length ? <span className="case-now-gap">还缺 {assessment.openQuestions.length} 项证据</span> : null}
           </div>
+            </div>
+          </details>
           {/* 查询型问题（多少/公布了吗）：答案可能是证据不足，但用户要看到材料里到底查到了什么。 */}
           {assessment?.lookup?.items?.length ? (
+            <details className="t-disclose" aria-label="材料里查到的相关表述">
+              <summary>材料里查到的相关表述（{assessment.lookup.items.length} 条）</summary>
+              <div className="t-disclose-body">
             <div className="case-now-lookup" aria-label="材料里查到的相关表述">
               <p className="trace-hint">{assessment.lookup.note}</p>
               <ul className="case-body-findings">
@@ -516,6 +562,35 @@ export function Case() {
                 ))}
               </ul>
             </div>
+              </div>
+            </details>
+          ) : null}
+          <details className="t-disclose" aria-label="完整判断说明">
+            <summary>完整判断说明（后端原始结论，未做改动）</summary>
+            <div className="t-disclose-body">
+              <p className="t-hint" style={{ lineHeight: 1.85 }}>
+                {evidenceWording(verdict.statement)}
+              </p>
+              {verdict.reasons?.length ? (
+                <ul className="trace-notes">
+                  {verdict.reasons.map((reason: string, index: number) => (
+                    <li key={index}>{evidenceWording(reason)}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </details>
+
+          {keySources.length ? (
+            <div className="t-key-sources" aria-label="关键来源">
+              <span className="t-hint">关键来源：</span>
+              {keySources.map((source) => (
+                <a key={source.url} href={source.url} target="_blank" rel="noreferrer noopener">
+                  {source.site || source.url}
+                  <em>{source.bodyAvailable ? "原文" : "摘要"}</em>
+                </a>
+              ))}
+            </div>
           ) : null}
           <div className="case-now-actions">
             <a className="trace-btn trace-btn-ghost" href={archiveHref(run.id)}>
@@ -528,9 +603,32 @@ export function Case() {
         </section>
       ) : null}
 
-      <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
-      <InvestigationRoles run={run} />
-      <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
+      <details className="t-disclose" aria-label="事实分水岭与条件拆分">
+        <summary>事实分水岭：只改一个条件，结论会怎么变</summary>
+        <div className="t-disclose-body">
+          {compareId && compareQuery.data && assessment?.verdict ? (
+            <Watershed
+              historical={false}
+              left={{
+                label: "原始调查",
+                claim: digestOf(compareQuery.data).claim,
+                digest: digestOf(compareQuery.data),
+              }}
+              right={{ label: "改条件后重新调查", claim: claimText, digest: digestOf(run) }}
+            />
+          ) : null}
+          {SHOWCASE ? null : <ConditionSplitter digest={digestOf(run)} />}
+        </div>
+      </details>
+
+      <details className="t-disclose" aria-label="调查过程">
+        <summary>这次调查是怎么走过来的（真实步骤与补查记录）</summary>
+        <div className="t-disclose-body">
+          <InvestigationStory run={run} assessment={assessment} revisions={revisions} />
+          <InvestigationRoles run={run} />
+          <ExperienceReuse runId={run.id} hints={assessment?.experiences} />
+        </div>
+      </details>
 
       {revisions && revisions.revisions.length ? (
         <section className="trace-versions" data-dirty={pendingVersion ? "true" : "false"}>

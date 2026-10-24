@@ -25,6 +25,15 @@ import { evidenceWording } from "../presentation";
 import { detectInvestigationDomain, investigationFlow } from "@personal/capability-sdk";
 
 const MAX_FACTS = 6;
+/** 首页精选案例的状态文案：结论状态一律如实显示，不用形容词代替。 */
+const outcomeLabel: Record<string, string> = {
+  supported: "有依据支持",
+  contradicted: "存在反证",
+  disputed: "存在争议",
+  outdated: "时效不足",
+  partial: "答了一部分",
+  insufficient: "证据不足",
+};
 const MAX_QUERIES = 6;
 
 function blankFact(index: number): FactDraft {
@@ -322,90 +331,180 @@ export function Entry() {
     }
   }
 
+  // 首屏只放三个不同类型的真实示例：线索追查、按剧情找作品、公开信息核验。
+  const heroExamples = [clueExamples[0], clueExamples[1], clueExamples[4]].filter(
+    (example): example is (typeof clueExamples)[number] => Boolean(example) && (!SHOWCASE || Boolean(example.showcaseRunId)),
+  );
+  const featured =
+    digests.rows.find((row) => row.digest.outcome === "contradicted") ||
+    digests.rows.find((row) => Boolean(row.digest.statement)) ||
+    digests.rows[0] ||
+    null;
+
   return (
     <div className="trace-page trace-home">
-      <section className="clue-hero" aria-label="用一句话开始调查">
-        <span className="clue-hero-brand">TRACE｜溯证</span>
-        <h1>你想查清什么？</h1>
-        <p className="clue-hero-lede">
-          说出你记得的情节、听来的说法，或没把握的公开信息。TRACE 会自己上网查、遇到疑点继续追，带着可点击的来源回来；查不到就说查不到。
-        </p>
-        {SHOWCASE ? (
-          <div className="clue-hero-input" aria-label="历史调查演示入口">
-            <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
-            <a className="trace-btn trace-btn-primary trace-btn-lg" href={caseHref("run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb")}>
-              <Search size={16} /> 查看侦探实战
-            </a>
-          </div>
-        ) : (
-          <div className="clue-hero-input">
-            <textarea
-              aria-label="你想查什么"
-              rows={2}
-              maxLength={500}
-              placeholder="例如：我记得一部悬疑剧，主角是法医、搭档叫大宝；或者：网传某款手机已在官网停售，是真的吗？"
-              value={clueQuestion}
-              onChange={(event) => setClueQuestion(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
-              }}
-            />
-            <button
-              className="trace-btn trace-btn-primary trace-btn-lg"
-              disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
-              onClick={() => void submitClue()}
-            >
-              <Search size={16} /> {clueBusy ? "正在调查…" : "开始调查"}
-            </button>
-            <details className="trace-home-extra" aria-label="高级调查方式">
-              <summary>高级：手动指定调查方式</summary>
-              <div role="group" aria-label="调查方式" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                <button type="button" className="trace-btn" aria-pressed={heroMode === "clue"} onClick={() => setHeroMode("clue")}>按剧情找作品</button>
-                <button type="button" className="trace-btn" aria-pressed={heroMode === "verification"} onClick={() => setHeroMode("verification")}>核对公开信息</button>
-              </div>
-              <p className="clue-hero-note">默认按内容自动判断；只有判断不符合你的意图时才需要手动指定。</p>
-            </details>
-            {isRedirected ? (
-              <p className="clue-hero-note" role="status">识别到{detectInvestigationDomain(clueQuestion) === "event" ? "演出票务" : "公开信息"}问题，本次将追查公开来源。票务实时库存需以对应官方售票平台为准。</p>
-            ) : heroMode === "verification" ? (
-              <p className="clue-hero-note">系统追查公开出处、核对条件并显示证据。不保证实时库存，也不会把搜索摘要当成已验证事实。</p>
-            ) : null}
-          </div>
-        )}
-        {!SHOWCASE && heroMode === "clue" ? (
-          <label className="clue-hero-note" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" checked={clueModelConsent} onChange={(event) => setClueModelConsent(event.target.checked)} />
-            同意将这次线索发送给已配置的模型辅助生成搜索词（不勾选仍可使用规则检索）
-          </label>
-        ) : null}
-        <div className="clue-hero-examples">
-          {clueExamples.filter((example) => example.mode === "clue" && (!SHOWCASE || example.showcaseRunId)).map((example) => (
-            <button
-              key={example.key}
-              className="clue-example"
-              disabled={clueBusy || busy || (!SHOWCASE && blocked)}
-              onClick={() => void startExample(example)}
-            >
-              <b>{example.label}</b>
-              <span>{example.detail}</span>
-              <em>{example.mode === "clue" ? "线索追查" : "事实核查"}</em>
-            </button>
-          ))}
-        </div>
-        {SHOWCASE ? (
-          <p className="clue-hero-note">
-            公网版本是只读回放，点上面任一示例可以看到当时的真实调查记录；要真正发起搜索，请在本机运行 Runtime。
+      <section className="t-hero" aria-label="开始一次调查">
+        <div className="t-hero-main">
+          <span className="t-eyebrow">TRACE · 证据调查</span>
+          <h1>你想查清什么？</h1>
+          <p className="t-lede">
+            说出你记得的情节、听来的说法，或没把握的公开信息。TRACE 会自己上网查、遇到疑点接着追，
+            带着可点击的来源回来；查不到就说查不到。
           </p>
-        ) : blocked ? (
-          <p className="clue-hero-note" role="status">联网检索当前不可用：{blockerReason}</p>
-        ) : (
-          <p className="clue-hero-note">真实元宝搜索 · 关键线索补证 · 原文可追溯；证据不够时明确说明缺口。</p>
-        )}
-        {clueError ? <div className="trace-alert" role="alert">{clueError}</div> : null}
+
+          {SHOWCASE ? (
+            <div className="t-composer" aria-label="历史调查演示入口">
+              <p className="t-answer-line" style={{ padding: "14px 14px 0" }}>
+                这里是公开的真实调查回放。当前环境不接受新查询，可以直接查看完整的证据与结论。
+              </p>
+              <div className="t-composer-foot">
+                <span className="t-hint">只读回放 · 不会发起真实搜索</span>
+                <a className="t-btn t-btn-primary" href={caseHref("run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb")}>
+                  <Search size={16} /> 查看侦探实战
+                </a>
+              </div>
+            </div>
+          ) : (
+            <form
+              className="t-composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitClue();
+              }}
+            >
+              <textarea
+                aria-label="你想查什么"
+                rows={3}
+                maxLength={500}
+                placeholder="例如：我记得一部悬疑剧，主角是法医、搭档叫大宝；或者：网传某款手机已在官网停售，是真的吗？"
+                value={clueQuestion}
+                onChange={(event) => setClueQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void submitClue();
+                }}
+              />
+              <div className="t-composer-foot">
+                <span className="t-hint">
+                  {blocked
+                    ? `联网检索当前不可用：${blockerReason}`
+                    : "真实元宝搜索 · 关键线索补证 · 原文可追溯；证据不够时明确说出缺口。"}
+                </span>
+                <button
+                  type="submit"
+                  className="t-btn t-btn-primary"
+                  disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
+                >
+                  <Search size={16} /> {clueBusy ? "正在调查…" : "开始调查"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {clueError ? (
+            <div className="trace-alert" role="alert" style={{ marginTop: 12 }}>
+              {clueError}
+            </div>
+          ) : null}
+
+          <div className="t-examples" aria-label="真实示例">
+            {heroExamples.map((example) => (
+              <button
+                key={example.key}
+                type="button"
+                className="t-example"
+                disabled={clueBusy || busy || (!SHOWCASE && blocked)}
+                onClick={() => void startExample(example)}
+              >
+                <b>{example.label}</b>
+                <span>{example.detail}</span>
+                <em>{example.mode === "clue" ? "线索追查" : "公开核验"}</em>
+              </button>
+            ))}
+          </div>
+
+          <details className="t-disclose" aria-label="高级调查方式">
+            <summary>高级：手动指定调查方式</summary>
+            <div className="t-disclose-body">
+              <div role="group" aria-label="调查方式" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="t-btn"
+                  aria-pressed={heroMode === "clue"}
+                  onClick={() => setHeroMode("clue")}
+                >
+                  按剧情找作品
+                </button>
+                <button
+                  type="button"
+                  className="t-btn"
+                  aria-pressed={heroMode === "verification"}
+                  onClick={() => setHeroMode("verification")}
+                >
+                  核对公开信息
+                </button>
+              </div>
+              <p className="t-hint" style={{ marginTop: 8 }}>
+                默认按内容自动判断；只有判断不符合你的意图时才需要手动指定。
+              </p>
+              {isRedirected ? (
+                <p className="t-hint" role="status">
+                  识别到{detectInvestigationDomain(clueQuestion) === "event" ? "演出票务" : "公开信息"}问题，本次将追查公开来源。票务实时库存需以对应官方售票平台为准。
+                </p>
+              ) : heroMode === "verification" ? (
+                <p className="t-hint">
+                  系统追查公开出处、核对条件并显示证据。不保证实时库存，也不会把搜索摘要当成已验证事实。
+                </p>
+              ) : null}
+              {!SHOWCASE && heroMode === "clue" ? (
+                <label className="t-hint" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={clueModelConsent}
+                    onChange={(event) => setClueModelConsent(event.target.checked)}
+                  />
+                  同意把这次线索交给已配置的模型辅助生成搜索词（不勾选仍可使用规则检索）
+                </label>
+              ) : null}
+            </div>
+          </details>
+        </div>
+
+        <aside className="t-hero-side" aria-label="真实案例">
+          {featured ? (
+            <div className="t-feature">
+              <h2>精选真实调查</h2>
+              <span className="t-status" data-tone={featured.digest.outcome || "insufficient"}>
+                {outcomeLabel[featured.digest.outcome || "insufficient"] || "调查记录"}
+              </span>
+              <p className="t-feature-q">{featured.digest.question}</p>
+              {/* 结论原文完整保留，只在视觉上截断（CSS line-clamp），不做任何正则裁剪。 */}
+              <p className="t-feature-text">{featured.digest.statement}</p>
+              <div className="t-feature-foot">
+                <span>
+                  {featured.digest.independentSources} 个独立来源 · {featured.digest.bodyBacked} 份原文
+                </span>
+                <a className="t-btn t-btn-quiet" href={caseHref(featured.digest.runId)}>
+                  查看完整结论 <ArrowRight size={14} />
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="t-feature">
+              <h2>还没有本机调查记录</h2>
+              <p className="t-feature-text">
+                发起第一次调查后，这里会显示最近一次真实调查的结论、来源数量和原文依据。
+              </p>
+            </div>
+          )}
+          <p className="t-hint">
+            每次调查都会留下可复查的证据链：检索了什么、拿到哪句原文、哪些还没核实。{SHOWCASE ? "当前页面为只读回放。" : ""}
+          </p>
+        </aside>
       </section>
 
-      <details className="trace-home-extra">
-        <summary>历史调查与高级选项（按需展开）</summary>
+      <details className="t-disclose">
+        <summary>历史调查与高级选项</summary>
+        <div className="t-disclose-body">
       <div className="clue-hero-cases" aria-label="真实调查案例">
         <span>真实调查案例：</span>
         {[digests.E, digests.R, digests.C, digests.B, digests.A]
@@ -802,6 +901,7 @@ export function Entry() {
           )}
         </section>
       ) : null}
+        </div>
       </details>
     </div>
   );

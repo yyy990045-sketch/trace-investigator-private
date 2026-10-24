@@ -6,6 +6,7 @@ import { BusinessShell, type ShellConfig } from "@personal/app-shell";
 import { EmptyState } from "@personal/ui-core";
 import "@personal/ui-core/styles.css";
 import "./trace.css";
+import "./ui.css";
 import { Entry } from "./screens/Entry";
 import { Case } from "./screens/Case";
 import { Archive } from "./screens/Archive";
@@ -23,12 +24,12 @@ const environmentLabel = showcase
 
 const config: ShellConfig = {
   name: "溯证 TRACE",
-  subtitle: "可复查的证据调查",
+  subtitle: "会自己接着查的 AI 侦探",
   mark: "溯",
   home: "/",
   contextLabel: "溯证 TRACE",
   environment: environmentLabel,
-  theme: { accent: "#17577f", accentSoft: "#e7f0f6", sidebar: "#f4f2ec" },
+  theme: { accent: "#0f5c6b", accentSoft: "#e9f3f4", sidebar: "#ffffff" },
   navigation: [{ to: "/", label: "调查", icon: Search, end: true }],
 };
 
@@ -40,7 +41,7 @@ function renderApp() {
   createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="trace-app">
+        <div className="trace-app trace-v2">
           <BusinessShell config={config}>
             <Routes>
               <Route path="/" element={<Entry />} />
