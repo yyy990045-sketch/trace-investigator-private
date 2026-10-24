@@ -134,8 +134,10 @@ try {
       const cited = (after.facts || []).flatMap((fact) => (fact.sources || []).filter((source) => source.relation === "supports" || source.relation === "contradicts").slice(0, 3).map((source) => ({ clue: fact.fact?.text || "", relation: source.relation, quote: (source.semantic?.sentence || source.bodyExcerpt || source.excerpt || "").slice(0, 160), source: source.url, site: source.site, date: source.date, from: source.bodyAvailable ? "body" : "excerpt", semantic: source.semantic })));
       pre = { decision: { state: assessment.assessment?.verdict?.outcome || "unknown", headline: assessment.assessment?.verdict?.statement || "" }, candidates: [], pageCount: assessment.assessment?.counts?.pages ?? 0, verdict: assessment.assessment?.verdict, counts: assessment.assessment?.counts, facts: assessment.assessment?.facts, directEvidence: cited };
     }
-    pre = { decision: { state: assessment.assessment?.verdict?.outcome || "unknown", headline: assessment.assessment?.verdict?.statement || "" }, candidates: [], pageCount: assessment.assessment?.counts?.pages ?? 0 };
-    post = { ...pre, verdict: assessment.assessment?.verdict, counts: assessment.assessment?.counts, facts: assessment.assessment?.facts };
+    if (!auto.assessment) {
+      pre = { decision: { state: assessment.assessment?.verdict?.outcome || "unknown", headline: assessment.assessment?.verdict?.statement || "" }, candidates: [], pageCount: assessment.assessment?.counts?.pages ?? 0 };
+      post = { ...pre, verdict: assessment.assessment?.verdict, counts: assessment.assessment?.counts, facts: assessment.assessment?.facts };
+    }
   }
   run = await api("/runs/" + encodeURIComponent(run.id));
   const calls = (run.evidence || []).filter((x) => x.kind === "search.call")

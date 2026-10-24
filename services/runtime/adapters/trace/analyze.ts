@@ -1079,10 +1079,24 @@ export function assessSource(
       unrelated: 0,
     };
     let best: { verdict: SentenceVerdict; sentence: string } | null = null;
+    const supports: string[] = [];
+    const refutes: string[] = [];
     for (const sentence of sentences) {
       const verdict = compareSentence(claimSemantics, sentence);
+      if (verdict.verdict === "direct_support") supports.push(sentence);
+      if (verdict.verdict === "direct_refute") refutes.push(sentence);
       if (!best || rank[verdict.verdict] > rank[best.verdict.verdict]) best = { verdict, sentence };
-      if (verdict.verdict === "direct_support") break;
+    }
+    // 同一页面既有支持也有反驳：不能因为支持分高就直接算支持，要如实标成冲突。
+    if (supports.length && refutes.length && best) {
+      best = {
+        verdict: {
+          verdict: "partial",
+          reason: `同一页面既有支持（${supports[0].slice(0, 40)}）也有反驳（${refutes[0].slice(0, 40)}），不能据此定案`,
+          sufficient: false,
+        },
+        sentence: supports[0],
+      };
     }
     if (best) {
       // 因果类说法：媒体把同一句话再讲一遍不算证据，必须有研究/数据/官方表述支撑。
