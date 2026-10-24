@@ -33,6 +33,7 @@ import { ExperienceReuse } from "../ExperienceReuse";
 import { ClueCase } from "./ClueCase";
 import { ModelReview } from "../ModelReview";
 import { evidenceWording } from "../presentation";
+import { sourceTier, tierNote } from "../source-tier";
 
 export function Case() {
   const { runId = "" } = useParams();
@@ -331,6 +332,9 @@ export function Case() {
                 来源：{assessment.lookup.answer.site || "公开网页"}
                 {assessment.lookup.answer.date ? ` · ${assessment.lookup.answer.date.slice(0, 10)}` : ""}
                 · {assessment.lookup.answer.from === "body" ? "原文正文" : "搜索摘要"}
+                {" · "}
+                {sourceTier(assessment.lookup.answer.url, assessment.lookup.answer.site).label}
+                {`（${tierNote([sourceTier(assessment.lookup.answer.url, assessment.lookup.answer.site).tier])}）`}
               </p>
               <a href={assessment.lookup.answer.url} target="_blank" rel="noreferrer noopener">
                 查看对应的原始来源

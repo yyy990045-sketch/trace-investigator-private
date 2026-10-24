@@ -18,7 +18,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base + "/#/", { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: /只记得一点线索.*追到答案/ }).waitFor({ timeout: 15000 });
+  await page.getByRole("heading", { name: /你想查清什么|只记得一点线索/ }).waitFor({ timeout: 15000 });
   if (await page.locator("textarea[aria-label='你想查什么']").count())
     throw new Error("只读展示出现无法操作的假搜索输入框");
   if (!(await page.getByRole("link", { name: /查看侦探实战/ }).count()))
@@ -68,7 +68,7 @@ try {
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 1 });
   phone.on("pageerror", (e) => errors.push(e.message));
   await phone.goto(base + "/#/", { waitUntil: "networkidle" });
-  await phone.getByRole("heading", { name: /只记得一点线索.*追到答案/ }).waitFor();
+  await phone.getByRole("heading", { name: /你想查清什么|只记得一点线索/ }).waitFor();
   await phone.screenshot({ path: output + "/home-mobile.png", fullPage: true });
   const overflow = await phone.evaluate(() => ({
     content: document.documentElement.scrollWidth,

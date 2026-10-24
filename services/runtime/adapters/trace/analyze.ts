@@ -172,8 +172,21 @@ export function coverage(haystack: string, needles: string[]) {
 
 /** 提取数值型断言：数字 + 可选单位/百分号/年月，用于发现互相矛盾的说法。 */
 export function numbers(text: string): string[] {
-  const found = text.normalize("NFKC").match(/\d+(?:\.\d+)?\s*(?:%|％|年|月|日|万元|亿元|万|亿|元|人|家|个|次|倍|公里|千米|平方米|岁|小时|天)?/g) || [];
-  return [...new Set(found.map((s) => s.replace(/\s+/g, "")))];
+  const normalized = text.normalize("NFKC");
+  const pattern = /\d+(?:\.\d+)?\s*(?:%|％|年|月|日|万元|亿元|万|亿|元|人|家|个|次|倍|公里|千米|平方米|岁|小时|天)?/g;
+  const out = new Set<string>();
+  for (const match of normalized.matchAll(pattern)) {
+    const token = match[0].replace(/\s+/g, "");
+    const at = match.index ?? 0;
+    const before = normalized.slice(Math.max(0, at - 6), at);
+    const after = normalized.slice(at + match[0].length, at + match[0].length + 2);
+    // 型号里的数字不是数量断言：PS4 / iPhone 15 / Switch 2 / 4K
+    if (/[A-Za-z]$/.test(before) || /^[A-Za-z]/.test(after)) {
+      if (!/[年月日%％]/.test(token)) continue;
+    }
+    out.add(token);
+  }
+  return [...out];
 }
 
 /** 纯日期/年份不是"数量断言"：来源出现 2025年 不能算作与事实的数值一致。 */

@@ -325,9 +325,11 @@ export function Entry() {
   return (
     <div className="trace-page trace-home">
       <section className="clue-hero" aria-label="用一句话开始调查">
-        <span className="clue-hero-brand">TRACE｜线索侦探</span>
-        <h1>只记得一点线索？我帮你追到答案。</h1>
-        <p className="clue-hero-lede">描述你记得的情节、人物或疑点。TRACE 会拆解线索、调用元宝搜索，遇到证据缺口继续查，并告诉你为什么找到这个答案。</p>
+        <span className="clue-hero-brand">TRACE｜溯证</span>
+        <h1>你想查清什么？</h1>
+        <p className="clue-hero-lede">
+          说出你记得的情节、听来的说法，或没把握的公开信息。TRACE 会自己上网查、遇到疑点继续追，带着可点击的来源回来；查不到就说查不到。
+        </p>
         {SHOWCASE ? (
           <div className="clue-hero-input" aria-label="历史调查演示入口">
             <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
@@ -337,17 +339,11 @@ export function Entry() {
           </div>
         ) : (
           <div className="clue-hero-input">
-            <div role="group" aria-label="调查方式" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="trace-btn" aria-pressed={heroMode === "clue"} onClick={() => setHeroMode("clue")}>凭线索找作品</button>
-              <button type="button" className="trace-btn" aria-pressed={heroMode === "verification"} onClick={() => setHeroMode("verification")}>查公开信息</button>
-            </div>
             <textarea
               aria-label="你想查什么"
               rows={2}
               maxLength={500}
-              placeholder={heroMode === "verification"
-                ? "例如：某场演唱会周六还有票吗？官方售票平台是什么？"
-                : "例如：我记得一部国产悬疑剧，主角是法医，好像有个叫大宝的搭档。"}
+              placeholder="例如：我记得一部悬疑剧，主角是法医、搭档叫大宝；或者：网传某款手机已在官网停售，是真的吗？"
               value={clueQuestion}
               onChange={(event) => setClueQuestion(event.target.value)}
               onKeyDown={(event) => {
@@ -359,8 +355,16 @@ export function Entry() {
               disabled={SHOWCASE || clueBusy || blocked || clueQuestion.trim().length < 4}
               onClick={() => void submitClue()}
             >
-              <Search size={16} /> {clueBusy ? "正在调查…" : routedFlow === "verification" ? "查找公开资料" : "开始找线索"}
+              <Search size={16} /> {clueBusy ? "正在调查…" : "开始调查"}
             </button>
+            <details className="trace-home-extra" aria-label="高级调查方式">
+              <summary>高级：手动指定调查方式</summary>
+              <div role="group" aria-label="调查方式" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                <button type="button" className="trace-btn" aria-pressed={heroMode === "clue"} onClick={() => setHeroMode("clue")}>按剧情找作品</button>
+                <button type="button" className="trace-btn" aria-pressed={heroMode === "verification"} onClick={() => setHeroMode("verification")}>核对公开信息</button>
+              </div>
+              <p className="clue-hero-note">默认按内容自动判断；只有判断不符合你的意图时才需要手动指定。</p>
+            </details>
             {isRedirected ? (
               <p className="clue-hero-note" role="status">识别到{detectInvestigationDomain(clueQuestion) === "event" ? "演出票务" : "公开信息"}问题，本次将追查公开来源。票务实时库存需以对应官方售票平台为准。</p>
             ) : heroMode === "verification" ? (
