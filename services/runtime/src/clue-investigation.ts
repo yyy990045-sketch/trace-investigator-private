@@ -58,7 +58,7 @@ export function nextClueSearch(
       if (!missing) continue;
       const clue = snapshot.clues.find((item) => item.text === missing.clue);
       const terms = (clue?.terms || [missing.clue]).filter((item) => item.length >= 2).slice(0, 2);
-      const query = [candidate.name, ...terms, "情节 资料"].join(" ");
+      const query = [candidate.name, ...terms, "原始资料"].join(" ");
       const choice = offer({
         question: `「${candidate.name}」是否真正符合「${missing.clue}」？`,
         query,
