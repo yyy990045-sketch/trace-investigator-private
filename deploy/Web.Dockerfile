@@ -10,4 +10,4 @@ RUN npm run build --workspace @personal/trace
 FROM caddy:2-alpine
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/apps/trace/dist /srv
-EXPOSE 80 443
+EXPOSE 80
