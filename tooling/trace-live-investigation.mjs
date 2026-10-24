@@ -7,7 +7,7 @@
  * 输出真实请求ID、搜索次数、候选、直接来源、补查前后状态；不读取/写入密钥。
  * 不能用作合成案例，也不能把没有来源的 found 判为通过。
  */
-const root = String(process.env.TRACE_RUNTIME_URL || "http://127.0.0.1:4313").replace(/\/$/, "").replace(/\/api$/, "");
+const root = String(process.env.TRACE_RUNTIME_URL || "http://127.0.0.1:4313").replace(/\/$/, "");
 const question = process.argv.slice(2).join(" ").trim();
 if (question.length < 8) {
   console.error("请提交一条完整的陌生线索（至少8字），不会自动使用旧测试案例。");
@@ -67,7 +67,7 @@ try {
     p.steps.every((step, i) => step.capabilityId === assembly[i].capabilityId && step.version === assembly[i].version),
   );
   const project = compatible || await api("/projects", "POST", {
-    name: "线索侦探 · 真实陌生问题验收",
+    name: "线索侦探 · 线索追查流程 · 验收",
     layout: "business",
     permissions: ["document:read", "document:validate", "knowledge:search", "data:external", "evidence:write", "file:write", "model:invoke"],
     steps: assembly,
