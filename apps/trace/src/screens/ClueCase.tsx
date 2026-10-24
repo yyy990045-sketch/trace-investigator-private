@@ -374,8 +374,8 @@ export function ClueCase({
       </section>
 
       {/* 区域二：搜索过程 */}
-      <section className="clue-timeline" aria-label="搜索过程">
-        <h2>搜索过程</h2>
+      <details className="clue-timeline" aria-label="搜索过程">
+        <summary>搜索与主动补查过程（{searches.length + rounds.length} 次检索，{rounds.length} 轮追查）</summary>
         <ol>
           <li data-done={started?.status === "completed" ? "true" : "false"}>
             <span className="clue-step-dot" />
@@ -443,7 +443,7 @@ export function ClueCase({
             </div>
           </li>
         </ol>
-      </section>
+      </details>
 
       {/* 区域三：候选对照 */}
       {candidates.length ? (
