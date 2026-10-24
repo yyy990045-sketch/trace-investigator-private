@@ -97,7 +97,7 @@ export function ClueCase({
     () =>
       run.evidence
         .filter((item) => item.kind === "trace.clue.question")
-        .map((item) => item.data as { question: string; query: string; reason: string; subject: string; object: string }),
+        .map((item) => item.data as { question: string; query: string; reason: string; subject: string; object: string; kind?: string; stateBefore?: string; stateAfter?: string; resultCount?: number }),
     [run.evidence],
   );
   const graph = assessment?.graph || [];
@@ -124,8 +124,10 @@ export function ClueCase({
 
   // 发现关系疑点就自动补查（只读回放不发请求；同一页面只自动触发一次）。
   const pendingCount = assessment?.pending?.length || 0;
+  const decision = assessment?.decision;
+  const actionable = pendingCount > 0 || (decision?.state !== "found" && (decision?.nextQueries?.length || 0) > 0) || (decision?.state === "insufficient" && candidates.length === 0);
   useEffect(() => {
-    if (SHOWCASE || autoState !== "idle" || !pendingCount) return;
+    if (SHOWCASE || autoState !== "idle" || !actionable) return;
     if ((assessment?.followupCount || 0) >= 4) {
       setAutoState("done");
       return;
@@ -141,8 +143,7 @@ export function ClueCase({
         setAutoState("failed");
       }
     })();
-  }, [pendingCount, autoState, assessment?.followupCount, cache, runId]);
-  const decision = assessment?.decision;
+  }, [actionable, autoState, assessment?.followupCount, cache, runId]);
 
   async function continueSearch(query: string, reason: string) {
     setBusy(query);
@@ -209,166 +210,7 @@ export function ClueCase({
         </p>
       </header>
 
-      {/* 区域二：搜索过程 */}
-      <section className="clue-timeline" aria-label="搜索过程">
-        <h2>搜索过程</h2>
-        <ol>
-          <li data-done={started?.status === "completed" ? "true" : "false"}>
-            <span className="clue-step-dot" />
-            <div>
-              <b>理解你的描述</b>
-              <p>
-                {started?.status === "completed"
-                  ? `识别出 ${clues.length} 条线索，生成 ${bundle.case?.plan?.queries?.length || searches.length} 条检索式`
-                  : "正在识别线索…"}
-              </p>
-            </div>
-          </li>
-          {searches.map((search, index) => (
-            <li key={`${search.query}-${index}`} data-done={search.error ? "false" : "true"}>
-              <span className="clue-step-dot" />
-              <div>
-                <b>元宝搜索 · 第 {index + 1} 条检索式</b>
-                <p>
-                  「{search.query}」 · 返回 {search.resultCount} 条 · {(search.durationMs / 1000).toFixed(1)} 秒
-                  {search.error ? ` · 失败：${(search.error as { message?: string }).message || "未知原因"}` : ""}
-                </p>
-              </div>
-            </li>
-          ))}
-          {rounds.map((round, index) => (
-            <li key={`round-${index}`} data-done={round.error ? "false" : "true"}>
-              <span className="clue-step-dot" />
-              <div>
-                <b>继续追查 · 第 {index + 1} 轮</b>
-                <p>
-                  「{round.query}」{round.reason ? ` · ${round.reason}` : ""} · 返回 {round.resultCount ?? 0} 条
-                </p>
-              </div>
-            </li>
-          ))}
-          {relationRounds.map((round, index) => {
-            const found = relationFoundFor(round);
-            return (
-              <li key={`relation-${index}`} data-done={found.length ? "true" : "false"}>
-                <span className="clue-step-dot" />
-                <div>
-                  <b>关系待确认 · 第 {index + 1} 轮</b>
-                  <p>{round.question}</p>
-                  <p>
-                    正在查询「{round.query}」
-                    {found.length
-                      ? ` · 找到能区分二者的资料：${found.join("；")}`
-                      : " · 这次没有查到能确认关系的资料，仍标为未确认"}
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-          <li data-done={assessment ? "true" : "false"}>
-            <span className="clue-step-dot" />
-            <div>
-              <b>比对候选</b>
-              <p>
-                {assessment
-                  ? `从 ${assessment.pageCount} 条网页里读出 ${candidates.length} 个候选，逐条核对线索`
-                  : "正在比对…"}
-              </p>
-            </div>
-          </li>
-        </ol>
-      </section>
-
-      {/* 区域三：候选对照 */}
-      {candidates.length ? (
-        <section className="clue-candidates" aria-label="候选结果">
-          <header className="clue-section-head">
-            <h2>{decision?.state === "found" ? "最匹配的答案" : "候选对照"}</h2>
-            <span>
-              {candidates.length} 个候选 · 共 {assessment?.pageCount} 条网页
-              {decision?.state !== "found" ? " · 未给出确定排名" : ""}
-            </span>
-          </header>
-          <div className="clue-candidate-grid" data-state={decision?.state}>
-            {candidates.slice(0, 4).map((candidate) => (
-              <CandidateCard
-                key={candidate.name}
-                candidate={candidate}
-                highlight={decision?.state === "found" && candidate === candidates[0]}
-                clues={clues}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {graph.length ? (
-        <section className="clue-relations" aria-label="作品之间的关系">
-          <header className="clue-section-head">
-            <h2>查到的作品关系</h2>
-            <span>每条都绑定了本次检索到的句子</span>
-          </header>
-          <ul>
-            {graph.map((relation, index) => (
-              <li key={`${relation.subject}-${index}`} data-role={relation.relation}>
-                <div className="clue-relation-head">
-                  <b>{relation.subject}</b>
-                  <span>
-                    {graphName[relation.relation] || relation.relation} → {relation.object}
-                  </span>
-                  {relation.status === "conflicting" ? <em>方向存在冲突</em> : null}
-                </div>
-                <p>{relation.reason}</p>
-                {relation.evidence.slice(0, 1).map((item) => (
-                  <p key={item.url} className="clue-evidence">
-                    「{item.quote}」
-                  </p>
-                ))}
-                {relation.evidence[0]?.url ? (
-                  <a href={relation.evidence[0].url} target="_blank" rel="noreferrer noopener">
-                    <Link2 size={12} /> {relation.evidence[0].site || "打开来源"}
-                  </a>
-                ) : null}
-                {relation.conflicts.length ? (
-                  <p className="clue-missing">
-                    另有来源写成相反方向：「{relation.conflicts[0].quote}」
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {assessment?.relations?.length ? (
-        <section className="clue-relations" aria-label="同一部作品的关系">
-          <header className="clue-section-head">
-            <h2>和这部作品相关的东西</h2>
-            <span>这些不是其它候选，不参与排名</span>
-          </header>
-          <ul>
-            {assessment.relations.map((relation) => (
-              <li key={relation.name} data-role={relation.entity.role}>
-                <div className="clue-relation-head">
-                  <b>{relation.name}</b>
-                  <span>{relationName[relation.entity.role] || relation.entity.role}</span>
-                </div>
-                <p>{relation.entity.reason}</p>
-                {relation.entity.sentence ? (
-                  <p className="clue-evidence">「{relation.entity.sentence}」</p>
-                ) : null}
-                {relation.entity.url ? (
-                  <a href={relation.entity.url} target="_blank" rel="noreferrer noopener">
-                    <Link2 size={12} /> {relation.entity.site || "打开来源"}
-                  </a>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* 区域四：最终结果 */}
+      {/* 首屏：答案、依据与未解疑点，优先于搜索过程 */}
       <section className="clue-result" data-state={decision?.state || "insufficient"} aria-label="调查结果">
         <h2>{decision ? stateCopy[decision.state].title : "调查进行中"}</h2>
         <p className="clue-headline">{decision?.headline}</p>
@@ -388,26 +230,9 @@ export function ClueCase({
                 return (
                   <li key={clue} data-hit={hit ? "true" : "false"}>
                     <b>{clue}</b>
-                    {hit ? <span>「{hit.sentence}」</span> : <span>还没有直接证据</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : null}
-
-        {candidates.length > 1 ? (
-          <div className="clue-explain">
-            <h3>其他候选缺少的关键证据</h3>
-            <ul>
-              {candidates.slice(1, 4).map((candidate) => {
-                const missing = candidate.matches.filter((match) => match.decisive && !match.found);
-                return (
-                  <li key={candidate.name}>
-                    <b>{candidate.name}</b>
-                    {missing.length
-                      ? `：${missing.map((match) => `「${match.clue}」`).join("、")} 没有直接证据`
-                      : "：决定性线索都能对上，仍无法排除"}
+                    {hit ? (
+                      <span>「{hit.sentence}」 · <a href={hit.url} target="_blank" rel="noopener noreferrer">{hit.site || "查看来源"}（{hit.from === "body" ? "原文" : "搜索摘要"}）</a></span>
+                    ) : <span>还没有直接证据</span>}
                   </li>
                 );
               })}
@@ -509,7 +334,7 @@ export function ClueCase({
         ) : null}
 
         {autoState === "running" ? (
-          <p className="clue-hint">发现关系疑点，正在自动补查（{pendingCount} 个问题）…</p>
+          <p className="clue-hint">正在根据证据缺口主动补查，查询结果会写入本次调查…</p>
         ) : null}
         {decision?.openRelations?.length ? (
           <div className="clue-open-relations">
@@ -547,6 +372,167 @@ export function ClueCase({
           ) : null}
         </div>
       </section>
+
+      {/* 区域二：搜索过程 */}
+      <details className="clue-timeline" aria-label="搜索过程">
+        <summary>搜索与主动补查过程（{searches.length + rounds.length} 次检索，{rounds.length} 轮追查）</summary>
+        <ol>
+          <li data-done={started?.status === "completed" ? "true" : "false"}>
+            <span className="clue-step-dot" />
+            <div>
+              <b>理解你的描述</b>
+              <p>
+                {started?.status === "completed"
+                  ? `识别出 ${clues.length} 条线索，生成 ${bundle.case?.plan?.queries?.length || searches.length} 条检索式`
+                  : "正在识别线索…"}
+              </p>
+            </div>
+          </li>
+          {searches.map((search, index) => (
+            <li key={`${search.query}-${index}`} data-done={search.error ? "false" : "true"}>
+              <span className="clue-step-dot" />
+              <div>
+                <b>元宝搜索 · 第 {index + 1} 条检索式</b>
+                <p>
+                  「{search.query}」 · 返回 {search.resultCount} 条 · {(search.durationMs / 1000).toFixed(1)} 秒
+                  {search.error ? ` · 失败：${(search.error as { message?: string }).message || "未知原因"}` : ""}
+                </p>
+              </div>
+            </li>
+          ))}
+          {rounds.map((round, index) => (
+            <li key={`round-${index}`} data-done={round.error ? "false" : "true"}>
+              <span className="clue-step-dot" />
+              <div>
+                <b>继续追查 · 第 {index + 1} 轮</b>
+                <p>
+                  「{round.query}」{round.reason ? ` · ${round.reason}` : ""} · 返回 {round.resultCount ?? 0} 条
+                </p>
+              </div>
+            </li>
+          ))}
+          {relationRounds.map((round, index) => {
+            const found = relationFoundFor(round);
+            return (
+              <li key={`relation-${index}`} data-done={found.length ? "true" : "false"}>
+                <span className="clue-step-dot" />
+                <div>
+                  <b>{round.kind === "decisive_clue" ? "关键线索补证" : round.kind === "discovery" ? "主动拓展检索" : "候选关系核验"} · 第 {index + 1} 轮</b>
+                  <p>{round.question}</p>
+                  <p>
+                    正在查询「{round.query}」
+                    {round.kind && round.kind !== "relationship"
+                      ? ` · 返回 ${round.resultCount ?? 0} 条；${round.stateBefore === round.stateAfter ? "目前结论未改变" : `判断从${round.stateBefore || "待确认"}变为${round.stateAfter || "待确认"}`}`
+                      : found.length
+                        ? ` · 找到关系证据：${found.join("；")}`
+                        : " · 本轮没有获得能确认关系的直接证据"}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+          <li data-done={assessment ? "true" : "false"}>
+            <span className="clue-step-dot" />
+            <div>
+              <b>比对候选</b>
+              <p>
+                {assessment
+                  ? `从 ${assessment.pageCount} 条网页里读出 ${candidates.length} 个候选，逐条核对线索`
+                  : "正在比对…"}
+              </p>
+            </div>
+          </li>
+        </ol>
+      </details>
+
+      {/* 区域三：候选对照 */}
+      {candidates.length ? (
+        <section className="clue-candidates" aria-label="候选结果">
+          <header className="clue-section-head">
+            <h2>{decision?.state === "found" ? "最匹配的答案" : "候选对照"}</h2>
+            <span>
+              {candidates.length} 个候选 · 共 {assessment?.pageCount} 条网页
+              {decision?.state !== "found" ? " · 未给出确定排名" : ""}
+            </span>
+          </header>
+          <div className="clue-candidate-grid" data-state={decision?.state}>
+            {candidates.slice(0, 4).map((candidate) => (
+              <CandidateCard
+                key={candidate.name}
+                candidate={candidate}
+                highlight={decision?.state === "found" && candidate === candidates[0]}
+                clues={clues}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {graph.length ? (
+        <section className="clue-relations" aria-label="作品之间的关系">
+          <header className="clue-section-head">
+            <h2>查到的作品关系</h2>
+            <span>每条都绑定了本次检索到的句子</span>
+          </header>
+          <ul>
+            {graph.map((relation, index) => (
+              <li key={`${relation.subject}-${index}`} data-role={relation.relation}>
+                <div className="clue-relation-head">
+                  <b>{relation.subject}</b>
+                  <span>
+                    {graphName[relation.relation] || relation.relation} → {relation.object}
+                  </span>
+                  {relation.status === "conflicting" ? <em>方向存在冲突</em> : null}
+                </div>
+                <p>{relation.reason}</p>
+                {relation.evidence.slice(0, 1).map((item) => (
+                  <p key={item.url} className="clue-evidence">
+                    「{item.quote}」
+                  </p>
+                ))}
+                {relation.evidence[0]?.url ? (
+                  <a href={relation.evidence[0].url} target="_blank" rel="noreferrer noopener">
+                    <Link2 size={12} /> {relation.evidence[0].site || "打开来源"}
+                  </a>
+                ) : null}
+                {relation.conflicts.length ? (
+                  <p className="clue-missing">
+                    另有来源写成相反方向：「{relation.conflicts[0].quote}」
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {assessment?.relations?.length ? (
+        <section className="clue-relations" aria-label="同一部作品的关系">
+          <header className="clue-section-head">
+            <h2>和这部作品相关的东西</h2>
+            <span>这些不是其它候选，不参与排名</span>
+          </header>
+          <ul>
+            {assessment.relations.map((relation) => (
+              <li key={relation.name} data-role={relation.entity.role}>
+                <div className="clue-relation-head">
+                  <b>{relation.name}</b>
+                  <span>{relationName[relation.entity.role] || relation.entity.role}</span>
+                </div>
+                <p>{relation.entity.reason}</p>
+                {relation.entity.sentence ? (
+                  <p className="clue-evidence">「{relation.entity.sentence}」</p>
+                ) : null}
+                {relation.entity.url ? (
+                  <a href={relation.entity.url} target="_blank" rel="noreferrer noopener">
+                    <Link2 size={12} /> {relation.entity.site || "打开来源"}
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <details className="clue-details">
         <summary>调查记录与技术细节</summary>

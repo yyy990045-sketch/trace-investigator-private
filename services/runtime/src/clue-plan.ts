@@ -64,37 +64,61 @@ export function expandTerms(terms: string[]): string[] {
   return [...new Set(out)].slice(0, 5);
 }
 
-/** 规则拆分：只在没有模型时使用，保证产品不会因为模型不可用就完全不能查。 */
+/** 调查类型由用户的问题决定，不再把所有陌生问题强行引向“找电视剧”。 */
+export type InvestigationDomain = "screen" | "event" | "verification" | "general";
+
+export function detectInvestigationDomain(question: string): InvestigationDomain {
+  if (/演唱会|音乐节|巡演|售票|余票|还有票|开票|门票|票务|场次/.test(question)) return "event";
+  if (/网传|传言|谣言|真假|真实吗|是真的吗|官方宣布|是否属实|有没有依据|消息可靠|公告/.test(question))
+    return "verification";
+  if (/电影|电视剧|剧名|港片|动画|动漫|演员|法医|卧底|主角|剧情|哪部剧|哪部片|片名|看过一部/.test(question))
+    return "screen";
+  return "general";
+}
+
+function usableQuestionChunks(question: string) {
+  const cleaned = question.replace(/[？?！!。，,、；;：:\n]/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned.split(/\s+/).flatMap((chunk) => {
+    const simple = chunk.replace(FILLERS, "").trim();
+    // 中文长问句没有空格；以前整句超过 24 字直接丢弃，导致完全无法规划检索。
+    return simple.length > 20 ? simple.match(/.{1,20}/g) || [] : [simple];
+  }).filter((chunk) => chunk.length >= 2);
+}
+
+/** 保留原始线索，但检索式应按调查对象扩展，而非无条件附加“电视剧”。 */
 export function planByRule(question: string): CluePlan {
-  const cleaned = question.replace(/[？?！!。，,、；;：:]/g, " ").replace(/\s+/g, " ").trim();
-  const segments = cleaned.split(" ").filter((item) => item.length >= 2 && item.length <= 24);
+  const domain = detectInvestigationDomain(question);
+  const chunks = usableQuestionChunks(question);
   const clues: PlannedClue[] = [];
   const seen = new Set<string>();
-  for (const segment of segments) {
-    const text = segment.replace(FILLERS, "").trim();
-    if (!text || text.length < 2 || seen.has(text)) continue;
-    seen.add(text);
-    const kind = KINDS.find((item) => item.pattern.test(text))?.kind || "other";
-    clues.push({ text, terms: expandTerms([text]), kind });
+  for (const chunk of chunks) {
+    if (seen.has(chunk) || GENERIC_TERMS.has(chunk) || VAGUE_TIME.test(chunk)) continue;
+    seen.add(chunk);
+    const kind = KINDS.find((item) => item.pattern.test(chunk))?.kind || "other";
+    clues.push({ text: chunk, terms: expandTerms([chunk]), kind });
   }
+  if (!clues.length && question.trim().length >= 2)
+    clues.push({ text: question.trim().slice(0, 40), terms: [question.trim().slice(0, 20)], kind: "other" });
   const trimmed = clues.slice(0, 6);
-  const keywords = trimmed
-    .map((clue) => (clue.kind === "role" ? clue.terms.join("") : clue.text))
-    .slice(0, 5);
-  const queries = [
-    keywords.join(" "),
-    `${keywords.slice(0, 4).join(" ")} 电视剧`,
-    `${keywords.slice(0, 4).join(" ")} 剧名 演员`,
-  ]
-    .map((query) => query.replace(/\s+/g, " ").trim())
+  const keywords = trimmed.map((clue) => clue.text).slice(0, 5).join(" ");
+  const base = keywords.slice(0, 100);
+  const context = domain === "screen"
+    ? ["剧情 电影 电视剧", "剧名 主演 角色"]
+    : domain === "event"
+      ? ["演出日期 场次 官方售票", "主办方 售票平台 开票状态"]
+      : domain === "verification"
+        ? ["官方 原始声明", "来源 事实核实"]
+        : ["相关事实 原始出处", "官方资料 依据"];
+  const queries = [base, ...context.map((suffix) => `${base} ${suffix}`)]
+    .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
     .filter((query) => query.length >= 2);
   return {
-    goal: `找出符合这些线索的作品或答案：${trimmed.map((clue) => clue.text).join("、") || question.slice(0, 40)}`,
+    goal: `查清用户给出的线索：${question.slice(0, 100)}`,
     clues: trimmed,
     queries: [...new Set(queries)].slice(0, 3),
     source: "rule",
     durationMs: 0,
-    fallbackReason: "未使用模型规划（模型未配置或调用失败），检索式按关键词规则拆分。",
+    fallbackReason: `按${{screen:"影视线索",event:"演出信息",verification:"消息查证",general:"开放问题"}[domain]}制定检索式；未使用模型规划。`,
   };
 }
 

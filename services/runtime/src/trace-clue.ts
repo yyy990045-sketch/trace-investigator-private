@@ -12,6 +12,8 @@ import { id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
+import { nextClueSearch } from "./clue-investigation.ts";
+import { guardReserveSearch } from "./public-guard.ts";
 import {
   detectTargetKind,
   evaluateCandidates,
@@ -144,6 +146,8 @@ async function searchRound(store: Store, runId: string, query: string, reason: s
     throw new ExecutionError("DATA_CONSENT_REQUIRED", "本次调查未授权外发检索。");
   const config = searchConfiguration();
   if (!config.available) throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
+  // 追加检索与初始检索使用相同预算，避免自动补查绕过公网额度限制。
+  guardReserveSearch(runId);
   const attempt = await searchPro(query);
   const pages = (attempt.pages || []).slice(0, 5);
   const bodies: any[] = [];
@@ -244,35 +248,57 @@ export function registerClueEndpoints(app: FastifyInstance, store: Store) {
       const before = clueAssessment(store, req.params.id);
       const roundsDone = before.followupCount;
       const budget = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
-      const executed: { question: string; query: string; resultCount: number; error: unknown }[] = [];
-      if (roundsDone < 4)
-        for (const item of before.pending.slice(0, budget)) {
-          const round = await searchRound(
-            store,
+      const executed: { question: string; query: string; resultCount: number; error: unknown; kind: string; stateBefore: string; stateAfter: string }[] = [];
+      let current = before;
+      // 每轮根据刚取得的证据重新决策，不能一开始就把两轮固定查询一次性发出去。
+      for (let index = 0; index < budget && roundsDone + index < 4; index++) {
+        const state = clueState(store, req.params.id);
+        const attempted = [
+          ...((state.bundle.searches || []) as { query?: string }[]).map((item) => String(item.query || "")),
+          ...state.rounds.map((item) => String(item.query || "")),
+        ];
+        const next = nextClueSearch(current, attempted);
+        if (!next) break;
+        const round = await searchRound(store, req.params.id, next.query, next.reason, CLUE_SEARCH_KIND);
+        const afterRound = clueAssessment(store, req.params.id);
+        const step = store.get(
+          `SELECT id FROM steps WHERE run_id=? AND capability_id IN ('trace.clue.candidates','trace.web.search','trace.clue.intake') ORDER BY position LIMIT 1`,
+          req.params.id,
+        );
+        // 调查“为什么查、查到了什么、有没有改变结论”均保留原始执行记录。
+        if (step)
+          store.exec(
+            "INSERT INTO evidence VALUES(?,?,?,?,?,?,?)",
+            id("evidence"),
             req.params.id,
-            item.query,
-            item.reason,
-            CLUE_SEARCH_KIND,
+            step.id,
+            "trace.clue.question",
+            id("hash"),
+            JSON.stringify({
+              ...next,
+              at: now(),
+              roundQuery: round.query,
+              resultCount: round.resultCount,
+              error: round.error,
+              stateBefore: current.decision.state,
+              stateAfter: afterRound.decision.state,
+              pagesBefore: current.pageCount,
+              pagesAfter: afterRound.pageCount,
+            }),
+            now(),
           );
-          // 记录「先提出什么问题、再查什么词」，方便复查这一轮到底想解决什么。
-          const step = store.get(
-            `SELECT id FROM steps WHERE run_id=? AND capability_id IN ('trace.clue.candidates','trace.web.search','trace.clue.intake') ORDER BY position LIMIT 1`,
-            req.params.id,
-          );
-          if (step)
-            store.exec(
-              "INSERT INTO evidence VALUES(?,?,?,?,?,?,?)",
-              id("evidence"),
-              req.params.id,
-              step.id,
-              "trace.clue.question",
-              id("hash"),
-              JSON.stringify({ ...item, at: now(), roundQuery: round.query }),
-              now(),
-            );
-          executed.push({ question: item.question, query: round.query, resultCount: round.resultCount, error: round.error });
-          if (round.error) break;
-        }
+        executed.push({
+          question: next.question,
+          query: round.query,
+          resultCount: round.resultCount,
+          error: round.error,
+          kind: next.kind,
+          stateBefore: current.decision.state,
+          stateAfter: afterRound.decision.state,
+        });
+        current = afterRound;
+        if (round.error) break;
+      }
       const after = clueAssessment(store, req.params.id);
       // 把「这一轮结束时的候选关系与状态」写进记录，便于事后复查这次到底确认了什么。
       const step = store.get(

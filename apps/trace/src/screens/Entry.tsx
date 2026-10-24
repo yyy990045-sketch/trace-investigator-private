@@ -107,7 +107,7 @@ export function Entry() {
   const [useModel, setUseModel] = useState(false);
   const [modelConsent, setModelConsent] = useState(false);
   const [clueQuestion, setClueQuestion] = useState("");
-  const [heroMode, setHeroMode] = useState<"verification" | "clue">("verification");
+  const [heroMode, setHeroMode] = useState<"verification" | "clue">("clue");
   const [clueBusy, setClueBusy] = useState(false);
   const [clueModelConsent, setClueModelConsent] = useState(false);
   const [clueError, setClueError] = useState<string | null>(null);
@@ -235,6 +235,22 @@ export function Entry() {
       showcaseRunId: "run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb",
     },
     {
+      key: "八分钟",
+      label: "按剧情找电影",
+      detail: "火车、八分钟、爆炸：追查片名和关键剧情。",
+      text: "我记得一部电影，主角在火车里每次只有八分钟，反复调查同一起爆炸，电影叫什么？",
+      mode: "clue" as const,
+      showcaseRunId: "run_1413b04d-4b42-4806-9060-da6b40d1a432",
+    },
+    {
+      key: "天台",
+      label: "排除翻拍和续作",
+      detail: "香港卧底、警察、天台对决，分清原版与翻拍。",
+      text: "香港警匪片，两个主角一个是警察一个是卧底，最后在天台对决，想不起名字了。",
+      mode: "clue" as const,
+      showcaseRunId: "run_1b4e678d-eb31-4e39-b467-a4ed80db4db0",
+    },
+    {
       key: "冲突",
       label: "查冲突",
       detail: "为什么两个官方渠道公布的新能源汽车产量不同？",
@@ -305,8 +321,8 @@ export function Entry() {
     <div className="trace-page trace-home">
       <section className="clue-hero" aria-label="用一句话开始调查">
         <span className="clue-hero-brand">TRACE｜线索侦探</span>
-        <h1>记不清？查不明？给我线索，我来追查。</h1>
-        <p className="clue-hero-lede">输入待核实的说法或模糊线索，TRACE 会真实搜索、核对证据。查不到的，不乱猜。</p>
+        <h1>只记得一点线索？我帮你追到答案。</h1>
+        <p className="clue-hero-lede">描述你记得的情节、人物或疑点。TRACE 会拆解线索、调用元宝搜索，遇到证据缺口继续查，并告诉你为什么找到这个答案。</p>
         {SHOWCASE ? (
           <div className="clue-hero-input" aria-label="历史调查演示入口">
             <p className="clue-hero-note">这里是公开的真实调查回放。当前环境不接受新查询，可直接查看完整的证据与结论。</p>
@@ -352,7 +368,7 @@ export function Entry() {
           </label>
         ) : null}
         <div className="clue-hero-examples">
-          {clueExamples.map((example) => (
+          {clueExamples.filter((example) => example.mode === "clue" && (!SHOWCASE || example.showcaseRunId)).map((example) => (
             <button
               key={example.key}
               className="clue-example"
@@ -372,11 +388,13 @@ export function Entry() {
         ) : blocked ? (
           <p className="clue-hero-note" role="status">联网检索当前不可用：{blockerReason}</p>
         ) : (
-          <p className="clue-hero-note">会用元宝搜索真实检索，答案只来自查到的网页；查不到就说查不到。</p>
+          <p className="clue-hero-note">真实元宝搜索 · 关键线索补证 · 原文可追溯；证据不够时明确说明缺口。</p>
         )}
         {clueError ? <div className="trace-alert" role="alert">{clueError}</div> : null}
       </section>
 
+      <details className="trace-home-extra">
+        <summary>历史调查与高级选项（按需展开）</summary>
       <div className="clue-hero-cases" aria-label="真实调查案例">
         <span>真实调查案例：</span>
         {[digests.E, digests.R, digests.C, digests.B, digests.A]
@@ -389,8 +407,7 @@ export function Entry() {
           ))}
       </div>
 
-      <details className="trace-home-extra" open={!SHOWCASE}>
-        <summary>高级调查设置、历史案例与详细研究</summary>
+
       {digests.datePair ? (
         <Watershed
           left={{ label: "原句（真实反证）", claim: digests.datePair.left.digest.claim, digest: digests.datePair.left.digest }}

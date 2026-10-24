@@ -18,12 +18,27 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base + "/#/", { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: /记不清.*给我线索/ }).waitFor({ timeout: 15000 });
+  await page.getByRole("heading", { name: /只记得一点线索.*追到答案/ }).waitFor({ timeout: 15000 });
   if (await page.locator("textarea[aria-label='你想查什么']").count())
     throw new Error("只读展示出现无法操作的假搜索输入框");
   if (!(await page.getByRole("link", { name: /查看真实调查/ }).count()))
     throw new Error("主入口不可点击");
   await page.screenshot({ path: output + "/home-desktop.png", fullPage: true });
+  // 三条真实侦探调查从首页逐一点击：必须进入正确案件，且答案有实际渲染。
+  for (const example of [
+    { label: "找线索", id: "run_ce63a399-a03d-41ad-9ec2-e2fc337c4dbb", answer: "法医秦明" },
+    { label: "按剧情找电影", id: "run_1413b04d-4b42-4806-9060-da6b40d1a432", answer: "源代码" },
+    { label: "排除翻拍和续作", id: "run_1b4e678d-eb31-4e39-b467-a4ed80db4db0", answer: "无间道" },
+  ]) {
+    await page.goto(base + "/#/", { waitUntil: "networkidle" });
+    const trigger = page.locator(".clue-example").filter({ hasText: example.label }).first();
+    if (!(await trigger.count())) throw new Error("首页缺少真实侦探入口：" + example.label);
+    await trigger.click();
+    await page.waitForURL((url) => url.hash.includes(example.id), { timeout: 15000 });
+    await page.getByText(example.answer, { exact: false }).first().waitFor({ state: "visible", timeout: 15000 });
+  }
+  await page.goto(base + "/#/", { waitUntil: "networkidle" });
+
 
   const examples = [
     { button: "查冲突", id: "run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6", marker: "1316.8" },
@@ -31,7 +46,7 @@ try {
   ];
   for (const item of examples) {
     await page.goto(base + "/#/", { waitUntil: "networkidle" });
-    await page.locator(".clue-example").filter({ hasText: item.button }).first().click();
+    await page.goto(base + "/#/cases/" + item.id, { waitUntil: "networkidle" });
     await page.waitForURL((url) => url.hash.includes(item.id), { timeout: 15000 });
     await page.locator(".trace-masthead h1").waitFor({ state: "visible", timeout: 15000 });
     if (item.button === "查冲突") {
@@ -53,7 +68,7 @@ try {
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 1 });
   phone.on("pageerror", (e) => errors.push(e.message));
   await phone.goto(base + "/#/", { waitUntil: "networkidle" });
-  await phone.getByRole("heading", { name: /记不清.*给我线索/ }).waitFor();
+  await phone.getByRole("heading", { name: /只记得一点线索.*追到答案/ }).waitFor();
   await phone.screenshot({ path: output + "/home-mobile.png", fullPage: true });
   const overflow = await phone.evaluate(() => ({
     content: document.documentElement.scrollWidth,
