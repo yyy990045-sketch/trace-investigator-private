@@ -702,13 +702,17 @@ export function evaluateCandidates(
     graph,
     pending,
     decision: {
-      state: nextQueries.length ? "insufficient" : "found",
+      // 能否定案只取决于上面的“决定性直接证据 + 覆盖率 + 排除竞争者”条件。
+      // 检索式耗尽不能反过来证明答案成立，特别是只有“科幻/悬疑”之类泛线索时。
+      state: "insufficient",
       decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
-      headline: nextQueries.length
-        ? `比较接近的是「${best.name}」，但还缺证据`
-        : `线索全部对上：${best.name}`,
+      headline: decisiveHit === 0
+        ? `「${best.name}」有部分特征符合，但没有能够确定身份的关键证据`
+        : `比较接近的是「${best.name}」，但关键证据仍不足以定案`,
       nextQueries,
-      askUser: nextQueries.length ? null : null,
+      askUser: nextQueries.length
+        ? null
+        : "目前这些线索还不足以排除其他答案。你还记得一个具体情节、人物姓名、台词或时间吗？",
     },
   };
 }
