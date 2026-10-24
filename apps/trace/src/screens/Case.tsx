@@ -351,10 +351,10 @@ export function Case() {
                     : "正在检索与核验"}
             </span>
           </div>
-          {/* 部分回答：已经查清的原句先答给用户，不要只说「证据不足」。 */}
+          {/* 部分回答保留真实来源内容，但不能把仅见于搜索摘要的说法宣传为已确认事实。 */}
           {assessment?.verdict?.partialAnswer?.length ? (
-            <div className="case-now-counts" aria-label="已经查清的部分">
-              <p className="trace-hint">已经查清的部分（可以直接引用的原文）</p>
+            <div className="case-now-counts" aria-label="已经找到但仍需核实的来源表述">
+              <p className="trace-hint">目前找到的相关来源表述（仍需核实，不代表事实已经确认）</p>
               <ul>
                 {assessment.verdict.partialAnswer.map((item: string, index: number) => (
                   <li key={index}>{item}</li>
