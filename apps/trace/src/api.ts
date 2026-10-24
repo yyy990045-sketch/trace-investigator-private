@@ -409,6 +409,8 @@ export interface FactAssessment {
 }
 
 export interface Verdict {
+  /** 部分回答：已经查清的原始表述 */
+  partialAnswer?: string[];
   outcome: "supported" | "contradicted" | "disputed" | "outdated" | "insufficient";
   headline: string;
   statement: string;

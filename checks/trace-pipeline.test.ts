@@ -200,7 +200,10 @@ describe("证据核验规则", () => {
       independentSourceCount: 1,
       searchedOk: true,
     });
-    expect(verdict.outcome).toBe("insufficient");
+    // V23：已有支持性表述但缺原文时，结论是「答了一部分」（partial），
+    // 依然不是确定结论；页面上会把已查清的原句单独列出来。
+    expect(verdict.outcome).toBe("partial");
+    expect(verdict.partialAnswer?.length).toBeGreaterThan(0);
   });
 
   it("取得原文正文且有两个独立来源时才判为有依据支持", async () => {

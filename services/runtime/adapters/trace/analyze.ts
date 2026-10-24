@@ -9,9 +9,16 @@
  *  5. 全部判断输出 reason，便于人工复查；不引入不可复现的随机性。
  */
 
+import {
+  compareSentence,
+  parseClaim,
+  type ClaimSemantics,
+  type SentenceVerdict,
+} from "./claim-semantics.ts";
+
 /** 证据与事实的关系：支持 / 反对 / 无法确认 / 明显无关。 */
 export type Relation = "supports" | "contradicts" | "unclear" | "irrelevant";
-export type Outcome = "supported" | "contradicted" | "disputed" | "outdated" | "insufficient";
+export type Outcome = "supported" | "contradicted" | "disputed" | "outdated" | "partial" | "insufficient";
 
 export interface TraceFact {
   id: string;
@@ -59,6 +66,8 @@ export interface QuantityEvidence {
   url: string;
   from: "body" | "excerpt";
   relation: "supports" | "contradicts" | "unclear";
+  /** 语义层判定（主体/行为/型号/限定/因果），只有带谓词的说法才会给出 */
+  semantic?: { verdict: string; reason: string; sentence: string };
   /** 来源自身的取值方式：至少/至多/恰好。用于把「超过 120 万辆」和「120 万辆」区分开 */
   bound?: "gte" | "lte" | "eq";
 }
@@ -72,6 +81,8 @@ export interface SourceAssessment {
   date: string;
   excerpt: string;
   relation: Relation;
+  /** 语义层判定（主体/行为/型号/限定/因果），只有带谓词的说法才会给出 */
+  semantic?: { verdict: string; reason: string; sentence: string };
   relevance: number;
   reasons: string[];
   /** 原文是否可访问；false 表示只有搜索摘要 */
@@ -946,6 +957,7 @@ export function assessSource(
   const body = options.bodies.get(page.id);
   const reasons: string[] = [];
   let relation: Relation = "unclear";
+  let semantic: SourceAssessment["semantic"] | undefined;
 
   const bodyText = body?.ok ? body.text : "";
   const bodyRelevance = body?.ok ? coverage(bodyText, factTerms) : 0;
@@ -1048,6 +1060,52 @@ export function assessSource(
     );
   } else {
     reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，介于相关与无关之间，仅记为不确定。`);
+  }
+
+  // 语义层：说法带可识别谓词（停产/延长寿命…）时，用「主体+行为+型号+限定+因果」判断，
+  // 而不是靠关键词覆盖率。法律日期、统计数字这类没有谓词的说法继续走原规则。
+  const claimSemantics: ClaimSemantics = parseClaim(options.fact.text);
+  if (claimSemantics.predicate) {
+    const pool = [body?.ok ? body.text : "", page.passage, page.title].filter(Boolean).join("。");
+    const sentences = pool
+      .split(/[。！？!?\n]/)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 6);
+    const rank: Record<string, number> = {
+      direct_support: 4,
+      direct_refute: 3,
+      partial: 2,
+      related_only: 1,
+      unrelated: 0,
+    };
+    let best: { verdict: SentenceVerdict; sentence: string } | null = null;
+    for (const sentence of sentences) {
+      const verdict = compareSentence(claimSemantics, sentence);
+      if (!best || rank[verdict.verdict] > rank[best.verdict.verdict]) best = { verdict, sentence };
+      if (verdict.verdict === "direct_support") break;
+    }
+    if (best) {
+      // 因果类说法：媒体把同一句话再讲一遍不算证据，必须有研究/数据/官方表述支撑。
+      if (
+        best.verdict.verdict === "direct_support" &&
+        claimSemantics.nature === "causation" &&
+        !/(研究|论文|期刊|报告|数据|试验|调查|统计|官方)/.test(best.sentence)
+      ) {
+        best = {
+          verdict: { verdict: "partial", reason: "来源只是复述同一说法，没有给出研究或数据依据", sufficient: false },
+          sentence: best.sentence,
+        };
+      }
+      semantic = { verdict: best.verdict.verdict, reason: best.verdict.reason, sentence: best.sentence.slice(0, 160) };
+      relation =
+        best.verdict.verdict === "direct_support"
+          ? "supports"
+          : best.verdict.verdict === "direct_refute"
+            ? "contradicts"
+            : "unclear";
+      reasons.unshift(`语义判断：${best.verdict.reason}。`);
+      if (best.sentence) reasons.unshift(`对应原句：${best.sentence.slice(0, 120)}`);
+    }
   }
 
   const reprintMarkers = body?.ok ? body.reprintMarkers : [];
@@ -1157,6 +1215,7 @@ export function assessSource(
     date: page.date,
     excerpt: page.passage.slice(0, 600),
     relation,
+    ...(semantic ? { semantic } : {}),
     relevance,
     reasons,
     bodyAvailable: body?.ok === true,
@@ -1361,6 +1420,8 @@ export function assessFact(options: AssessOptions): FactAssessment {
 }
 
 export interface CaseAssessment {
+  /** 部分回答：已经查清的原始表述（结论仍是「答了一部分」时给用户看） */
+  partialAnswer?: string[];
   outcome: Outcome;
   headline: string;
   confidence: "low" | "medium" | "high";
@@ -1486,8 +1547,34 @@ export function aggregateCase(input: {
         }。`,
       );
     } else {
-      reasons.push("没有任何来源与待核查事实形成可比对表述。");
+      // 语义层判定为「只支持一部分 / 只是相关」的来源也要说清楚，不能写成「没有任何来源」。
+      const partials = allSources.filter((source) => source.semantic && source.semantic.verdict !== "unrelated");
+      reasons.push(
+        partials.length
+          ? `有 ${partials.length} 条来源与这句话有关，但都只支持其中一部分或只是相关（例如：${partials[0].semantic!.reason}），不足以定案。`
+          : "没有任何来源与待核查事实形成可比对表述。",
+      );
     }
+    // 已经有支持性表述时，不能只丢一句「证据不足」：把已查清的部分先答给用户。
+    const supportedFacts = facts.filter((fact) => fact.sources.some((source) => source.relation === "supports"));
+    const partialAnswer = supportedFacts
+      .map((fact) => fact.sources.find((source) => source.relation === "supports"))
+      .filter(Boolean)
+      .map((source) =>
+        `${source!.site || "来源"}：${(source!.semantic?.sentence || source!.bodyExcerpt || source!.excerpt || "").slice(0, 120)}`,
+      );
+    if (partialAnswer.length)
+      return {
+        outcome: "partial",
+        headline: "已查到相关依据，但还不足以给出确定结论。",
+        confidence: "low",
+        reasons: [
+          ...reasons,
+          "已查清的部分只来自检索材料，尚未通过范围一致与独立性核对。",
+        ],
+        counts,
+        partialAnswer,
+      };
     return {
       outcome: "insufficient",
       headline: "证据不足，暂不下结论。",
@@ -1498,12 +1585,19 @@ export function aggregateCase(input: {
   }
   if (supported.length && bodyBackedTotal === 0) {
     reasons.push("支持性来源只有搜索摘要，没有取得任何原文正文，按规则不作为确定结论的依据。");
+    const supportedFacts = facts.filter((fact) => fact.sources.some((source) => source.relation === "supports"));
     return {
-      outcome: "insufficient",
-      headline: "仅有搜索摘要，缺少原文依据，暂不下结论。",
+      outcome: "partial",
+      headline: "已查到支持性表述，但只有搜索摘要、缺少原文依据。",
       confidence: "low",
       reasons,
       counts,
+      partialAnswer: supportedFacts
+        .map((fact) => fact.sources.find((source) => source.relation === "supports"))
+        .filter(Boolean)
+        .map((source) =>
+          `${source!.site || "来源"}：${(source!.semantic?.sentence || source!.excerpt || "").slice(0, 120)}`,
+        ),
     };
   }
   const minClusters = Math.min(...supported.map((f) => f.independentClusters));
@@ -1539,6 +1633,8 @@ export function outcomeLabel(outcome: Outcome) {
       return "存在争议";
     case "outdated":
       return "信息过期或原文不足";
+    case "partial":
+      return "答了一部分";
     default:
       return "证据不足";
   }
@@ -1563,6 +1659,10 @@ export function buildStatement(claim: string, verdict: CaseAssessment) {
       : `就「${claim}」而言，公开来源存在相互矛盾的说法，本档案不单方面下结论。${suffix}`;
   if (verdict.outcome === "outdated")
     return `就「${claim}」而言，现有来源时效或原文依据不足，不能视为当前有效结论。${suffix}`;
+  if (verdict.outcome === "partial") {
+    const got = (verdict.partialAnswer || []).slice(0, 2).join("；");
+    return `关于「${claim}」：已经查到可直接引用的表述${got ? `——${got}` : ""}；但还缺少能把它定案的依据（官方原始页面或研究原文），所以只回答到这里，不把它当成已确认的事实。`;
+  }
   return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;
 }
 export interface SourceCluster {

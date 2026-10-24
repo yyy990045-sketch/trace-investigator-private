@@ -17,6 +17,7 @@ import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
+import { parseClaim } from "../adapters/trace/claim-semantics.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { renderArchive } from "../adapters/trace/archive.ts";
 import {
@@ -427,6 +428,154 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         })),
         bodies: bodies.map((body) => ({ url: body.url, ok: body.ok, httpStatus: body.httpStatus, error: body.error })),
       };
+    },
+  );
+
+  // ── 缺口驱动的自动补查：只在「会影响答案」的缺口上再查 ────────────
+  app.post<{ Params: { id: string }; Body: { max?: number } }>(
+    "/v1/runs/:id/trace/auto",
+    async (req) => {
+      const run = traceRun(store, req.params.id);
+      if (!["completed", "failed", "waiting_approval"].includes(run.status))
+        throw new ExecutionError("RUN_BUSY", "调查仍在执行中，请等当前步骤结束再自动补查。");
+      if (run.input?.dataConsent !== true)
+        throw new ExecutionError("DATA_CONSENT_REQUIRED", "本次调查未授权外发检索，无法自动补查。");
+      const config = searchConfiguration();
+      if (!config.available)
+        throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
+
+      const budget = Math.max(0, Math.min(Number(req.body?.max) || 2, 2));
+      const executed: {
+        question: string;
+        query: string;
+        reason: string;
+        resultCount: number;
+        before: string;
+        after: string;
+        error: unknown;
+      }[] = [];
+      const tried = new Set<string>();
+      let current = buildAssessment(run).assessment;
+      const fact = current.facts?.[0];
+      const claimText = String((fact as any)?.fact?.text || run.input?.text || "");
+      const semantics = parseClaim(claimText);
+
+      const askNext = (): { query: string; reason: string; question: string } | null => {
+        const sources = ((fact as any)?.sources || []) as any[];
+        const bodies = sources.filter((item) => item.bodyAvailable).length;
+        const offered = (query: string, reason: string, question: string) =>
+          query.trim().length >= 3 && !tried.has(query.trim()) ? { query: query.trim().slice(0, 120), reason, question } : null;
+        // 1) 只有摘要：先把最强来源的原文取回来（有正文才谈得上核对）
+        if (sources.length && bodies === 0) {
+          const top = sources.find((item) => item.url);
+          const site = String(top?.site || "").slice(0, 20);
+          const choice = offered(
+            [claimText.slice(0, 40), site, "原文"].filter(Boolean).join(" "),
+            "所有来源都只有搜索摘要，没有原文正文，无法核对原句",
+            "这一步能不能拿到原文？",
+          );
+          if (choice) return choice;
+        }
+        // 2) 型号 vs 系列：说法里点了具体型号时，确认是不是把型号停产当成整个系列
+        if (semantics.subject && /(?:[A-Za-z]+\s?\d+|系列)/.test(semantics.subject)) {
+          const choice = offered(
+            `${semantics.subject} ${semantics.predicate || "停产"} 型号 区别`,
+            `说法只提到「${semantics.subject}」，需要确认其他型号/整个系列是否也一样`,
+            `是「${semantics.subject}」停产，还是整个系列停产？`,
+          );
+          if (choice) return choice;
+        }
+        // 3) 因果/研究类说法：必须找到研究本身的表述，而不是新闻报道的概括
+        if (semantics.nature === "causation" || /(研究|科学依据|证明)/.test(claimText)) {
+          const choice = offered(
+            `${claimText.slice(0, 30)} 研究 结论 因果 相关`,
+            "说法是因果/研究类，现有来源可能只给了相关性",
+            "研究结论到底是相关，还是因果？",
+          );
+          if (choice) return choice;
+        }
+        // 4) 官方原始资料缺失：只在还没有官方来源时补查
+        const hasOfficial = sources.some((item) => /\.gov|gov\.cn|官方/.test(String(item.url || "") + String(item.site || "")));
+        if (!hasOfficial) {
+          const choice = offered(
+            `${claimText.slice(0, 36)} 官方 公告 声明`,
+            "现有来源里没有官方原始页面，结论只能停在媒体层面",
+            "官方有没有正式说法？",
+          );
+          if (choice) return choice;
+        }
+        return null;
+      };
+
+      for (let index = 0; index < budget; index++) {
+        const next = askNext();
+        if (!next) break;
+        tried.add(next.query);
+        const liveRun = store.run(run.id)!;
+        const attempt = await searchPro(next.query);
+        const pages = (attempt.pages || []).slice(0, MAX_FOLLOWUP_PAGES);
+        const bodies: {
+          pageId: string;
+          url: string;
+          ok: boolean;
+          httpStatus: number | null;
+          error: unknown;
+          text: string;
+          reprintMarkers: string[];
+        }[] = [];
+        for (const page of pages.slice(0, MAX_FOLLOWUP_BODIES)) {
+          const fetched = await fetchSource(page.url);
+          bodies.push({
+            pageId: page.id,
+            url: page.url,
+            ok: fetched.ok,
+            httpStatus: fetched.httpStatus,
+            error: fetched.error,
+            text: fetched.ok ? fetched.text.slice(0, 20_000) : "",
+            reprintMarkers: fetched.reprintMarkers,
+          });
+        }
+        const payload = {
+          query: next.query,
+          factId: (fact as any)?.factId || null,
+          requestedAt: attempt.requestedAt || now(),
+          requestId: attempt.requestId || null,
+          httpStatus: attempt.httpStatus || null,
+          attempts: attempt.attempts || 0,
+          durationMs: attempt.durationMs || 0,
+          resultCount: attempt.resultCount || 0,
+          error: attempt.error || null,
+          searchExecuted: true,
+          autoReason: next.reason,
+          autoQuestion: next.question,
+          pages: pages.map((page) => ({
+            id: page.id,
+            title: page.title,
+            url: page.url,
+            site: page.site,
+            date: page.date,
+            passage: page.passage,
+          })),
+          bodies: bodies.map((body) => ({ url: body.url, ok: body.ok, httpStatus: body.httpStatus, error: body.error })),
+          bodiesText: bodies,
+        };
+        recordEvidence(store, run.id, FOLLOWUP_KIND, payload);
+        const after = buildAssessment(store.run(run.id)!).assessment;
+        executed.push({
+          question: next.question,
+          query: next.query,
+          reason: next.reason,
+          resultCount: payload.resultCount,
+          before: String((current.verdict as any)?.outcome || ""),
+          after: String((after.verdict as any)?.outcome || ""),
+          error: attempt.error || null,
+        });
+        current = after;
+        if (attempt.error) break;
+        // 已经拿到明确结论就没有必要继续查
+        if ((after.verdict as any)?.outcome === "supported" || (after.verdict as any)?.outcome === "contradicted") break;
+      }
+      return { executed, assessment: current, searchedQueries: [...tried] };
     },
   );
 

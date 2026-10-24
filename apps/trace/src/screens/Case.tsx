@@ -321,6 +321,20 @@ export function Case() {
                     : "正在检索与核验"}
             </span>
           </div>
+          {/* 部分回答：已经查清的原句先答给用户，不要只说「证据不足」。 */}
+          {assessment?.verdict?.partialAnswer?.length ? (
+            <div className="case-now-counts" aria-label="已经查清的部分">
+              <p className="trace-hint">已经查清的部分（可以直接引用的原文）</p>
+              <ul>
+                {assessment.verdict.partialAnswer.map((item: string, index: number) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+              <p className="trace-hint">
+                还缺：能把它定案的官方原始页面或研究原文；因此在结论里只算「答了一部分」。
+              </p>
+            </div>
+          ) : null}
           {assessment?.lookup?.answer ? (
             <div className="case-now-lookup" aria-label="问题所问的数值及原始出处">
               <p className="trace-hint">查到公开来源中与所问指标对应的记录</p>

@@ -124,8 +124,16 @@ try {
     follow = await api("/runs/" + encodeURIComponent(run.id) + "/trace/clue/auto", "POST", { max: 2 });
     post = follow.assessment;
   } else {
-    // 核验流程：结论来自 trace.evidence.verify 与重算后的评估，不用线索接口。
+    // 核验流程：先读评估，再让系统按「影响答案的缺口」自动补查一轮。
     const assessment = await api("/runs/" + encodeURIComponent(run.id) + "/trace/assessment");
+    const auto = await api("/runs/" + encodeURIComponent(run.id) + "/trace/auto", "POST", { max: 2 });
+    follow = { executed: (auto.executed || []).map((item) => ({ query: item.query, reason: item.reason, resultCount: item.resultCount, stateBefore: item.before, stateAfter: item.after })) };
+    if (auto.assessment) {
+      const after = auto.assessment;
+      post = { decision: { state: after.verdict?.outcome || "unknown", headline: after.verdict?.statement || "" }, candidates: [], pageCount: after.counts?.pages ?? 0, verdict: after.verdict, counts: after.counts, facts: after.facts };
+      const cited = (after.facts || []).flatMap((fact) => (fact.sources || []).filter((source) => source.relation === "supports" || source.relation === "contradicts").slice(0, 3).map((source) => ({ clue: fact.fact?.text || "", relation: source.relation, quote: (source.semantic?.sentence || source.bodyExcerpt || source.excerpt || "").slice(0, 160), source: source.url, site: source.site, date: source.date, from: source.bodyAvailable ? "body" : "excerpt", semantic: source.semantic })));
+      pre = { decision: { state: assessment.assessment?.verdict?.outcome || "unknown", headline: assessment.assessment?.verdict?.statement || "" }, candidates: [], pageCount: assessment.assessment?.counts?.pages ?? 0, verdict: assessment.assessment?.verdict, counts: assessment.assessment?.counts, facts: assessment.assessment?.facts, directEvidence: cited };
+    }
     pre = { decision: { state: assessment.assessment?.verdict?.outcome || "unknown", headline: assessment.assessment?.verdict?.statement || "" }, candidates: [], pageCount: assessment.assessment?.counts?.pages ?? 0 };
     post = { ...pre, verdict: assessment.assessment?.verdict, counts: assessment.assessment?.counts, facts: assessment.assessment?.facts };
   }
