@@ -333,15 +333,18 @@ export function createGuard(store: Store): Guard {
     // 每个运行只取最近一次已保存的规则判定，不将重算次数当作更多调查。
     // 本处只统计状态类型，不把“有结论”伪称为“结论准确”。
     const verdictsToday = store.all(
-      `SELECT json_extract(e.data,'$.outcome') AS outcome,COUNT(*) AS count
+      `SELECT CASE
+             WHEN e.kind='trace.reassessment' THEN json_extract(e.data,'$.assessment.verdict.outcome')
+             ELSE json_extract(e.data,'$.outcome')
+           END AS outcome,COUNT(*) AS count
          FROM runs r
-         JOIN evidence e ON e.id=(
-           SELECT x.id FROM evidence x
-           WHERE x.run_id=r.id AND x.kind='trace.verdict'
+         JOIN evidence e ON e.rowid=(
+           SELECT x.rowid FROM evidence x
+           WHERE x.run_id=r.id AND x.kind IN ('trace.verdict','trace.reassessment')
            ORDER BY x.created_at DESC,x.rowid DESC LIMIT 1
          )
          WHERE r.created_at>=? AND r.owner IS NOT NULL
-         GROUP BY json_extract(e.data,'$.outcome')`,
+         GROUP BY outcome`,
       day + "T00:00:00",
     );
     const waitingApprovalCount = Number(store.get(
