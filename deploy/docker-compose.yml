@@ -51,10 +51,9 @@ services:
     depends_on:
       - runtime
     ports:
-      # 本机回环端口给 cloudflared 用；80/443 保留（备案通过的域名可直接用）。
+      # 仅宿主机回环可访问；公网 HTTPS 一律从经授权的 Cloudflare Tunnel 进入。
+      # 不开放 80/443，防止绕过隧道、WAF 或备案域名限制。
       - "127.0.0.1:8081:80"
-      - "80:80"
-      - "443:443"
     volumes:
       - ./caddy-data:/data
       - ./caddy-config:/config
