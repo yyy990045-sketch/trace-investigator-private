@@ -68,6 +68,8 @@ export interface QuantityEvidence {
   relation: "supports" | "contradicts" | "unclear";
   /** 语义层判定（主体/行为/型号/限定/因果），只有带谓词的说法才会给出 */
   semantic?: { verdict: string; reason: string; sentence: string };
+  /** 来源身份：谁发的、能发布什么 */
+  profile?: SourceProfile;
   /** 来源自身的取值方式：至少/至多/恰好。用于把「超过 120 万辆」和「120 万辆」区分开 */
   bound?: "gte" | "lte" | "eq";
 }
@@ -75,6 +77,8 @@ export interface QuantityEvidence {
 export interface SourceAssessment {
   sourceOrigin?: "operator_url" | "search";
   pageId: string;
+  /** 来源身份：谁发的、能发布什么 */
+  profile?: SourceProfile;
   url: string;
   site: string;
   title: string;
@@ -1230,6 +1234,7 @@ export function assessSource(
     excerpt: page.passage.slice(0, 600),
     relation,
     ...(semantic ? { semantic } : {}),
+    profile: sourceProfile(page.url, page.site, `${page.title} ${(body?.ok ? body.text.slice(0, 600) : page.passage).slice(0, 600)}`),
     relevance,
     reasons,
     bodyAvailable: body?.ok === true,
@@ -1914,4 +1919,43 @@ export function applyCorrections(fact: FactAssessment, corrections: CorrectionRe
       ...fact.reasons.filter((reason) => !reason.startsWith("其中 ")),
     ],
   };
+}
+
+/**
+ * 来源身份：谁发的这条信息，能发布什么。
+ *
+ * 域名只是线索：厂商官网可以发布产品状态，统计主管部门发布统计，期刊发布研究，
+ * 媒体只能"报道/引用/解读"，百科与搜索摘要不能当原始出处。
+ */
+export type SourceKind = "vendor" | "official" | "journal" | "media" | "reference" | "unknown";
+
+export interface SourceProfile {
+  kind: SourceKind;
+  label: string;
+  /** 这类来源能发布的最高层级事实 */
+  authority: string;
+}
+
+const JOURNAL_HOSTS = /(pubmed|ncbi|doi\.org|nature\.com|science\.org|thelancet|nejm|sciencedirect|springer|wiley|cnki|wanfang|jamanetwork|bmj\.com|cell\.com|plos)/i;
+const REFERENCE_HOSTS = /(baike\.baidu|wikipedia|wikiwand|zhihu|baike\.sogou|360baike)/i;
+const MEDIA_HOSTS = /(people\.com\.cn|news\.cn|xinhuanet|cctv|cnr\.cn|chinanews|thepaper|caixin|yicai|jiemian|sina|sohu|163\.com|qq\.com|toutiao|ifeng|guancha|36kr|ithome|mtime|douban)/i;
+
+export function sourceProfile(url: string, site = "", text = ""): SourceProfile {
+  const host = (() => {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })();
+  const value = `${host} ${site}`;
+  if (JOURNAL_HOSTS.test(value) || /(doi:\s?10\.|论文|期刊|摘要|abstract)/i.test(text.slice(0, 600)))
+    return { kind: "journal", label: "研究期刊/论文页", authority: "研究结论（仅限原文明确陈述的部分）" };
+  if (/(\.gov(\.[a-z]{2})?$|gov\.cn)/.test(host))
+    return { kind: "official", label: "政府/主管部门网站", authority: "该部门主管范围内的官方口径" };
+  if (REFERENCE_HOSTS.test(value)) return { kind: "reference", label: "百科/问答（二手汇编）", authority: "只能证明有人这样写，不是原始出处" };
+  if (/(官方|官网|support|help|newsroom|press)/i.test(`${text.slice(0, 300)} ${site}`))
+    return { kind: "vendor", label: "厂商官方页面（疑似）", authority: "该厂商自身产品或服务状态" };
+  if (MEDIA_HOSTS.test(value)) return { kind: "media", label: "媒体报道", authority: "报道内容（可能转述他人资料）" };
+  return { kind: "unknown", label: "来源身份未确认", authority: "未知，需要看正文内容" };
 }
