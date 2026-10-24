@@ -1625,7 +1625,7 @@ export function aggregateCase(input: {
       return {
         outcome: "partial",
         headline: conditionSources.length
-          ? "来源只支持说法中的部分条件，不能按原说法成立。"
+          ? "来源只支持说法中的一部分（条件、时间或范围不完全一致），不能按原说法成立。"
           : "已查到相关依据，但还不足以给出确定结论。",
         confidence: "low",
         reasons: [
@@ -1650,7 +1650,7 @@ export function aggregateCase(input: {
     return {
       outcome: "partial",
       headline: conditional
-        ? "来源只支持说法中的部分条件（有条件限制或时间不一致），不能按原说法成立。"
+        ? "来源只支持说法中的一部分（条件、时间或范围不完全一致），不能按原说法成立。"
         : "已查到支持性表述，但只有搜索摘要、缺少原文依据。",
       confidence: "low",
       reasons: conditional
@@ -1736,8 +1736,8 @@ export function buildStatement(claim: string, verdict: CaseAssessment) {
     const got = (verdict.partialAnswer || []).slice(0, 2).join("；");
     // 来源只覆盖说法里的一部分条件时，不能说成「已经拿到可直接引用的表述」——
     // 用户会以为整句说法已经被证实，这正是「部分限制被放大成全面限制」的来源。
-    if (verdict.headline.includes("部分条件"))
-      return `关于「${claim}」：现有来源只支持说法中的一部分，不能按原说法成立。${got ? `查到的是：${got}。` : ""}结论停在「有条件限制」，还需要官方原始页面才能定案。`;
+    if (verdict.headline.includes("只支持说法中的一部分"))
+      return `关于「${claim}」：现有来源只支持说法中的一部分，不能按原说法成立。${got ? `查到的是：${got}。` : ""}结论停在「只支持一部分」，还需要官方原始页面或研究原文才能定案。`;
     return `关于「${claim}」：已经查到可直接引用的表述${got ? `——${got}` : ""}；但还缺少能把它定案的依据（官方原始页面或研究原文），所以只回答到这里，不把它当成已确认的事实。`;
   }
   return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;
