@@ -1,9 +1,12 @@
 # TRACE｜溯证 · 最终交付说明
 
+
+> 入口说明（2026-10-24 更新）：公网入口以服务器端口 http://134.175.111.217:8090 为主（实时联网版，匿名可访问）。原静态展示地址 trace-showcase-eight.vercel.app 已下线；A/B/C 三题可直接用新地址打开，D 与更早的调查记录未迁入线上库，仅在本机档案中保留。
+
 > 面向信息真实性调查的 AI 搜索侦探。输入一条待核查的信息，用元宝搜索真实检索公开来源，
 > 逐条比对日期、数字与范围条件，给出可复查的结论；证据不够就明确说不够。
 
-- 公网展示地址（只读）：https://trace-showcase-eight.vercel.app
+- 公网地址（实时联网版，以服务器端口为主）：http://134.175.111.217:8090
 - 私有源码仓库（需授权）：https://github.com/yyy990045-sketch/trace-investigator-private
 - 交付日期：2026-10-23
 - 本版仓库提交：正式分支 `feature/trace-frontend-v2`；本轮收尾提交即本文档所在提交（`git log -1 -- delivery/materials/TRACE-最终交付说明.md`）。基线提交 `9907c5a571c968ee0ef18ccd89e933815284f70a`。
@@ -47,8 +50,8 @@
   - 公安部网站：「2021年8月20日…经…第三十次会议通过，并于2021年11月1日起施行」
   - 中国人大网：「2021年8月20日…通过，将于2021年11月1日起施行」
   - 国家市场监督管理总局：主席令「于2021年8月20日通过，现予公布，自2021年11月1日起施行」
-- 公网链接：https://trace-showcase-eight.vercel.app/#/cases/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
-- 档案：https://trace-showcase-eight.vercel.app/artifacts/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6/调查档案.md
+- 公网链接：http://134.175.111.217:8090/cases/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
+- 档案：http://134.175.111.217:8090/archive/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
 - 截图：`delivery/trace-review-screenshots/case-law-conclusion-desktop.png`（结论区）、`case-law-evidence-desktop.png`（关键证据区）、`case-law-conclusion-mobile.png`（390px）
 
 ### 案例② 新能源汽车产量两组数字
@@ -59,8 +62,8 @@
 - 关键证据：
   - 国家统计局：「新能源汽车产量 1316.8 万辆，比上年增长 38.7%」
   - 央视网转述中汽协：「2024年…产销量分别完成 1288.8 万辆和 1286.6 万辆」
-- 公网链接：https://trace-showcase-eight.vercel.app/#/cases/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6
-- 档案：https://trace-showcase-eight.vercel.app/artifacts/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6/调查档案.md
+- 公网链接：http://134.175.111.217:8090/cases/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6
+- 档案：http://134.175.111.217:8090/archive/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6
 - 截图：`delivery/trace-review-screenshots/case-conflict-conclusion-desktop.png`、`case-conflict-evidence-desktop.png`、`case-conflict-conclusion-mobile.png`
 
 ### 案例③ 全国氢能重卡加氢网络
@@ -71,8 +74,8 @@
 - 关键证据：
   - 光明网正文：「西部陆海新通道"氢走廊"是我国首条以氢能重卡为核心的干线物流通道，一期的 4 座加氢站…」（取得正文，但没有全国建成表述）
   - 经济参考网、中证网：取得正文，正文中没有与该说法直接相关的句子
-- 公网链接：https://trace-showcase-eight.vercel.app/#/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95
-- 档案：https://trace-showcase-eight.vercel.app/artifacts/run_8f812ae8-42f3-48d1-a353-84942f770e95/调查档案.md
+- 公网链接：http://134.175.111.217:8090/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95
+- 档案：http://134.175.111.217:8090/archive/run_8f812ae8-42f3-48d1-a353-84942f770e95
 - 截图：`delivery/trace-review-screenshots/case-hydrogen-conclusion-desktop.png`、`case-hydrogen-evidence-desktop.png`、`case-hydrogen-conclusion-mobile.png`
 
 ## 四、系统说明（能力边界，务必按此表述）
@@ -84,11 +87,11 @@
 
 ## 五、提交链接
 
-1. 公开可访问的产品地址：**https://trace-showcase-eight.vercel.app**
+1. 公开可访问的产品地址：**http://134.175.111.217:8090**（实时联网版；原静态展示地址已下线）
 2. 三道真实案例：
-   - https://trace-showcase-eight.vercel.app/#/cases/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
-   - https://trace-showcase-eight.vercel.app/#/cases/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6
-   - https://trace-showcase-eight.vercel.app/#/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95
+   - http://134.175.111.217:8090/cases/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
+   - http://134.175.111.217:8090/cases/run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6
+   - http://134.175.111.217:8090/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95
 3. 项目介绍：本文件
 4. 实际演示截图：`delivery/trace-review-screenshots/`（2026-10-24 从公网实际页面截取：首页、三案例的结论区与关键证据区、三个档案页；桌面 1440×900、移动 390×844）
 5. 演示视频（如报名要求）：`delivery/demo/trace-demo-full.mp4`，166 秒，2026-10-23 录制；本轮收尾未重新录制，画面中的界面与当前公网展示属于同一套只读回放，但细节可能略有差异

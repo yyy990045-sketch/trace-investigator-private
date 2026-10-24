@@ -1,8 +1,11 @@
 # 案例A·原始证据调查：个人信息保护法施行日期
 
+
+> 入口说明（2026-10-24 更新）：公网入口以服务器端口 http://134.175.111.217:8090 为主（实时联网版，匿名可访问）。原静态展示地址 trace-showcase-eight.vercel.app 已下线；A/B/C 三题可直接用新地址打开，D 与更早的调查记录未迁入线上库，仅在本机档案中保留。
+
 - 类别：有明确原始证据
-- 在线页面（只读展示，历史记录）：https://trace-showcase-eight.vercel.app/#/cases/run_13dcfa4f-3074-4bdc-a36b-53b2933bb7b8
-- 调查档案页：https://trace-showcase-eight.vercel.app/#/archive/run_13dcfa4f-3074-4bdc-a36b-53b2933bb7b8
+- 线上页面（A 个人信息保护法施行日期，实时版可直接打开）：http://134.175.111.217:8090/cases/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
+- 调查档案页：http://134.175.111.217:8090/archive/run_7ff5367b-1fbc-42e3-8f7c-0b8add9b9ab6
 
 ## 一、原始问题
 

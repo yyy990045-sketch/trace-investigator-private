@@ -1,7 +1,10 @@
 # 案例C·进阶调查报告：一条氢能说法为什么查不下去
 
-- 在线调查过程：https://trace-showcase-eight.vercel.app/#/cases/run_d34a959a-e748-4208-b9a6-eac33c1de13a
-- 在线档案（3 个版本）：https://trace-showcase-eight.vercel.app/#/archive/run_d34a959a-e748-4208-b9a6-eac33c1de13a
+
+> 入口说明（2026-10-24 更新）：公网入口以服务器端口 http://134.175.111.217:8090 为主（实时联网版，匿名可访问）。原静态展示地址 trace-showcase-eight.vercel.app 已下线；A/B/C 三题可直接用新地址打开，D 与更早的调查记录未迁入线上库，仅在本机档案中保留。
+
+- 在线调查过程：http://134.175.111.217:8090/cases/run_8f812ae8-42f3-48d1-a353-84942f770e95
+- 在线档案（3 个版本）：http://134.175.111.217:8090/archive/run_8f812ae8-42f3-48d1-a353-84942f770e95
 - 数据来源：本机真实联网运行记录（腾讯云元宝搜索 SearchPro）
 
 ## 一、原始待核查说法
