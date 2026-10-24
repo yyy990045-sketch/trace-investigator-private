@@ -362,7 +362,7 @@ export function Entry() {
               <Search size={16} /> {clueBusy ? "正在调查…" : routedFlow === "verification" ? "查找公开资料" : "开始找线索"}
             </button>
             {isRedirected ? (
-              <p className="clue-hero-note" role="status">识别到${detectInvestigationDomain(clueQuestion) === "event" ? "演出票务" : "公开信息"}问题，本次将追查公开来源。票务实时库存需以对应官方售票平台为准。</p>
+              <p className="clue-hero-note" role="status">识别到{detectInvestigationDomain(clueQuestion) === "event" ? "演出票务" : "公开信息"}问题，本次将追查公开来源。票务实时库存需以对应官方售票平台为准。</p>
             ) : heroMode === "verification" ? (
               <p className="clue-hero-note">系统追查公开出处、核对条件并显示证据。不保证实时库存，也不会把搜索摘要当成已验证事实。</p>
             ) : null}
