@@ -17,7 +17,17 @@ import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine.ts";
 import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
-import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion, lookupStatement } from "./lookup-answer.ts";
+import {
+  collectEntityEvidence,
+  collectLookupEvidence,
+  entityQuestionParts,
+  entityStatement,
+  findSourcedEntityAnswer,
+  findSourcedLookupAnswer,
+  isEntityQuestion,
+  isLookupQuestion,
+  lookupStatement,
+} from "./lookup-answer.ts";
 import { parseClaim } from "../adapters/trace/claim-semantics.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { renderArchive } from "../adapters/trace/archive.ts";
@@ -187,7 +197,24 @@ export function buildAssessment(
   // 与首版档案同一句结论，避免不同版本之间结论文本不可比对。
   // 查询型问题已经拿到带来源的数值时，结论句必须把数值写出来，而不是只说「证据不足」。
   const lookupBlock = (() => {
-    if (!isLookupQuestion(claim)) return {};
+    if (!isLookupQuestion(claim)) {
+      // 实体型问句：与首次核验用同一套抽取，刷新或补查后答案不能丢。
+      const parts = isEntityQuestion(claim) ? entityQuestionParts(claim) : null;
+      if (!parts) return {};
+      const evidence = collectEntityEvidence(pages, bodies, parts);
+      if (!evidence.length) return {};
+      const answer = findSourcedEntityAnswer(claim, evidence);
+      return {
+        answer,
+        block: {
+          note: answer
+            ? "已找到与所问对象直接对应的原句；答案是来源自己写的，不等同于已核实的唯一答案。"
+            : "找到了相关原句，但没有能直接回答这个问题的表述（或多处说法互相冲突），因此不给出答案。",
+          items: evidence,
+          ...(answer ? { answer } : {}),
+        },
+      };
+    }
     const evidence = collectLookupEvidence(pages, bodies);
     if (!evidence.length) return {};
     const answer = findSourcedLookupAnswer(claim, evidence);
@@ -200,12 +227,28 @@ export function buildAssessment(
       },
     };
   })() as { answer?: ReturnType<typeof findSourcedLookupAnswer> | null; block?: Record<string, unknown> };
+  const aggregatedOrAnswered =
+    lookupBlock.answer &&
+    (lookupBlock.answer as { kind?: string }).kind === "entity" &&
+    aggregated.outcome === "insufficient"
+      ? {
+          ...aggregated,
+          outcome: "partial" as const,
+          headline: "已找到来源中的对应答案，仍需人工核对。",
+          reasons: [
+            ...(aggregated.reasons || []),
+            `原句给出「${(lookupBlock.answer as { value: string }).value}」，但这只是该来源的表述，不等同于已核实的唯一答案。`,
+          ],
+        }
+      : aggregated;
   const verdict = {
-    ...aggregated,
+    ...aggregatedOrAnswered,
     statement:
-      lookupBlock.answer && aggregated.outcome !== "supported" && aggregated.outcome !== "contradicted"
-        ? lookupStatement(lookupBlock.answer)
-        : buildStatement(claim, aggregated),
+      lookupBlock.answer && aggregatedOrAnswered.outcome !== "supported" && aggregatedOrAnswered.outcome !== "contradicted"
+        ? "kind" in (lookupBlock.answer as object) && (lookupBlock.answer as { kind?: string }).kind === "entity"
+          ? entityStatement(lookupBlock.answer as Parameters<typeof entityStatement>[0])
+          : lookupStatement(lookupBlock.answer)
+        : buildStatement(claim, aggregatedOrAnswered),
   };
   const assessment = {
     facts: assessments,

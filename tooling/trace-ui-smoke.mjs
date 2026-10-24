@@ -14,6 +14,15 @@ const browser = await chromium.launch({
   ...(process.env.TRACE_CHROMIUM ? { executablePath: process.env.TRACE_CHROMIUM } : {}),
 });
 const errors = [];
+// 布局量化断言与冒烟测试同一入口：需要时用 CASE_ID 打开案例页一并验收。
+if (process.env.TRACE_LAYOUT_CHECK === "1") {
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync(process.execPath, ["tooling/trace-ui-layout.mjs"], {
+    stdio: "inherit",
+    env: { ...process.env, BASE: base },
+  });
+  if (result.status !== 0) throw new Error("布局量化断言未通过");
+}
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on("pageerror", (e) => errors.push(e.message));

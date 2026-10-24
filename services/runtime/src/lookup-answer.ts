@@ -205,3 +205,271 @@ export function collectLookupEvidence(
   }
   return hits.sort((a, b) => Number(b.authoritative) - Number(a.authoritative)).slice(0, 3);
 }
+
+/* ------------------------------------------------------------------ *
+ * 实体型问句（谁 / 叫什么名字 / 在哪里）
+ *
+ * 数值与日期之外，用户最常问的是「某个实体叫什么」。这类问题的答案同样必须
+ * 绑在一句真实原文上：只在原句里读到「X 的父亲是 Y」这样的表述才回答 Y，
+ * 读不到就说读不到，不靠词语共现猜。
+ * ------------------------------------------------------------------ */
+
+export interface SourcedEntityAnswer extends LookupEvidence {
+  value: string;
+  label: string;
+  limitation: string;
+  kind: "entity";
+  /** 问句里被问的关系，例如「父亲」「导演」；为空表示问实体本身 */
+  relation?: string;
+  profile?: SourceProfile;
+}
+
+const ENTITY_STOP = new Set([
+  "他", "她", "它", "其", "这个", "那个", "一位", "这些", "那些", "谁", "什么",
+  "名字", "本人", "角色", "人物", "一名", "两个", "几个", "我们", "他们",
+]);
+
+/** 问的是不是一个实体取值（人名、角色名、机构名、地点）。 */
+export function isEntityQuestion(question: string): boolean {
+  const text = String(question || "").trim();
+  if (!text) return false;
+  return /(是谁|叫什么名字|叫什么|是哪位|是什么|在哪里|在哪)/.test(text);
+}
+
+/** 拆出「主体 + 关系」：`A 的 B 是谁` → subject=A，relation=B。 */
+export function entityQuestionParts(question: string): { subject: string; relation: string } | null {
+  const text = String(question || "")
+    .trim()
+    .replace(/^(请问|想问一下|想查一下)[，,]?/, "")
+    .replace(/[？?]\s*$/, "");
+  const asking = /(是谁|叫什么名字|叫什么|是哪位|是什么|在哪里|在哪)/.exec(text);
+  if (!asking) return null;
+  const head = text.slice(0, asking.index).trim();
+  if (head.length < 2) return null;
+  const of = head.lastIndexOf("的");
+  if (of > 0 && of < head.length - 1) {
+    return { subject: head.slice(0, of).trim(), relation: head.slice(of + 1).trim() };
+  }
+  return { subject: head, relation: "" };
+}
+
+/** 主体里的检索词：去掉书名号、方位词与疑问装饰。 */
+function subjectTerms(subject: string) {
+  return subject
+    .replace(/[《》「」“”『』]/g, " ")
+    .replace(/里面|当中|之中|里|中/g, " ")
+    .split(/[\s,，、]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2);
+}
+
+const ENTITY_QUOTE_SPLIT = /[。！？\n]/;
+
+/** 同一个关系在网页里的常见写法：「作者」也可能写成「创作」。 */
+const RELATION_ALIASES: Record<string, string[]> = {
+  作者: ["作者", "创作", "著作", "撰写", "所著"],
+  导演: ["导演", "执导"],
+  主演: ["主演", "出演", "饰演"],
+  父亲: ["父亲", "爸爸", "父"],
+  母亲: ["母亲", "妈妈", "母"],
+  妻子: ["妻子", "太太", "夫人"],
+  丈夫: ["丈夫", "先生"],
+  创始人: ["创始人", "创办人", "创立者"],
+  出版社: ["出版社", "出版方"],
+};
+
+function relationForms(relation: string) {
+  if (!relation) return [];
+  const aliases = RELATION_ALIASES[relation] || [];
+  return [...new Set([relation, ...aliases])].filter(Boolean);
+}
+
+/** 去掉书名号与间隔号，避免「哈利·波特」与「哈利波特」互相认不出。 */
+function loose(value: string) {
+  return value.replace(/[\s·・\-—_'’]/g, "");
+}
+
+/**
+ * 收集可能含实体答案的原句。
+ *
+ * 与数值收集的区别：不要求句子里有数字，但必须同时出现主体检索词与所问关系，
+ * 否则就只是同一页面上的无关句子。
+ */
+export function collectEntityEvidence(
+  pages: { id: string; url: string; site: string; date: string; passage: string; title?: string }[],
+  bodies: Map<string, { ok: boolean; text: string }>,
+  parts: { subject: string; relation: string },
+  options: { limit?: number } = {},
+): LookupEvidence[] {
+  const limit = options.limit ?? 12;
+  const terms = subjectTerms(parts.subject);
+  const relation = parts.relation;
+  const seen = new Set<string>();
+  const hits: LookupEvidence[] = [];
+  for (const page of pages) {
+    const body = bodies.get(page.id);
+    const text = body?.ok ? String(body.text || "") : "";
+    const source = text || String(page.passage || "");
+    for (const sentence of source.split(ENTITY_QUOTE_SPLIT)) {
+      const line = sentence.trim();
+      if (line.length < 8 || line.length > 200) continue;
+      const looseLine = loose(line);
+      if (terms.length && !terms.some((term) => looseLine.includes(loose(term)))) continue;
+      if (relation && !relationForms(relation).some((form) => looseLine.includes(loose(form)))) continue;
+      const key = line.slice(0, 30);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push({
+        quote: line,
+        url: page.url || "",
+        site: page.site || "",
+        date: page.date || "",
+        title: page.title || "",
+        from: text ? "body" : "excerpt",
+        authoritative: false,
+      });
+      if (hits.length >= limit) break;
+    }
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
+
+/** 普通名词：紧跟在关系词后面时不是答案（「父亲的训练」不是人名）。 */
+const ENTITY_COMMON = new Set([
+  "训练", "带领", "教导", "帮助", "影响", "身边", "保护", "陪伴", "要求", "安排",
+  "故事", "影片", "作品", "角色", "设定", "身份", "名字", "介绍", "描述", "讲述",
+  "孩子", "儿子", "女儿", "妻子", "丈夫", "家人", "兄弟", "朋友", "同伴", "对手",
+]);
+
+/** 一句原文里的候选答案，以及它是不是「强句式」得来的。 */
+export function entityCandidatesIn(
+  quote: string,
+  parts: { subject: string; relation: string },
+): { value: string; strong: boolean }[] {
+  const line = quote.replace(/\s+/g, " ").trim();
+  const terms = subjectTerms(parts.subject);
+  const relation = parts.relation;
+  const out: { value: string; strong: boolean }[] = [];
+  const push = (raw: string | undefined, strong: boolean) => {
+    const value = String(raw || "")
+      .replace(/^[「“"'‘\s]+|[」”"'’\s]+$/g, "")
+      .replace(/[，,。；;、].*$/, "")
+      .trim();
+    if (value.length < 2 || value.length > 12) return;
+    if (ENTITY_STOP.has(value) || ENTITY_COMMON.has(value)) return;
+    if (relation && (value === relation || value.includes(relation))) return;
+    if (terms.some((term) => value === term || value.includes(term))) return;
+    if (/^(一名|这个|那个|其|他|她|它)/.test(value)) return;
+    // 否定表述不是答案：「父亲并非木法沙」不能读成「父亲是木法沙」。
+    if (/^(并非|不是|没有|未曾|未|不再)/.test(value)) return;
+    // 叙述性片段不是实体：「讲述的是辛巴的父亲」不能把「讲述的」当成人名。
+    if (/[的了着们是]$/.test(value)) return;
+    if (/^(讲述|介绍|关于|说明|报道|描写|提到|表示|指出|认为|影片|故事|资料|文章|视频)/.test(value)) return;
+    out.push({ value, strong });
+  };
+
+  // 抽取只用两字以上的关系写法：单字「父」「母」会把「父亲」切碎成假答案。
+  const extractionForms = relation ? relationForms(relation).filter((form) => form.length >= 2) : [];
+  for (const form of extractionForms) {
+    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // 强：关系 + 是/为/叫 + 值（「父亲是木法沙」）
+    for (const matched of line.matchAll(new RegExp(escaped + "[是为叫]\\s*[「“\"]?([\\u4e00-\\u9fa5A-Za-z·]{2,12})", "g"))) {
+      push(matched[1], true);
+    }
+    // 强：关系 + 引号里的值（「父亲“木法沙”」）
+    for (const matched of line.matchAll(new RegExp(escaped + "\\s*[：:]?\\s*[「“\"]([^」”\"]{2,12})[」”\"]", "g"))) {
+      push(matched[1], true);
+    }
+    // 强：倒装（「木法沙是……的父亲」）
+    for (const matched of line.matchAll(new RegExp("([\\u4e00-\\u9fa5A-Za-z·]{2,12})\\s*[，,]?\\s*(?:正是|就是|是)\\s*[^。]{0,6}" + escaped, "g"))) {
+      push(matched[1], true);
+    }
+    // 弱：同位语（「父亲木法沙的训练下」）——只有前面没有强句式时才可能被采用
+    for (const matched of line.matchAll(new RegExp(escaped + "\\s*([\\u4e00-\\u9fa5A-Za-z·]{2,12}?)(?=[，,。；;、的（(]|是|为)", "g"))) {
+      push(matched[1], false);
+    }
+  }
+  if (!relation) {
+    for (const term of terms) {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      for (const matched of line.matchAll(new RegExp(escaped + "[是为叫]\\s*[「“\"]?([\\u4e00-\\u9fa5A-Za-z·]{2,12})", "g"))) {
+        push(matched[1], true);
+      }
+    }
+  }
+  const seen = new Set<string>();
+  return out.filter((item) => {
+    if (seen.has(item.value)) return false;
+    seen.add(item.value);
+    return true;
+  });
+}
+
+/**
+ * 选出最可信的实体答案。
+ *
+ * 排序依据三条可核对的事实，而不是猜测：句子是不是「关系+是+值」这类强句式、
+ * 命中了多少个不同来源、以及是否拿到了正文。最高分出现不同取值时宁可不答。
+ */
+export function findSourcedEntityAnswer(
+  question: string,
+  evidence: LookupEvidence[],
+): SourcedEntityAnswer | null {
+  const parts = entityQuestionParts(question);
+  if (!parts) return null;
+  const tally = new Map<
+    string,
+    { strong: boolean; items: LookupEvidence[]; body: boolean; score: number }
+  >();
+  for (const item of evidence) {
+    if (!item.url.startsWith("http")) continue;
+    for (const candidate of entityCandidatesIn(item.quote, parts)) {
+      const entry = tally.get(candidate.value) || {
+        strong: false,
+        items: [],
+        body: false,
+        score: 0,
+      };
+      entry.strong = entry.strong || candidate.strong;
+      entry.body = entry.body || item.from === "body";
+      entry.items.push(item);
+      tally.set(candidate.value, entry);
+    }
+  }
+  for (const entry of tally.values()) {
+    entry.score =
+      (entry.strong ? 6 : 0) +
+      new Set(entry.items.map((item) => item.site || item.url)).size +
+      (entry.body ? 2 : 0);
+  }
+  const ranked = [...tally.entries()].sort((a, b) => b[1].score - a[1].score);
+  if (!ranked.length) return null;
+  const [bestValue, best] = ranked[0];
+  const rival = ranked.find(([value, entry]) => value !== bestValue && entry.score >= best.score);
+  if (rival) return null;
+  // 弱句式且只有一个来源、没拿到正文时不下结论：那可能只是叙述里的一句普通名词。
+  if (!best.strong && new Set(best.items.map((item) => item.url)).size < 2 && !best.body) return null;
+  const top = best.items.find((item) => item.from === "body") || best.items[0];
+  return {
+    ...top,
+    value: bestValue,
+    kind: "entity",
+    ...(parts.relation ? { relation: parts.relation } : {}),
+    profile: sourceProfile(top.url, top.site, top.quote),
+    label: `找到来源中的对应答案：${bestValue}`,
+    limitation:
+      top.from === "body"
+        ? "该答案出自取得的那句原文；是否唯一、是否为同一对象或同一版本，仍需人工核对。"
+        : "该答案只出自搜索摘要，未取得原文正文；不能据此认定已经核实。",
+  };
+}
+
+/** 实体答案的结论句：把答案、原句出处和还没核实的那部分写在同一句话里。 */
+export function entityStatement(answer: SourcedEntityAnswer): string {
+  return `已经查到公开来源中的对应表述：${answer.value}。原句出自 ${
+    answer.site || "公开网页"
+  }${answer.date ? ` ${answer.date.slice(0, 10)} 的页面` : ""}，是来源自己写的，不等同于已核实的唯一答案${
+    answer.from === "body" ? "" : "（只拿到摘要）"
+  }。`;
+}

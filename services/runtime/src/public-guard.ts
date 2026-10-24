@@ -57,8 +57,17 @@ export const limits = () => ({
   /** 每个 IP 每小时可领的会话数 */
   sessionsPerHourPerIp: intEnv("PLATFORM_SESSIONS_PER_HOUR_PER_IP", 10, 1, 200),
   /** 全站每天调查次数 */
+  /** 全站每天调查次数 */
   dailyRunBudget: intEnv("PLATFORM_DAILY_RUN_BUDGET", 100, 1, 10000),
+  /** 会话绝对期限（小时）：到点即失效，刷新不会延长 */
+  sessionMaxHours: intEnv("PLATFORM_SESSION_MAX_HOURS", 72, 1, 2160),
+  /** 会话闲置期限（分钟）：长时间不用即失效 */
+  sessionIdleMinutes: intEnv("PLATFORM_SESSION_IDLE_MINUTES", 720, 10, 20160),
 });
+
+/** 会话期限在读取时即时求值，改配置不必重启进程。 */
+const sessionMaxMs = () => limits().sessionMaxHours * 3_600_000;
+const sessionIdleMs = () => limits().sessionIdleMinutes * 60_000;
 
 function dayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
@@ -207,6 +216,17 @@ export function createGuard(store: Store): Guard {
       tokenHash(raw),
     );
     if (!row || Number(row.revoked) === 1) return null;
+    // 服务端期限：Cookie 的 Max-Age 只是浏览器侧提示，客户端可以一直留着不放；
+    // 真正的失效判定必须在这里做——绝对期限不能因为刷新而无限延长。
+    const created = Date.parse(String(row.created_at || ""));
+    const lastSeen = Date.parse(String(row.last_seen_at || ""));
+    const expired =
+      (Number.isFinite(created) && Date.now() - created > sessionMaxMs()) ||
+      (Number.isFinite(lastSeen) && Date.now() - lastSeen > sessionIdleMs());
+    if (expired) {
+      store.exec("UPDATE web_sessions SET revoked=1 WHERE id=?", row.id);
+      return null;
+    }
     store.exec(
       "UPDATE web_sessions SET last_seen_at=? WHERE id=?",
       now(),
@@ -458,28 +478,36 @@ function cookieSecure(req: FastifyRequest) {
   if (trustsProxy()) {
     const proto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
     if (proto === "https") return true;
+    // Cloudflare 隧道下 Caddy 看到的是 http，真正的协议记在 CF-Visitor 里。
+    const visitor = String(req.headers["cf-visitor"] || "");
+    if (/"scheme"\s*:\s*"https"/i.test(visitor)) return true;
   }
   return req.protocol === "https";
 }
 
+/** Cookie 有效期与服务端绝对期限保持一致，避免浏览器比服务端保留更久。 */
 function sessionCookieHeader(token: string, req: FastifyRequest) {
   const secure = cookieSecure(req) ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly${secure}; SameSite=Lax; Max-Age=2592000`;
+  const maxAge = limits().sessionMaxHours * 3600;
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly${secure}; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
 /**
- * 会话令牌来源：请求头优先，其次 HttpOnly Cookie。
- * 档案下载是普通链接跳转，带不了自定义头，所以必须支持 Cookie。
+ * 会话令牌来源：Cookie 优先，其次兼容既有客户端的请求头。
+ *
+ * 浏览器侧不再持有可脚本读取的令牌，Cookie 才是主路径；
+ * 请求头只为已部署的老页面保留，且不能覆盖有效 Cookie。
  */
 function tokenFromRequest(req: FastifyRequest) {
-  const header = String(req.headers["x-trace-session"] || "").trim();
-  if (header) return header;
   const raw = String(req.headers.cookie || "");
   for (const part of raw.split(";")) {
     const [name, ...rest] = part.split("=");
-    if (name?.trim() === SESSION_COOKIE) return rest.join("=").trim();
+    if (name?.trim() === SESSION_COOKIE) {
+      const value = rest.join("=").trim();
+      if (value) return value;
+    }
   }
-  return "";
+  return String(req.headers["x-trace-session"] || "").trim();
 }
 
 /**
@@ -493,10 +521,22 @@ function trustsProxy() {
   return /^(1|true|yes|on)$/i.test(String(process.env.PLATFORM_TRUST_PROXY || ""));
 }
 
+/**
+ * 是否信任 Cloudflare 边缘写入的 CF-Connecting-IP。
+ *
+ * 只有流量确实经过 Cloudflare（隧道或橙色云代理）时才成立。直连部署时任何人
+ * 都能自带这个头伪造来源 IP，因此必须单独开关，不能与 TRUST_PROXY 合并。
+ */
+function trustsCloudflareHeader() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.PLATFORM_TRUST_CF_IP || ""));
+}
+
 function clientIp(req: FastifyRequest) {
   if (trustsProxy()) {
-    const cf = String(req.headers["cf-connecting-ip"] || "").trim();
-    if (cf) return cf.slice(0, 64);
+    if (trustsCloudflareHeader()) {
+      const cf = String(req.headers["cf-connecting-ip"] || "").trim();
+      if (cf) return cf.slice(0, 64);
+    }
     // 代理会在末尾追加它看到的对端地址，客户端自己伪造的项只能出现在前面。
     const hops = String(req.headers["x-forwarded-for"] || "")
       .split(",")
@@ -520,6 +560,31 @@ function demoRunIds() {
       .map((item) => item.trim())
       .filter(Boolean),
   );
+}
+
+/**
+ * 公开案例允许匿名读取的子路径。
+ *
+ * 只读案例是为了给评委看证据，不是把整条运行记录连同内部数据一起对外开放：
+ * 人工反馈（含记录人）、模型调用等路由不在名单内，仍要求会话归属。
+ */
+const DEMO_READ_PATHS = new Set([
+  "",
+  "/receipt",
+  "/trace/assessment",
+  "/trace/revisions",
+  "/trace/clue",
+  "/trace/experiences",
+  "/report.md",
+  "/report.json",
+]);
+
+function demoReadable(path: string, runId: string) {
+  if (!demoRunIds().has(runId)) return false;
+  const rest = path.slice(`/v1/runs/${runId}`.length);
+  if (DEMO_READ_PATHS.has(rest)) return true;
+  // 档案下载：/v1/runs/:id/artifacts/:artifactId
+  return /^\/artifacts\/[^/]+$/.test(rest);
 }
 
 const PUBLIC_PATHS = [
@@ -562,7 +627,10 @@ export function installPublicGuard(
       const row = store.get("SELECT owner FROM runs WHERE id=?", runRow[1]) as
         | { owner?: string | null }
         | undefined;
-      const readonlyDemo = req.method === "GET" && demoRunIds().has(runRow[1]);
+      // 公开案例只开放只读路由；反馈、模型等内部数据仍按归属判断。
+      const readonlyDemo =
+        (req.method === "GET" || req.method === "HEAD") &&
+        demoReadable(path, runRow[1]);
       if (row && row.owner !== session.id && !readonlyDemo)
         throw new ExecutionError("RUN_NOT_FOUND", "任务不存在。");
     }
@@ -604,12 +672,13 @@ export function installPublicGuard(
       String(req.headers["user-agent"] || ""),
     );
     reply.header("cache-control", "no-store");
-    // 同时写一份 HttpOnly Cookie：档案下载这类链接跳转不会带自定义请求头。
-    reply.header(
-      "set-cookie",
-      sessionCookieHeader(token, req),
-    );
-    return { token, sessionId: session.id, quota, limits: limits() };
+    // 令牌只经 HttpOnly Cookie 下发：前端不再持有可被脚本读取的 bearer token，
+    // 页面上就没有能把会话带走的字符串。
+    reply.header("set-cookie", sessionCookieHeader(token, req));
+    const expiresAt = new Date(
+      Date.now() + limits().sessionMaxHours * 3_600_000,
+    ).toISOString();
+    return { sessionId: session.id, quota, limits: limits(), expiresAt };
   });
 
   app.get("/v1/session", async (req, reply) => {
@@ -617,14 +686,10 @@ export function installPublicGuard(
     const session = guard.sessionOf(token);
     if (!session)
       throw new ExecutionError("SESSION_REQUIRED", "会话已失效，请刷新页面重新开始。");
-    // 老会话（只有请求头、没有 Cookie）在这里补发 Cookie，档案下载才能走普通链接。
-    if (token) {
-      reply.header("cache-control", "no-store");
-      reply.header(
-        "set-cookie",
-        sessionCookieHeader(token, req),
-      );
-    }
+    reply.header("cache-control", "no-store");
+    // 老客户端只用请求头、没有 Cookie 时在这里补发一次，档案下载才能走普通链接。
+    const hasCookie = String(req.headers.cookie || "").includes(SESSION_COOKIE + "=");
+    if (token && !hasCookie) reply.header("set-cookie", sessionCookieHeader(token, req));
     return { sessionId: session.id, quota: guard.quotaOf(session) };
   });
 

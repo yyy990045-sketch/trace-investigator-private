@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { createPlatform } from "../services/runtime/src/app.ts";
 import { createGuard } from "../services/runtime/src/public-guard.ts";
 
+function sessionFrom(response: { json(): any; headers: Record<string, unknown> }) {
+  const cookie = String(response.headers["set-cookie"] || "").split(";")[0];
+  return { ...response.json(), token: cookie.slice(cookie.indexOf("=") + 1) };
+}
+
 /**
  * 公网会话隔离：两个互不相干的浏览器会话，B 即使拿到 A 的项目 ID、运行 ID、
  * 档案地址，也不能读取或改动 A 的任何数据。
@@ -35,6 +40,17 @@ describe("公网会话隔离", () => {
   }
 
   // 不带 content-type：这些请求没有 body，带上空 JSON 会被 Fastify 拒绝（FST_ERR_CTP_EMPTY_JSON_BODY）。
+  /** 会话只经 HttpOnly Cookie 下发，测试也从 Set-Cookie 里取。 */
+  function cookieOf(response: { headers: Record<string, unknown> }) {
+    const raw = String(response.headers["set-cookie"] || "");
+    const match = /trace_session=([^;]+)/.exec(raw);
+    return match ? match[1] : "";
+  }
+
+  function cookieHeaders(value: string) {
+    return { "x-platform-client": "workbench-v1", cookie: "trace_session=" + value };
+  }
+
   function headers(token?: string) {
     return {
       "x-platform-client": "workbench-v1",
@@ -49,8 +65,8 @@ describe("公网会话隔离", () => {
       const mintedB = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "B" } });
       expect(mintedA.statusCode).toBe(200);
       expect(mintedB.statusCode).toBe(200);
-      const a = mintedA.json() as { token: string; sessionId: string };
-      const b = mintedB.json() as { token: string; sessionId: string };
+      const a = sessionFrom(mintedA) as { token: string; sessionId: string };
+      const b = sessionFrom(mintedB) as { token: string; sessionId: string };
       expect(a.sessionId).not.toBe(b.sessionId);
 
       // A 的项目与调查（归属写成 A 的会话，相当于 A 通过接口建的那次调查）
@@ -120,7 +136,7 @@ describe("公网会话隔离", () => {
     const { platform, dir } = await setup();
     try {
       const minted = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "C" } });
-      const c = minted.json() as { token: string };
+      const c = sessionFrom(minted) as { token: string };
       const project = platform.engine.createProject({
         name: "无主项目",
         layout: "business",
@@ -170,7 +186,7 @@ describe("公网会话隔离", () => {
         url: "/v1/session",
         headers: { ...headers(), "user-agent": "quota" },
       });
-      const { token } = minted.json() as { token: string };
+      const { token } = sessionFrom(minted) as { token: string };
       const guard = createGuard(platform.store);
       const session = guard.sessionOf(token)!;
       const ip = "203.0.113.20";
@@ -235,7 +251,7 @@ describe("公网会话隔离", () => {
     const previous = process.env.PLATFORM_DEMO_RUNS;
     try {
       const minted = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "A" } });
-      const owner = (minted.json() as { sessionId: string }).sessionId;
+      const owner = (sessionFrom(minted) as { sessionId: string }).sessionId;
       const runId = "run_demo_public_1";
       const demoProject = platform.engine.createProject({
         name: "公开示例项目",
@@ -262,7 +278,7 @@ describe("公网会话隔离", () => {
       process.env.PLATFORM_DEMO_RUNS = runId;
 
       const anon = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "B" } });
-      const visitor = (anon.json() as { token: string }).token;
+      const visitor = (sessionFrom(anon) as { token: string }).token;
       const read = await platform.app.inject({ method: "GET", url: `/v1/runs/${runId}`, headers: headers(visitor) });
       expect(read.statusCode).toBe(200);
       // 写入仍然要求归属
@@ -306,7 +322,7 @@ describe("公网会话隔离", () => {
       expect(String(secure.headers["set-cookie"] || "")).toContain("Secure");
 
       // 只有 Cookie 也能读到自己的会话（档案下载走的就是这条路径）。
-      const token = (plain.json() as { token: string }).token;
+      const token = (sessionFrom(plain) as { token: string }).token;
       const viaCookie = await platform.app.inject({
         method: "GET",
         url: "/v1/session",
@@ -314,6 +330,99 @@ describe("公网会话隔离", () => {
       });
       expect(viaCookie.statusCode).toBe(200);
     } finally {
+      await platform.app.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * 公开案例只开放只读证据路由：反馈（含记录人）、模型调用等内部数据
+   * 不能因为「这条运行被公开」就一起公开。
+   */
+  it("公开案例不连带公开内部路由（反馈等仍需归属）", async () => {
+    const { platform, dir } = await setup();
+    const previous = process.env.PLATFORM_DEMO_RUNS;
+    try {
+      const minted = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "A" } });
+      const owner = (minted.json() as { sessionId: string }).sessionId;
+      const project = platform.engine.createProject({
+        name: "公开案例内部路由测试",
+        layout: "business",
+        permissions: [],
+        steps: [],
+      });
+      platform.store.exec("UPDATE projects SET owner=? WHERE id=?", owner, project.id);
+      const runId = "run_demo_internal_1";
+      platform.store.exec(
+        "INSERT INTO runs(id,project_id,project_name,revision,plan,permissions,input,status,error,created_at,updated_at,owner) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        runId, project.id, project.name, 1, "[]", "[]",
+        JSON.stringify({ filename: "demo", text: "示例" }), "completed", null,
+        new Date().toISOString(), new Date().toISOString(), owner,
+      );
+      process.env.PLATFORM_DEMO_RUNS = runId;
+      const visitor = cookieOf(await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "B" } }));
+      const read = await platform.app.inject({ method: "GET", url: `/v1/runs/${runId}`, headers: cookieHeaders(visitor) });
+      expect(read.statusCode).toBe(200);
+      const feedback = await platform.app.inject({ method: "GET", url: `/v1/runs/${runId}/feedback`, headers: cookieHeaders(visitor) });
+      expect(feedback.statusCode).toBe(404);
+    } finally {
+      if (previous === undefined) delete process.env.PLATFORM_DEMO_RUNS;
+      else process.env.PLATFORM_DEMO_RUNS = previous;
+      await platform.app.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  /** 服务端期限到点必须失效并撤销，刷新不能续命。 */
+  it("会话绝对期限到点即失效并撤销", async () => {
+    const previous = process.env.PLATFORM_SESSION_MAX_HOURS;
+    process.env.PLATFORM_SESSION_MAX_HOURS = "1";
+    const { platform, dir } = await setup();
+    try {
+      const minted = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "A" } });
+      const sessionId = (minted.json() as { sessionId: string }).sessionId;
+      const cookie = cookieOf(minted);
+      const alive = await platform.app.inject({ method: "GET", url: "/v1/session", headers: cookieHeaders(cookie) });
+      expect(alive.statusCode).toBe(200);
+      const backdated = new Date(Date.now() - 2 * 3_600_000).toISOString();
+      platform.store.exec("UPDATE web_sessions SET created_at=?, last_seen_at=? WHERE id=?", backdated, backdated, sessionId);
+      const expired = await platform.app.inject({ method: "GET", url: "/v1/session", headers: cookieHeaders(cookie) });
+      expect(expired.statusCode).toBe(401);
+      expect(Number(platform.store.get("SELECT revoked FROM web_sessions WHERE id=?", sessionId)?.revoked)).toBe(1);
+    } finally {
+      if (previous === undefined) delete process.env.PLATFORM_SESSION_MAX_HOURS;
+      else process.env.PLATFORM_SESSION_MAX_HOURS = previous;
+      await platform.app.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  /** Cloudflare 头只在确实经过 Cloudflare 时才可信，直连部署必须显式开关。 */
+  it("CF-Connecting-IP 默认不可信，需显式开关", async () => {
+    const previous = { trust: process.env.PLATFORM_TRUST_PROXY, cf: process.env.PLATFORM_TRUST_CF_IP };
+    process.env.PLATFORM_TRUST_PROXY = "1";
+    const { platform, dir } = await setup();
+    try {
+      delete process.env.PLATFORM_TRUST_CF_IP;
+      const spoofed = await platform.app.inject({
+        method: "POST", url: "/v1/session",
+        headers: { ...headers(), "user-agent": "direct", "cf-connecting-ip": "9.9.9.9", "x-forwarded-for": "203.0.113.9" },
+      });
+      const spoofId = (spoofed.json() as { sessionId: string }).sessionId;
+      expect(platform.store.get("SELECT ip FROM web_sessions WHERE id=?", spoofId)?.ip).toBe("203.0.113.9");
+
+      process.env.PLATFORM_TRUST_CF_IP = "1";
+      const trusted = await platform.app.inject({
+        method: "POST", url: "/v1/session",
+        headers: { ...headers(), "user-agent": "cloudflare", "cf-connecting-ip": "198.51.100.7", "x-forwarded-for": "10.0.0.1" },
+      });
+      const trustedId = (trusted.json() as { sessionId: string }).sessionId;
+      expect(platform.store.get("SELECT ip FROM web_sessions WHERE id=?", trustedId)?.ip).toBe("198.51.100.7");
+    } finally {
+      for (const [key, value] of [["PLATFORM_TRUST_PROXY", previous.trust], ["PLATFORM_TRUST_CF_IP", previous.cf]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
       await platform.app.close();
       await rm(dir, { recursive: true, force: true });
     }
