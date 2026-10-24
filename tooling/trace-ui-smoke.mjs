@@ -24,6 +24,14 @@ try {
   if (!(await page.getByRole("link", { name: /查看真实调查/ }).count()))
     throw new Error("主入口不可点击");
   await page.screenshot({ path: output + "/home-desktop.png", fullPage: true });
+  // 侦探赛道的第一条实际体验必须可用；不能让首页主示例打开缺失的历史调查。
+  const clueSample = page.locator(".clue-example").filter({ hasText: "找线索" }).first();
+  if (!(await clueSample.count())) throw new Error("首页缺少主打的模糊线索侦探入口");
+  await clueSample.click();
+  await page.waitForURL((url) => url.hash.includes("/cases/"), { timeout: 15000 });
+  await page.getByText("法医秦明", { exact: false }).first().waitFor({ state: "visible", timeout: 15000 });
+  await page.goto(base + "/#/", { waitUntil: "networkidle" });
+
 
   const examples = [
     { button: "查冲突", id: "run_5ac241c1-1049-4c4d-aaf3-4cc0c45936f6", marker: "1316.8" },
