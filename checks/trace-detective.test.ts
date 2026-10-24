@@ -2,8 +2,17 @@ import { describe, expect, it } from "vitest";
 import { detectInvestigationDomain, planByRule } from "../services/runtime/src/clue-plan.ts";
 import { nextClueSearch, type InvestigationSnapshot } from "../services/runtime/src/clue-investigation.ts";
 import { evaluateCandidates, extractCandidates, type PageLike, type ClueItem } from "../services/runtime/adapters/trace/clues.ts";
+import { investigationFlow } from "@personal/capability-sdk";
 
 describe("侦探赛道：查询类型与调查决策", () => {
+  it("实际入口：演出票务不送进影视候选器；找剧仍走线索追查", () => {
+    expect(investigationFlow("我想找一部港片，卧底在天台对决", "clue")).toBe("clue");
+    expect(investigationFlow("某歌手周六的演唱会还有票吗？", "clue")).toBe("verification");
+    expect(investigationFlow("网传某商品已经停产", "clue")).toBe("verification");
+    expect(investigationFlow("这个问题在哪里能找到官方资料", "clue")).toBe("verification");
+    expect(investigationFlow("电视剧谁主演", "verification")).toBe("verification");
+  });
+
   it("演出余票不再被错误规划成电视剧搜索", () => {
     const input = "想知道这场演唱会周六还有没有余票，官方售票渠道在哪里";
     const plan = planByRule(input);
