@@ -660,6 +660,16 @@ export function postFollowup(runId: string, query: string, factId?: string) {
   });
 }
 
+/** 真实公开信息自动追查：由当前证据缺口驱动，服务端按调查限制总搜索预算。 */
+export function postAutoInvestigation(runId: string) {
+  if (SHOWCASE) return Promise.reject(readOnly());
+  return traceRequest<{
+    executed: { question: string; query: string; reason: string; resultCount: number; before: string; after: string; error: unknown }[];
+    assessment: NonNullable<TraceBundleView["assessment"]>;
+    searchedQueries: string[];
+  }>(`/v1/runs/${encodeURIComponent(runId)}/trace/auto`, "POST", { max: 2 });
+}
+
 /** 把追加检索合并回卷宗并重算结论。 */
 export function postReassess(runId: string) {
   if (SHOWCASE) return Promise.reject(readOnly());
