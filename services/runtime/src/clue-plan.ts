@@ -40,6 +40,26 @@ const KINDS: { pattern: RegExp; kind: PlannedClue["kind"] }[] = [
 
 const ROLE_WORDS = ["法医", "警察", "医生", "律师", "教师", "刑警", "记者", "厨师", "司机"];
 
+/** 机构/团体后缀：分词器会把「梦工厂」切成「梦」+「工厂」，合并回来才是完整专名。 */
+const ORG_SUFFIX = /^(工厂|公司|影业|影视|工作室|集团|制片厂|学院|大学|医院|学校|部队|机构|银行|剧院|剧团|乐队|出版社|杂志社)$/;
+
+/** 单字但很具体的名词：龙、猪、船、猫……丢掉它们等于丢掉最关键的剧情对象。 */
+const CONCRETE_NOUN = new Set(
+  "龙虎豹狼熊象猴鼠兔猫狗马牛羊猪鸟鱼蛇鹰鲸船车枪刀剑塔岛桥河山湖洞树花灯钥匙井钟镜琴鼓旗冠".split(""),
+);
+const QUANTIFIER = /^(这|那|某|一|两|几)?(艘|部|辆|架|座|条|位|名|只|间|个|种|些|把|张|匹|头|块|片|根|支)$/;
+
+/**
+ * 泛化的剧情词：它们能帮助理解，但区分不了作品，不能占线索名额，
+ * 也不能因为「它们没在同一句里出现」就否定一个候选。
+ */
+export const GENERIC_PLOT = new Set([
+  "动画", "电影", "影片", "电视剧", "剧集", "男孩", "女孩", "父亲", "母亲", "爸爸", "妈妈",
+  "朋友", "成为", "变成", "故事", "剧情", "情节", "最后", "后来", "开始", "发现", "遇到",
+  "生活", "地方", "事情", "时间", "人们", "一对", "船上", "家人", "他们",
+  "男人", "女人", "一段", "一个男人", "一个女人",
+]);
+
 /** 这些词区分不了任何候选：留在线索里只会让「还没核实」永远消不掉。 */
 const GENERIC_TERMS = new Set([
   "以前", "老剧", "好像", "大概", "记得", "印象", "一部", "看过", "电视剧", "剧", "片子",
@@ -146,9 +166,15 @@ function clueTokens(question: string): string[] {
   // 分词器会把专名切碎（「美人鱼」→「美人」+「鱼」）：只在「单字名词后缀」紧邻时合并，
   // 避免把「爱情 用」「声音 换」这类跨词组片段当成线索。
   const merged: string[] = [];
-  for (let index = 0; index < parts.length - 1; index++) {
+  const nouns: string[] = [];
+  for (let index = 0; index < parts.length; index++) {
     const left = parts[index].segment.trim();
-    const right = parts[index + 1].segment.trim();
+    const right = parts[index + 1]?.segment.trim() || "";
+    // 「一条龙」「一只猫」：量词没有区分度，但后面那个单字名词就是剧情对象本身。
+    if (left && QUANTIFIER.test(left) && right.length === 1 && CONCRETE_NOUN.has(right)) {
+      nouns.push(right);
+      continue;
+    }
     if (!left || right.length !== 1) continue;
     if (!NOUN_SUFFIX.has(right)) continue;
     const combined = left + right;
@@ -157,15 +183,39 @@ function clueTokens(question: string): string[] {
     if (INVESTIGATION_FILLERS.has(combined) || lowSignal(combined)) continue;
     merged.push(combined);
   }
+  // 「梦工厂」「皮克斯工作室」这类机构名常被切成单字 + 后缀，要合并成完整专名。
+  for (let index = 0; index < parts.length - 1; index++) {
+    const left = parts[index].segment.trim();
+    const right = parts[index + 1].segment.trim();
+    if (!left || left.length > 2 || !ORG_SUFFIX.test(right)) continue;
+    const combined = left + right;
+    if (combined.length < 3 || !cleaned.includes(combined)) continue;
+    if (INVESTIGATION_FILLERS.has(combined)) continue;
+    merged.push(combined);
+  }
+  // 单字具体名词（没有量词时也要留住：龙、猪、船）
+  for (const part of parts) {
+    const term = part.segment.trim();
+    if (term.length === 1 && CONCRETE_NOUN.has(term) && cleaned.includes(term)) nouns.push(term);
+  }
   // 子串去重：「美人鱼」已经在线索里时，「美人」不再单列（它区分不了任何东西）。
-  const ordered = [...new Set([...durations, ...merged, ...words])];
+  const ordered = [...new Set([...durations, ...merged, ...nouns, ...words])];
   const kept = ordered.filter(
     (term) =>
       !ordered.some(
         (other) => other !== term && other.length > term.length && other.includes(term),
       ),
   );
-  return kept.slice(0, 16);
+  // 有区分度的词排前面：泛化剧情词（动画/男孩/朋友/变成）只能垫底，
+  // 否则它们会占满有限的线索名额，把「龙」「澡堂」「梦工厂」挤出去。
+  const rank = (term: string) => {
+    let score = term.length >= 4 ? 3 : term.length === 3 ? 2 : 1;
+    if (GENERIC_PLOT.has(term) || GENERIC_TERMS.has(term) || lowSignal(term)) score -= 6;
+    if (CONCRETE_NOUN.has(term)) score += 1;
+    if (ORG_SUFFIX.test(term)) score += 1;
+    return score;
+  };
+  return kept.sort((a, b) => rank(b) - rank(a)).slice(0, 12);
 }
 
 /** 模型未授权或不可用时，仍能从陌生中文句子生成可核验的短线索和检索式。 */
@@ -213,12 +263,15 @@ export function planByRule(question: string): CluePlan {
       terms: [name],
       kind: "role" as const,
     })),
-    ...terms.slice(0, 6).map((text) => ({
+    ...terms.slice(0, 10).map((text) => ({
       text,
       terms: expandTerms([text]),
       kind: (KINDS.find((item) => item.pattern.test(text))?.kind || "other") as PlannedClue["kind"],
     })),
-  ];
+  ]
+    // 年份不进线索：用户说「我记得是 2005 年的」时年份很可能记错，
+    // 让它参与匹配会把「2005 年 + 同一个演员」的无关作品直接顶到第一名。
+    .filter((item) => !/^(19|20)\d{2}\s*年?$/.test(item.text));
   // 人名已经完整时，去掉被切碎的残片（「拉德」⊂「布拉德·皮特」）。
   const deduped = clues.filter(
     (item) =>
@@ -227,21 +280,30 @@ export function planByRule(question: string): CluePlan {
       ),
   );
   clues.length = 0;
-  clues.push(...deduped.slice(0, 6));
+  clues.push(...deduped.slice(0, 8));
 
   if (!clues.length && question.trim().length >= 2)
     clues.push({ text: question.trim().slice(0, 40), terms: [question.trim().slice(0, 20)], kind: "other" });
   // 年份不能进主检索式：用户说「我记得是2005年」时，年份本身可能就是错的，
   // 带上它会把真正的那部片子直接筛掉。年份留作后面核对的条件。
   const isYear = (term: string) => /^(19|20)\d{2}\s*年?$/.test(term) || /^\d{2,4}年代$/.test(term);
-  const base = [...new Set(
-    clues
-      .flatMap((item) => item.terms)
-      .filter((term) => term.length >= 2 && !isYear(term)),
-  )]
-    .slice(0, 9)
+  // 单字具体名词（龙/猪/船）也要进检索式：它们是剧情对象，不是语气词。
+  const usableTerm = (term: string) => !isYear(term) && (term.length >= 2 || CONCRETE_NOUN.has(term));
+  const base = [...new Set(clues.flatMap((item) => item.terms).filter(usableTerm))]
+    .slice(0, 10)
     .join(" ")
     .slice(0, 100);
+  // 用户原话本身就是最完整的剧情关系（谁 + 做了什么 + 遇到什么），
+  // 搜索引擎对这种自然语言描述的召回通常好于关键词拼接，因此单独作为一条检索式。
+  const describe = question
+    .replace(/[，。！？、；：,.!?]/g, " ")
+    .replace(FILLERS, "")
+    .replace(/(好像是|好像|大概是|大概|似乎是|似乎|估计|应该是|我记得|记得|讲的是|讲述|讲|说的是|说的|后来|最后)/g, " ")
+    // 动词/连接碎片在检索里没有信息量，留着只会稀释关键词。
+    .replace(/(为了|换了|换成|变得|拍了|拍过|说过|问了|就是|而且|然后|一直|其实|所以|因为|接着)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
   const context = domain === "screen"
     ? ["剧情 电影 电视剧", "剧名 主演 角色"]
     : domain === "event"
@@ -254,17 +316,36 @@ export function planByRule(question: string): CluePlan {
   const plotBase = [...new Set(clues.flatMap((item) => item.terms))]
     .filter(
       (term) =>
-        term.length >= 2 &&
-        !isYear(term) &&
+        usableTerm(term) &&
         !people.some((name) => name.includes(term) || term.includes(name)),
     )
-    .slice(0, 9)
+    .slice(0, 10)
     .join(" ")
     .slice(0, 100);
   const story = readStory(question);
   const relationQueries = domain === "screen" ? story.phrases : [];
+  // 短查询：类型词 + 最有区分度的 2-3 个词。长查询（8 个关键词串一起）在中文搜索里
+  // 经常直接跑偏，短查询用来兜住「正确作品根本没进候选」这种情况。
+  const typeWord = /动画片|动画电影|动漫/.test(question)
+    ? "动画片"
+    : /电视剧|剧集|连续剧/.test(question)
+      ? "电视剧"
+      : /电影|影片|片子/.test(question)
+        ? "电影"
+        : "";
+  const shortQuery = [typeWord, ...clues
+    .flatMap((item) => item.terms)
+    .filter((term) => usableTerm(term) && !people.some((name) => name.includes(term) || term.includes(name)))
+    .slice(0, 3)]
+    .filter(Boolean)
+    .join(" ");
   const queries = [
-    base || question.slice(0, 90),
+    // ① 原话描述：保留完整剧情关系，最接近真实检索习惯
+    describe || question.slice(0, 90),
+    // ② 短查询：正确的作品常常只在这条里出现
+    ...(shortQuery.length >= 3 ? [shortQuery] : []),
+    // ② 区分度高的关键词组合
+    base || describe || question.slice(0, 90),
     // 只用剧情（去掉人名与年份）：用户把主演/年份记错时，这条才有机会命中
     ...(plotBase && plotBase !== base ? [plotBase] : []),
     // 按剧情关系重组的近义查询：动作+场景+事件，而不是分词碎片
@@ -277,7 +358,7 @@ export function planByRule(question: string): CluePlan {
     goal: `查清用户给出的线索：${question.slice(0, 100)}`,
     story,
     clues,
-    queries: [...new Set(queries)].slice(0, 3),
+    queries: [...new Set(queries)].slice(0, 5),
     source: "rule",
     durationMs: 0,
     fallbackReason: `按${{screen:"影视线索",event:"演出信息",verification:"消息查证",general:"开放问题"}[domain]}制定检索式；未使用模型规划。`,

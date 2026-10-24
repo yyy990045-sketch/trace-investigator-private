@@ -916,6 +916,8 @@ export interface ClueAssessmentView {
     decisiveClues?: string[];
     /** 还无法排除其他候选时给出的最可能答案 */
     bestGuess?: string;
+    /** 身份已确定，但还没在资料里核到的具体情节 */
+    unverified?: string[];
     /** 候选对照：各自符合/缺少的情节 */
     comparison?: { name: string; matched: string[]; missing: string[]; type: string; note: string }[];
     /** 用户记的年份 vs 资料年份 */
