@@ -329,6 +329,24 @@ export function createGuard(store: Store): Guard {
       "SELECT AVG((julianday(updated_at)-julianday(created_at))*86400) AS s FROM runs WHERE created_at>=? AND status IN ('completed','failed','canceled')",
       day + "T00:00:00",
     );
+    // 用户是否真正查到答案，是独立于 HTTP/任务成功率的产品质量指标。
+    // 每个运行只取最近一次已保存的规则判定，不将重算次数当作更多调查。
+    // 本处只统计状态类型，不把“有结论”伪称为“结论准确”。
+    const verdictsToday = store.all(
+      `SELECT json_extract(e.data,'$.outcome') AS outcome,COUNT(*) AS count
+         FROM runs r
+         JOIN evidence e ON e.id=(
+           SELECT x.id FROM evidence x
+           WHERE x.run_id=r.id AND x.kind='trace.verdict'
+           ORDER BY x.created_at DESC,x.rowid DESC LIMIT 1
+         )
+         WHERE r.created_at>=? AND r.owner IS NOT NULL
+         GROUP BY json_extract(e.data,'$.outcome')`,
+      day + "T00:00:00",
+    );
+    const waitingApprovalCount = Number(store.get(
+      "SELECT COUNT(*) AS n FROM runs WHERE owner IS NOT NULL AND status='waiting_approval'",
+    )?.n || 0);
     return {
       mode: "public",
       day,
@@ -342,6 +360,9 @@ export function createGuard(store: Store): Guard {
       searchBudget: limit.dailySearchBudget,
       runBudget: limit.dailyRunBudget,
       failuresToday,
+      verdictsToday,
+      waitingApprovalCount,
+      note: "状态计数仅表示真实调查判定分布，不代表结论准确率或真实问题解决率。",
       averageDurationSeconds: duration?.s ? Math.round(Number(duration.s)) : null,
       limits: limit,
       uptimeSeconds: Math.round(process.uptime()),
