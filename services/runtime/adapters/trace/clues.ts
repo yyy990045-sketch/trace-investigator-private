@@ -164,6 +164,11 @@ export interface ClueDecision {
   }[];
   /** 还无法排除其他候选时，先给出「最可能的答案」 */
   bestGuess?: string;
+  /**
+   * 最可能答案的证据限制（例如「这几条情节来自同一段材料」）。
+   * 有它就说明：只能给到「可能性较高」，不是已经定案。
+   */
+  evidenceLimit?: string;
   /** 最可能答案之外，同样能解释描述的其他候选（含各自符合/缺少的情节） */
   comparison?: {
     name: string;
@@ -1247,6 +1252,54 @@ export function evaluateCandidates(
         askUser: askClue
           ? `目前有两个比较接近的作品，你还记得「${askClue.slice(0, 24)}」相关的细节吗？`
           : "还记得别的细节吗？比如主角名字、播出年份，或一句台词。",
+      },
+    };
+  }
+
+  // 单句强匹配：同一句里同时出现多条具体剧情关系（「她掉进兔子洞，遇到会说话的猫和疯帽子」），
+  // 足以说明「这部作品很可能就是它」，但这一句只算一份材料——
+  // 可以给最可能答案，不能当成多条独立证据，也不能据此说情节都已核实。
+  const concretePerSentence = new Map<string, number>();
+  for (const match of strongMatches) {
+    const clue = clues.find((item) => item.text === match.clue);
+    if (clue?.kind === "genre" || clue?.kind === "region") continue;
+    const concrete = (clue?.terms || [match.clue]).some(
+      (term) => term.length >= 1 && !GENERIC_CLUE_TERMS.has(term) && !/^[的了和在与及或也很就都而其之为把被]$/.test(term),
+    );
+    if (!concrete) continue;
+    const key = `${match.url}::${match.sentence}`;
+    concretePerSentence.set(key, (concretePerSentence.get(key) || 0) + 1);
+  }
+  const strongestSentence = Math.max(0, ...concretePerSentence.values());
+  const singleSourceLikely =
+    strongestSentence >= 3 &&
+    concreteHit >= 3 &&
+    lead >= 2 &&
+    !competitor &&
+    !tie &&
+    workSignal &&
+    !(userType !== "other" && best.typeConflict);
+  if (singleSourceLikely) {
+    const pendingClues = best.missingClues.slice(0, 3);
+    return {
+      candidates,
+      relations,
+      graph,
+      pending,
+      decision: {
+        state: "ambiguous",
+        ...conflictFields,
+        ...typeConflictInfo,
+        ...(yearCheck ? { yearCheck } : {}),
+        bestGuess: best.name,
+        decisiveClues: clues.filter((clue) => isDecisiveClue(clue, question)).map((clue) => clue.text),
+        evidenceLimit: `${strongestSentence} 条具体情节都出自同一段材料，只能算一份证据，不能当成多条独立来源`,
+        headline: `最可能是《${best.name}》：同一段资料里对上了 ${concreteHit} 条具体情节，但这段材料只有一份${pendingClues.length ? `，还有 ${pendingClues.length} 条情节没核到` : ""}${conflictNote ? `；${conflictNote}` : ""}`,
+        nextQueries: pendingClues.map((clue) => ({
+          query: `${best.name} ${clue}`.trim(),
+          reason: `核对《${best.name}》是否真的包含「${clue}」，把单份证据变成两份`,
+        })),
+        askUser: `还记得《${best.name}》里另一处具体场景吗？比如主角之外的人、地点或结局。`,
       },
     };
   }
