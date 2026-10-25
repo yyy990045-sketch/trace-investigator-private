@@ -456,7 +456,7 @@ export interface FactAssessment {
 export interface Verdict {
   /** 部分回答：已经查清的原始表述 */
   partialAnswer?: string[];
-  outcome: "supported" | "contradicted" | "disputed" | "outdated" | "insufficient";
+  outcome: "supported" | "contradicted" | "disputed" | "outdated" | "insufficient" | "partial";
   headline: string;
   statement: string;
   confidence: "low" | "medium" | "high";
@@ -606,6 +606,7 @@ export const outcomeText: Record<Verdict["outcome"], string> = {
   disputed: "存在争议",
   outdated: "信息过期或原文不足",
   insufficient: "证据不足",
+  partial: "答了一部分",
 };
 
 export const relationText: Record<Relation, string> = {
