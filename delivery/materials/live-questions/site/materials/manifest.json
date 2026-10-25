@@ -1,0 +1,195 @@
+{
+  "sources": [
+    {
+      "kind": "web",
+      "from": "http://134.175.111.217:8090",
+      "at": "2026-10-25T03:33:34.660Z",
+      "title": "溯证 TRACE｜线索侦探",
+      "description": "",
+      "files": [
+        {
+          "kind": "screen",
+          "file": "materials/web-134-175-111-217-8090/screen-01.png",
+          "from": "http://134.175.111.217:8090",
+          "note": "y=0px, 2x"
+        },
+        {
+          "kind": "screen",
+          "file": "materials/web-134-175-111-217-8090/screen-02.png",
+          "from": "http://134.175.111.217:8090",
+          "note": "y=900px, 2x"
+        },
+        {
+          "kind": "logo",
+          "file": "materials/web-134-175-111-217-8090/logo-01.png",
+          "from": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2324425a'/%3E%3Cpath d='M9 22c4-2 6-8 14-12' stroke='%23fbfaf7' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='11' cy='21' r='2.4' fill='%23fbfaf7'/%3E%3C/svg%3E",
+          "note": "icon"
+        }
+      ],
+      "colours": [
+        {
+          "role": "ground",
+          "hex": "#f4f6f8",
+          "w": 1611315
+        },
+        {
+          "role": "ground",
+          "hex": "#fffefb",
+          "w": 586052.8898925781
+        },
+        {
+          "role": "ground",
+          "hex": "#ffffff",
+          "w": 566567.0776367188
+        },
+        {
+          "role": "ground",
+          "hex": "#f7f4ec",
+          "w": 74366.42138671875
+        },
+        {
+          "role": "type",
+          "hex": "#5f6570",
+          "w": 405
+        },
+        {
+          "role": "type",
+          "hex": "#6b7c89",
+          "w": 401
+        },
+        {
+          "role": "type",
+          "hex": "#16232e",
+          "w": 133
+        },
+        {
+          "role": "accent",
+          "hex": "#ffffff",
+          "w": 2000
+        },
+        {
+          "role": "accent",
+          "hex": "#17577f",
+          "w": 800
+        },
+        {
+          "role": "accent",
+          "hex": "#0f5c6b",
+          "w": 500
+        },
+        {
+          "role": "accent",
+          "hex": "#e2e8ee",
+          "w": 300
+        },
+        {
+          "role": "css --ink",
+          "hex": "#202833"
+        },
+        {
+          "role": "css --muted",
+          "hex": "#5e6978"
+        },
+        {
+          "role": "css --subtle",
+          "hex": "#707b89"
+        },
+        {
+          "role": "css --accent",
+          "hex": "#3859bd"
+        },
+        {
+          "role": "css --accent-soft",
+          "hex": "#eef2fc"
+        },
+        {
+          "role": "css --sidebar",
+          "hex": "#f5f6f8"
+        },
+        {
+          "role": "css --surface",
+          "hex": "#fff"
+        },
+        {
+          "role": "css --canvas",
+          "hex": "#fff"
+        },
+        {
+          "role": "css --line",
+          "hex": "#e1e5eb"
+        },
+        {
+          "role": "css --surface-soft",
+          "hex": "#f7f8fa"
+        },
+        {
+          "role": "css --paper",
+          "hex": "#f6f4ef"
+        },
+        {
+          "role": "css --card",
+          "hex": "#fffefb"
+        },
+        {
+          "role": "css --trace-line",
+          "hex": "#e3ded4"
+        },
+        {
+          "role": "css --trace-ink",
+          "hex": "#151b22"
+        },
+        {
+          "role": "css --trace-sub",
+          "hex": "#5f6570"
+        },
+        {
+          "role": "css --trace-accent",
+          "hex": "#17577f"
+        },
+        {
+          "role": "css --trace-accent-soft",
+          "hex": "#e7f0f6"
+        },
+        {
+          "role": "css --support",
+          "hex": "#1f6b4a"
+        },
+        {
+          "role": "css --support-soft",
+          "hex": "#e9f3ed"
+        },
+        {
+          "role": "css --oppose",
+          "hex": "#963a2e"
+        },
+        {
+          "role": "css --oppose-soft",
+          "hex": "#f9edeb"
+        },
+        {
+          "role": "css --unclear",
+          "hex": "#6a6459"
+        },
+        {
+          "role": "css --unclear-soft",
+          "hex": "#f1eee7"
+        },
+        {
+          "role": "css --pending",
+          "hex": "#9a6a14"
+        }
+      ],
+      "fonts": [
+        {
+          "family": "Inter",
+          "chars": 1245
+        },
+        {
+          "family": "ui-monospace",
+          "chars": 4
+        }
+      ],
+      "missing": []
+    }
+  ]
+}
