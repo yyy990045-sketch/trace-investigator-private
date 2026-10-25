@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, FileSearch, Image as ImageIcon, Link2, Plus, Search, ShieldQuestion, X } from "lucide-react";
@@ -38,6 +38,8 @@ import {
   type ImportSource,
 } from "../input-import";
 import { detectInvestigationDomain, investigationFlow } from "@personal/capability-sdk";
+
+import { recognizeWithAI, visionAvailability } from "../vision-import";
 
 const MAX_FACTS = 6;
 /** 首页精选案例的状态文案：结论状态一律如实显示，不用形容词代替。 */
@@ -150,6 +152,18 @@ export function Entry() {
   /** 每次识别/提取递增；取消或重新发起后，旧任务的回调直接丢弃。 */
   const importRun = useRef(0);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const imageRequest = useRef<AbortController | null>(null);
+  const cancelLocalOcr = useRef<(() => void) | null>(null);
+  const vision = useQuery({ queryKey: ["vision-availability"], queryFn: visionAvailability, enabled: !SHOWCASE && Boolean(selectedImage), retry: false });
+  useEffect(() => {
+    if (!selectedImage) { setImagePreview(null); return; }
+    const url = URL.createObjectURL(selectedImage);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedImage]);
+  useEffect(() => () => { importRun.current += 1; imageRequest.current?.abort(); cancelLocalOcr.current?.(); }, []);
   const modelBlocked = useModel && model.data?.available !== true;
   const routedFlow = investigationFlow(clueQuestion, heroMode);
   const isRedirected = heroMode === "clue" && routedFlow === "verification";
@@ -237,6 +251,7 @@ export function Entry() {
   function applyImportedText(text: string, source: ImportSource, notice?: string) {
     const value = String(text || "").trim();
     setClueQuestion(value);
+    if (source !== "screenshot") setSelectedImage(null);
     setImportSource(value ? source : "manual");
     setImportConfirmed(false);
     setImportNotice(notice || null);
@@ -256,21 +271,35 @@ export function Entry() {
       setImportError(check.reason || "这张图片不能用于识别。");
       return;
     }
+    setClueQuestion("");
+    setImportSource("manual");
+    setSelectedImage(file);
+    setImportStatus("");
+  }
+
+  async function recognizeSelectedImage(withAI: boolean) {
+    const file = selectedImage;
+    if (!file || importBusy) return;
     const run = ++importRun.current;
+    setImportError(null); setImportNotice(null); setTooLongChoices(null); setImportConfirmed(false);
+    const controller = new AbortController();
+    imageRequest.current = controller;
     setImportBusy(true);
     setImportStatus(
-      "首次使用需要下载约 21MB 中英文识别资源（之后走浏览器缓存，约 8 秒）；识别在本机完成，截图不上传。",
+      withAI ? "AI正在逐行读取图片文字…" : "正在准备本地识别资源，图片不上传…",
     );
     try {
-      // 动态引入：不在首页首屏加载 OCR 依赖，也不上传原图。
-      const { recognizeImage } = await import("../ocr");
-      const result = await recognizeImage(file, ({ status, progress }) => {
-        if (run !== importRun.current) return;
-        const percent = Math.round(progress * 100);
-        setImportStatus(
-          status === "recognizing text" ? `正在识别文字 ${percent}%` : `准备识别 ${percent}%`,
-        );
-      });
+      // 仅本地方式动态加载OCR；AI方式由用户点击授权后发送图片。
+      const result = withAI ? await recognizeWithAI(file, controller.signal) : await (async () => {
+        const { recognizeImage, resetOcrWorker } = await import("../ocr");
+        if (run !== importRun.current || controller.signal.aborted) throw new Error("已取消识别");
+        cancelLocalOcr.current = resetOcrWorker;
+        return recognizeImage(file, ({ status, progress }) => {
+          if (run !== importRun.current) return;
+          const percent = Math.round(progress * 100);
+          setImportStatus(status === "recognizing text" ? `正在识别文字 ${percent}%` : `准备识别 ${percent}%`);
+        });
+      })();
       if (run !== importRun.current) return; // 已被取消或被新任务取代
       const cleaned = normalizeOcrText(result.text);
       if (!cleaned || looksUnreadable(cleaned)) {
@@ -281,7 +310,7 @@ export function Entry() {
         return;
       }
       const plan = planOcrInsertion(cleaned);
-      const confidence = Math.round(Number(result.confidence || 0));
+      const confidence = "confidence" in result ? Math.round(Number(result.confidence || 0)) : 0;
       setImportStatus(`识别完成：${cleaned.length} 个字${confidence ? `，置信度 ${confidence}%` : ""}`);
       // 置信度太低时不当作可用结果：填进去但明确要求逐字核对，绝不静默当原文。
       if (confidence && confidence < 60) {
@@ -299,7 +328,9 @@ export function Entry() {
         );
         return;
       }
-      applyImportedText(plan.text, "screenshot");
+      applyImportedText(plan.text, "screenshot", withAI
+        ? `AI已读出 ${plan.text.split("\n").length} 行文字，请对照原图校正；这些说法尚未核实。`
+        : "本地识别可能漏行、认错形近字；如与原图不符，建议使用AI识图。");
     } catch (e) {
       if (run !== importRun.current) return;
       const message = (e as Error)?.message || "";
@@ -307,16 +338,17 @@ export function Entry() {
       setImportError(
         message === "OCR_ENGINE_TIMEOUT" || message === "OCR_RECOGNIZE_TIMEOUT"
           ? "识别超时了（引擎资源或图片处理卡住）。可以重新上传一次，或直接把截图里的原话复制进来；也可以改用粘贴链接。"
-          : `识别引擎没能启动：${message || "未知原因"}。可以重试，或直接把原话复制进来。`,
+          : `识别失败：${message || "未知原因"}。可以重试或切换识别方式。`,
       );
     } finally {
-      if (run === importRun.current) setImportBusy(false);
+      if (run === importRun.current) { setImportBusy(false); cancelLocalOcr.current = null; imageRequest.current = null; }
     }
   }
 
   /** 粘贴分享文案或链接：先看能不能拿到说法，再决定用不用抓取。 */
   async function applyPastedShare() {
     const raw = linkPaste.trim();
+    setSelectedImage(null);
     setImportError(null);
     setImportNotice(null);
     setLinkResult(null);
@@ -377,6 +409,9 @@ export function Entry() {
   /** 手动取消：立刻解除忙碌状态，后台结果到达后也不会再改界面。 */
   function cancelImport() {
     importRun.current += 1;
+    imageRequest.current?.abort();
+    cancelLocalOcr.current?.();
+    cancelLocalOcr.current = null;
     setImportBusy(false);
     setImportStatus("");
     setImportError("已取消这次识别。你仍然可以直接粘贴原话或链接来调查。");
@@ -568,7 +603,9 @@ export function Entry() {
             >
               <textarea
                 aria-label="你想查什么"
-                rows={3}
+                disabled={importBusy}
+                style={importSource === "screenshot" ? { height: "auto", maxHeight: "none", resize: "vertical" } : undefined}
+                rows={importSource === "screenshot" ? Math.min(16, Math.max(5, clueQuestion.split("\n").length + 1)) : 3}
                 maxLength={500}
                 placeholder="例如：我记得一部悬疑剧，主角是法医、搭档叫大宝；或者：网传某款手机已在官网停售，是真的吗？"
                 value={clueQuestion}
@@ -582,7 +619,7 @@ export function Entry() {
                   type="button"
                   className="t-btn t-btn-quiet"
                   onClick={() => fileRef.current?.click()}
-                  disabled={SHOWCASE || clueBusy}
+                  disabled={SHOWCASE || clueBusy || importBusy}
                 >
                   <ImageIcon size={15} /> 上传截图
                 </button>
@@ -617,6 +654,28 @@ export function Entry() {
                   </button>
                 ) : null}
               </div>
+              {selectedImage && imagePreview ? (
+                <div className="t-import-panel" aria-label="截图识别方式" style={{ margin: "8px 6px" }}>
+                  <details>
+                    <summary>对照原图（仅本机预览）</summary>
+                    <img src={imagePreview} alt="已选择的原图，用于核对识别文字" style={{ display: "block", maxWidth: "100%", maxHeight: 480, objectFit: "contain", marginTop: 8 }} />
+                  </details>
+                  <div className="t-import-actions">
+                    <button type="button" className="t-btn t-btn-primary" disabled={importBusy || !vision.data?.available} onClick={() => void recognizeSelectedImage(true)}>
+                      AI识图（推荐）
+                    </button>
+                    <button type="button" className="t-btn t-btn-quiet" disabled={importBusy} onClick={() => void recognizeSelectedImage(false)}>
+                      本地识别（不上传）
+                    </button>
+                    <button type="button" className="t-btn t-btn-quiet" disabled={importBusy} onClick={() => { setSelectedImage(null); if (importSource === "screenshot") { setClueQuestion(""); setImportSource("manual"); setImportConfirmed(false); setImportNotice(null); } }}>移除图片</button>
+                  </div>
+                  <p className="t-hint" style={{ margin: 0 }}>
+                    {vision.data?.available
+                      ? `点击AI识图会将此图发送至 ${vision.data.provider}（${vision.data.model}），服务器不保存原图；请先遮住隐私信息。`
+                      : vision.isLoading ? "正在检查AI识图是否可用…" : vision.data?.reason || "AI识图当前不可用，可以使用本地识别。"}
+                  </p>
+                </div>
+              ) : null}
               {importSource !== "manual" ? (
                 <label className="t-hint" style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 12px" }}>
                   <input type="checkbox" checked={importConfirmed} onChange={(event) => setImportConfirmed(event.target.checked)} />

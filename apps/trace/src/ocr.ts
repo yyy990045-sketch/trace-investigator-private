@@ -41,29 +41,37 @@ export interface OcrResult {
 type Worker = Awaited<ReturnType<typeof createWorker>>;
 
 let workerPromise: Promise<Worker> | null = null;
+let workerGeneration = 0;
+let reportProgress: (p: OcrProgress) => void = () => {};
 
 function getWorker(onProgress: (p: OcrProgress) => void) {
+  reportProgress = onProgress;
   if (!workerPromise) {
-    workerPromise = createWorker(["chi_sim", "eng"], undefined, {
+    const generation = ++workerGeneration;
+    const pending = createWorker(["chi_sim", "eng"], undefined, {
       workerPath: `${OCR_ASSET_BASE}/worker.min.js`,
       corePath: OCR_ASSET_BASE,
       langPath: OCR_LANG_DIR,
-      logger: (message: { status?: string; progress?: number }) =>
-        onProgress({
+      logger: (message: { status?: string; progress?: number }) => {
+        if (generation !== workerGeneration) return;
+        reportProgress({
           status: String(message.status || "working"),
           progress: Number(message.progress || 0),
-        }),
+        });
+      },
     }).catch((error) => {
       // 失败后不要把坏掉的 Promise 缓存下来，否则重试永远失败。
-      workerPromise = null;
+      if (workerPromise === pending) workerPromise = null;
       throw error;
     });
+    workerPromise = pending;
   }
   return workerPromise;
 }
 
 /** 丢弃缓存的 worker（超时或取消后调用），下次重新初始化。 */
 export function resetOcrWorker() {
+  workerGeneration += 1;
   const pending = workerPromise;
   workerPromise = null;
   void pending
@@ -94,8 +102,9 @@ export async function recognizeImage(
   options: { timeoutMs?: number } = {},
 ): Promise<OcrResult> {
   const timeoutMs = options.timeoutMs ?? OCR_TIMEOUT_MS;
+  const pending = getWorker(onProgress);
   try {
-    const worker = await withTimeout(getWorker(onProgress), timeoutMs, "OCR_ENGINE_TIMEOUT");
+    const worker = await withTimeout(pending, timeoutMs, "OCR_ENGINE_TIMEOUT");
     // 不做预放大：实测放大 1.6 倍会把「自」认成「目」这类形近字，原尺寸配合
     // best 语言包反而更准。这里直接送原图（仍不上传、不落库）。
     const result = await withTimeout(worker.recognize(file), timeoutMs, "OCR_RECOGNIZE_TIMEOUT");
@@ -105,7 +114,7 @@ export async function recognizeImage(
     };
   } catch (error) {
     // 超时意味着 worker 可能卡在半初始化状态：丢掉它，避免下次继续卡。
-    resetOcrWorker();
+    if (workerPromise === pending) resetOcrWorker();
     throw error;
   }
 }

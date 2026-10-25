@@ -2,6 +2,7 @@ import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createPlatform } from "./app.ts";
 import { modelConfiguration } from "./providers.ts";
+import { registerVisionEndpoints } from "./vision-ocr.ts";
 // 配置边界：PLATFORM_DATA_DIR 若仍是模板占位值，告警并回退到默认数据目录，
 // 既不静默使用错误路径，也不让一次复制粘贴就把 Runtime 拦在启动之外。
 const configuredDataDir = process.env.PLATFORM_DATA_DIR?.trim();
@@ -50,6 +51,7 @@ const platform = await createPlatform({
   dbPath: join(data, "platform.sqlite"),
   artifactRoot: join(data, "artifacts"),
 });
+registerVisionEndpoints(platform.app, platform.store);
 async function stop() {
   await platform.app.close();
   await unlink(lock).catch(() => {});
