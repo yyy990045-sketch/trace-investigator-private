@@ -667,12 +667,16 @@ export function Entry() {
                         const ranked = plan.candidates.length
                           ? plan.candidates
                           : rankCandidates([plan.text]);
+                        // 点这个按钮就是「已经选好一句」：先把未决候选清掉，
+                        // 否则 tooLongChoices 会一直把提交按钮挡住（链接正文常超 500 字）。
+                        setTooLongChoices(null);
                         applyImportedText(
                           ranked[0] || plan.text.slice(0, MAX_INVESTIGATION_CHARS),
                           "page",
-                          "网页正文只作为待核查材料，不作为独立支持证据。",
+                          plan.needChoice && ranked.length > 1
+                            ? `网页正文只作为待核查材料，不作为独立支持证据。已取第一句完整说法，需要换一句可重新粘贴链接或直接改写。`
+                            : "网页正文只作为待核查材料，不作为独立支持证据。",
                         );
-                        if (plan.needChoice && ranked.length > 1) setTooLongChoices(ranked);
                       }}
                     >
                       用这段文字调查
