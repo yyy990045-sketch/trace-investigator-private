@@ -1,0 +1,13 @@
+{
+  "id": "trace-evidence-closeout",
+  "title": "TRACE 判断、档案、预算和范围修复及公网验收",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "trace",
+  "currentPhase": "completed",
+  "nextAction": "已部署并完成Ego实际操作；材料归档",
+  "createdAt": "2026-10-24T15:32:18.499773+00:00",
+  "branch": "fix/trace-evidence-public-closeout",
+  "completedAt": "2026-10-25T00:58:54.230647+00:00"
+}
