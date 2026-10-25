@@ -31,6 +31,13 @@ execFileSync("npx", ["vite", "build", "--outDir", "dist-showcase"], {
   stdio: "inherit",
 });
 await rm(join(out, "assets"), { recursive: true, force: true });
+// 只读回放不需要 OCR 运行时（那是「上传截图」用的，回放里没有输入框）。
+// 而且 wasm/js 二进制里的 vendor 字符串会被脱敏审计误判成路径泄露，所以不拷过去。
+try {
+  await rm(join(dist, "ocr"), { recursive: true, force: true });
+} catch {
+  /* 没有就跳过 */
+}
 await cp(dist, out, { recursive: true });
 const index = join(out, "index.html");
 const html = await readFile(index, "utf8");
