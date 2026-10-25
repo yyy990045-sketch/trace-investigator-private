@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "label": "剧情找剧",
+      "question": "只记得几个情节：一列火车、八分钟、最后爆炸。这是什么电影？",
+      "runId": "run_9db1940f-d9b7-4b0e-9538-1b4a74360696",
+      "verdict": "证据不足",
+      "links": 13
+    },
+    {
+      "label": "家族群传言",
+      "question": "冰箱里的鸡蛋不能放在门架上",
+      "runId": "run_7fa005ca-ee2c-4a56-88dc-9a2fd8a369d1",
+      "verdict": "存在反证",
+      "links": 29
+    },
+    {
+      "label": "深度调查",
+      "question": "反复烧开的水不能喝，会致癌",
+      "runId": "run_b8b4937f-b3d7-4c6c-bd9b-cd062ee13a22",
+      "verdict": "存在争议",
+      "links": 30
+    }
+  ],
+  "errors": [],
+  "archive": "/archive/run_b8b4937f-b3d7-4c6c-bd9b-cd062ee13a22",
+  "videoRaw": "/Users/xieweikai/trace-ui/delivery/materials/live-questions/single-raw/page@62512356318dc58913a13a5e5a1409b3.webm"
+}
