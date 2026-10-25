@@ -17,6 +17,7 @@ import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { ExecutionError } from "./contracts.ts";
 import { id, now } from "./util.ts";
+import { registerLinkIntake } from "./link-intake.ts";
 import type { Store } from "./store.ts";
 import type { Registry } from "./registry.ts";
 import type { Engine } from "./engine.ts";
@@ -226,6 +227,9 @@ export function registerProductEndpoints(
   },
 ) {
   const { store, registry, engine, allowedOrigins } = deps;
+
+  // 输入导入（截图之外的另一种入口：粘贴公开网页链接读正文）。
+  registerLinkIntake(app);
 
   /* ---------------------------------------------------------------- 项目应用 */
 

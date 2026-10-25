@@ -17,6 +17,7 @@ import {
   emptyTraceConfig,
 } from "../adapters/trace/bundle.ts";
 import { deriveClaims, planFactQueries } from "../src/query-plan.ts";
+import { assertTraceInputScope } from "../adapters/trace/scope.ts";
 
 const MANUAL_NOTE =
   "事实与检索式由人工确认输入（模型未配置或未启用）。系统未执行 AI 事实拆解，界面不标注为 AI 已完成拆解。";
@@ -39,6 +40,7 @@ export default {
   idempotent: true,
   assets: [],
   async execute(input: any, _config, ctx) {
+    assertTraceInputScope(input);
     const payload = (input.payload || {}) as any;
     const question = String(payload.question ?? input.text ?? "").trim();
     if (question.length < 2)

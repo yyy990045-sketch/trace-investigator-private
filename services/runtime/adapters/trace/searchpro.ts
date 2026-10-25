@@ -31,7 +31,9 @@ export type SearchErrorCode =
   | "SEARCH_NETWORK_ERROR"
   | "SEARCH_PROVIDER_ERROR"
   | "SEARCH_RESPONSE_INVALID"
-  | "SEARCH_CANCELED";
+  | "SEARCH_CANCELED"
+  | "SEARCH_LIMIT_PER_RUN"
+  | "SEARCH_BUDGET_EXHAUSTED";
 
 export interface WebPage {
   /** 检索命中的网页标题（来自服务商返回，非本地补造） */
@@ -262,6 +264,8 @@ export interface SearchOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   maxAttempts?: number;
+  /** Runs immediately before every outbound HTTP attempt; a rejected guard is not retried. */
+  beforeRequest?: () => void;
 }
 
 /**
@@ -304,7 +308,6 @@ export async function searchPro(query: string, options: SearchOptions = {}): Pro
   let lastError: SearchAttempt["error"] = null;
 
   while (attempts < maxAttempts) {
-    attempts++;
     if (options.signal?.aborted)
       return {
         ...base,
@@ -312,6 +315,8 @@ export async function searchPro(query: string, options: SearchOptions = {}): Pro
         durationMs: Date.now() - startedAt,
         error: { code: "SEARCH_CANCELED", message: "检索已取消。", retryable: false },
       };
+    options.beforeRequest?.();
+    attempts++;
     const timer = AbortSignal.timeout(timeoutMs);
     const combined = options.signal ? AbortSignal.any([options.signal, timer]) : timer;
     try {

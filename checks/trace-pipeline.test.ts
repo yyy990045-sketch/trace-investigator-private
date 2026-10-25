@@ -717,8 +717,11 @@ describe("三道锁定题：日期、数量、范围", () => {
       independentSourceCount: 1,
       searchedOk: true,
     });
-    expect(verdict.outcome).toBe("insufficient");
+    // Preserve the local quote as a partial answer, without deciding the nationwide assertion.
+    expect(verdict.outcome).toBe("partial");
+    expect(verdict.partialAnswer?.join(" ")).toContain("局部范围");
     expect(verdict.outcome).not.toBe("supported");
+    expect(verdict.outcome).not.toBe("contradicted");
   });
 });
 
@@ -791,7 +794,7 @@ describe("问句与否定词判定", () => {
     });
     expect(verdict.outcome).toBe("insufficient");
     expect(verdict.headline).toContain("求值型问句");
-    expect(verdict.reasons.join(" ")).toContain("改写成陈述句");
+    expect(verdict.reasons.join(" ")).toContain("从原文寻找对应答案");
   });
 });
 

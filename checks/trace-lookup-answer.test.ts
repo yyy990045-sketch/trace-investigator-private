@@ -53,3 +53,24 @@ describe("查询型侦探：带来源的具体回答", () => {
     expect(onlyExcerpt?.from).toBe("excerpt");
   });
 });
+
+import { findSourcedEntityAnswer } from "../services/runtime/src/lookup-answer.ts";
+describe("实体答案必须绑定所问角色", () => {
+  const q = "《狮子王》辛巴的父亲叫什么名字？";
+  const evidence = (quote: string): LookupEvidence => ({ ...report, quote });
+  it("支持直接、倒装和同位语，保留来源", () => {
+    for (const quote of ["辛巴的父亲是木法沙。", "剧情描述辛巴在父亲木法沙的训练下，学习成为未来的国王。", "木法沙是辛巴的父亲。", "辛巴的父亲木法沙从未缺席。", "辛巴的父亲木法沙的训练下，他不断成长。"])
+      expect(findSourcedEntityAnswer(q, [evidence(quote)])?.value).toBe("木法沙");
+  });
+  it("其他角色、否定和相互冲突的原文不能给答案", () => {
+    for (const quote of ["辛巴和娜娜在一起，娜娜的父亲是木法沙。", "人物分别是辛巴的父亲和好朋友彭彭和丁满。", "辛巴的父亲不是木法沙。", "辛巴的父亲可能是木法沙。", "辛巴的父亲是木法沙的说法尚未证实。", "研究者假设辛巴的父亲是木法沙，仍待验证。", "辛巴的父亲是木法沙，但这一说法并不属实。"])
+      expect(findSourcedEntityAnswer(q, [evidence(quote)])).toBeNull();
+    expect(findSourcedEntityAnswer(q, [evidence("辛巴的父亲是木法沙。"), evidence("辛巴的父亲是刀疤。")])).toBeNull();
+  });
+});
+
+it("位置问题只取位置谓词，不把身份当地点", () => {
+ const e = (quote: string): LookupEvidence => ({ ...report, quote });
+ for (const quote of ["故宫是世界文化遗产。", "故宫位于北京市中心举行展览。", "故宫在北京开放。"]) expect(findSourcedEntityAnswer("故宫在哪里？", [e(quote)])).toBeNull();
+ expect(findSourcedEntityAnswer("故宫在哪里？", [e("故宫位于北京市中心。")])?.value).toBe("北京市中心");
+});

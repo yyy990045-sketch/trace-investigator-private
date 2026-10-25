@@ -11,6 +11,8 @@
  *  3. 未来计划不等于已经发生。
  */
 
+import { comparePossession } from "./proposition.ts";
+
 export type ClaimVerdict =
   | "direct_support"
   | "direct_refute"
@@ -34,6 +36,7 @@ export interface ClaimSemantics {
   /** 限定词：已经 / 计划 / 可能 / 全部 / 部分 */
   modality: "done" | "planned" | "possible" | "partial" | "unknown";
   nature: RelationNature;
+  polarity?: "positive" | "negative";
 }
 
 const MODALITY = {
@@ -67,7 +70,7 @@ const CORRELATION = /(相关|关联|有关联|有关|伴随|同时出现|倾向�
 /** 预测/计划语气：不能当作已发生。 */
 const FUTURE = /(计划|预计|将于|拟|即将|未来|有望|可能会|明年|下月)/;
 /** 明确否定。 */
-const DENY = /(并非|不是|否认|辟谣|不实|谣言|没有发生|并未|未曾|未正式|尚未|不能|不会|并没有|未再)/;
+const DENY = /(并非|不是|否认|辟谣|不实|谣言|没有|并未|未曾|未正式|尚未|不能|不会|并没有|未再)/;
 
 /** 「全面/一律」这类加宽词：来源必须有同等范围，才谈得上支持整句说法。 */
 const WIDEN = /(全面|一律|所有|全部|任何|一概|全行业|统一|彻底|全体)/;
@@ -142,6 +145,9 @@ export function parseClaim(text: string): ClaimSemantics {
     time,
     modality,
     nature,
+    polarity: predicate && /(?:没有|并未|尚未|从未|未曾|不是|并非|未正式|不会|并没有)\s*$/.test(
+      value.slice(0, value.search(PREDICATES.find((item) => item.key === predicate)!.pattern)),
+    ) ? "negative" : "positive",
   };
 }
 
@@ -213,6 +219,10 @@ function compareBanClaim(claim: ClaimSemantics, text: string): SentenceVerdict |
 export function compareSentence(claim: ClaimSemantics, sentence: string): SentenceVerdict {
   const text = clean(sentence);
   if (!text) return { verdict: "unrelated", reason: "空句子", sufficient: false };
+  if (!claim.predicate) {
+    const possession = comparePossession(claim.text, text);
+    if (possession) return possession;
+  }
 
   // 0) 禁令类说法先按「全面禁止 vs 有条件限制」判断。
   const banVerdict = compareBanClaim(claim, text);
@@ -288,6 +298,10 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
 
   // 3) 否定必须有明确的对象。"没有证据证明 X" 不能反推 "X 已被证明为假"；
   // "研究并不是说 X" 只说明研究本身不足以证明 X。
+  if (/(?:没有证据|尚无证据|缺乏证据|没有证明|未能证明|尚未证实|未证实|不能证明|无法证明|并不意味着|不代表|并不是说|不是说|不能确定|不等于)/.test(text))
+    return { verdict: "partial", reason: "原句只说明证据或推论不足，不能据此确认正面或相反事实", sufficient: false };
+  if (/可能|或许|也许|疑似|据说|如果|假如|有望|预计|尚待/.test(text) || /(?:不是|并非)(?:没有|并未|不)/.test(claim.text + text))
+    return { verdict: "related_only", reason: "原句含可能性、条件或未解析的复合否定，不作为确定支持或反证", sufficient: false };
   const deny = DENY.exec(text);
   if (deny) {
     const epistemic =
@@ -313,7 +327,11 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
         sufficient: false,
       };
     }
-    return { verdict: "direct_refute", reason: `来源明确否定对应主体的「${claim.predicate}」表述`, sufficient: true };
+    if (claim.time.length && !claim.time.some((time) => text.includes(time.replace(/\s/g, ""))))
+      return { verdict: "partial", reason: "否定方向可比，但时间条件未绑定", sufficient: false };
+    return claim.polarity === "negative"
+      ? { verdict: "direct_support", reason: `同一主体的「${claim.predicate}」在说法与原句中均被明确否定`, sufficient: true }
+      : { verdict: "direct_refute", reason: `来源明确否定对应主体的「${claim.predicate}」表述`, sufficient: true };
   }
 
   // 4) 已经发生 vs 计划/预测：说法是「已停产」，来源说「将停产」只能算相关系。
@@ -348,8 +366,10 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
   }
 
   return {
-    verdict: "direct_support",
-    reason: `同一主体、同一行为${claim.predicate ? `（${claim.predicate}）` : ""}，且没有否定或时间错位`,
+    verdict: claim.polarity === "negative" ? "direct_refute" : "direct_support",
+    reason: claim.polarity === "negative"
+      ? "同一主体和行为在说法中被否定、在原句中被明确肯定"
+      : `同一主体、同一行为${claim.predicate ? `（${claim.predicate}）` : ""}，且没有否定或时间错位`,
     sufficient: true,
   };
 }

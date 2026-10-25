@@ -6,6 +6,7 @@
  * 模型不可用时退回规则拆分，并在记录里写明本次用的是哪一种。
  */
 import { modelConfiguration } from "./providers.ts";
+import { assertTraceScope } from "../adapters/trace/scope.ts";
 import { detectInvestigationDomain } from "@personal/capability-sdk";
 export { detectInvestigationDomain } from "@personal/capability-sdk";
 
@@ -414,6 +415,7 @@ function sanitize(raw: RawPlan, question: string): { goal: string; clues: Planne
 
 /** 模型规划；任何异常都退回规则规划，并把原因记录下来。 */
 export async function planClueInvestigation(question: string, signal: AbortSignal): Promise<CluePlan> {
+  assertTraceScope(question);
   const config = modelConfiguration();
   const base = planByRule(question);
   if (!config.available)

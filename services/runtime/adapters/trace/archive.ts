@@ -10,6 +10,7 @@
  *  - 不写：任何无法复核的推断、任何「AI 已验证」的表述。
  */
 import { outcomeLabel } from "./analyze.ts";
+import { assessmentFingerprint, TRACE_RULES_VERSION } from "./assessment-version.ts";
 
 export interface ArchiveSource {
   sourceOrigin?: "operator_url" | "search";
@@ -152,6 +153,8 @@ export function renderArchive(input: ArchiveInput) {
     `# 调查档案${revision > 1 ? `（第 ${revision} 版）` : ""}：${caseInfo.claim || caseInfo.question || "调查档案"}`,
     ``,
     `- 版本：第 ${revision} 版（交付时间 ${generatedAt}，确认人 ${actor}）`,
+    `- 判定规则版本：${TRACE_RULES_VERSION}`,
+    `- 评估比较指纹：${assessmentFingerprint(assessment)}`,
     `- 结论类型：**${outcomeLabel(verdict.outcome)}**（把握程度：${verdict.confidence === "medium" ? "中" : verdict.confidence === "high" ? "高" : "低"}）`,
     `- 结论：${verdict.statement || verdict.headline || "（本次未生成结论文本）"}`,
     `- 结论理由：`,
@@ -284,6 +287,8 @@ export function renderArchive(input: ArchiveInput) {
 
   const json = {
     archiveKind: "trace-investigation-archive",
+    rulesVersion: TRACE_RULES_VERSION,
+    comparisonFingerprint: assessmentFingerprint(assessment),
     runId,
     revision,
     generatedAt,

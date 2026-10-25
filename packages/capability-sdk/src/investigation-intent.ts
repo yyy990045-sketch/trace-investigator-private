@@ -19,6 +19,8 @@ export function detectInvestigationDomain(question: string): InvestigationDomain
 
 export function investigationFlow(question: string, selected: InvestigationFlow): InvestigationFlow {
   if (selected === "verification") return "verification";
+  // A known work with a question about a character or credit needs a sourced answer.
+  if (/(?:父亲|母亲|妻子|丈夫|导演|编剧|配音)(?:的名字)?(?:是谁|叫什么|是哪位)/.test(question)) return "verification";
   // 其它主题并无影视候选实体模型；不能让演出票务落入找电影的判断器。
   return detectInvestigationDomain(question) === "screen" ? "clue" : "verification";
 }

@@ -29,12 +29,12 @@ export function Archive() {
   const assessmentQuery = useQuery({
     queryKey: ["assessment", runId],
     queryFn: () => fetchAssessment(runId),
-    enabled: !!runQuery.data,
+    enabled: !!runId,
   });
   const revisionsQuery = useQuery({
     queryKey: ["revisions", runId],
     queryFn: () => fetchRevisions(runId),
-    enabled: !!runQuery.data,
+    enabled: !!runId,
   });
   const [pickedVersion, setPickedVersion] = useState<number | null>(null);
 
@@ -136,7 +136,7 @@ export function Archive() {
         <p className="trace-lede">
           {caseInfo?.question && caseInfo.question !== caseInfo.claim ? `原始问题：${caseInfo.question} · ` : ""}
           {followups.length ? `追加检索 ${followups.length} 次 · ` : ""}
-          {shown ? `档案第 ${shown.revision} 版 · ` : ""}
+          {showCurrent ? "当前判断（尚未生成新档案） · " : shown ? `冻结档案第 ${shown.revision} 版 · ` : ""}
           事实由人工确认（未使用 AI 拆解）
         </p>
       </header>
@@ -144,7 +144,7 @@ export function Archive() {
       <section className="trace-verdict t-verdict" data-outcome={verdict.outcome}>
         <div className="trace-verdict-head">
           {lookupAnswer ? (
-            <span className="t-status" data-tone="partial">已找到来源数值</span>
+            <span className="t-status" data-tone="partial">{lookupAnswer.kind === "entity" ? "已找到来源答案" : "已找到来源数值"}</span>
           ) : (
             <h2>{outcomeText[verdict.outcome]}</h2>
           )}
@@ -170,15 +170,14 @@ export function Archive() {
                 </div>
               </div>
             </div>
-            <p className="t-hint" style={{ marginTop: 10 }}>
+            {lookupAnswer.kind !== "entity" ? <p className="t-hint" style={{ marginTop: 10 }}>
               数据所属年份：{lookupAnswer.dataYear || "来源未写明"}
               {lookupAnswer.yearBasis === "stated" ? "（原句写明）" : "（按来源发布时间推断，仍需核对）"}
               {lookupAnswer.period ? ` · 统计期间：${lookupAnswer.period}` : ""}
               {lookupAnswer.scope ? ` · 统计范围：${lookupAnswer.scope}` : ""}
-            </p>
+            </p> : null}
             <p className="t-limits">
-              这个数字来自公开来源页面；主管部门原始发布与统计口径尚未完成独立核验，
-              因此规则判断仍是「{outcomeText[verdict.outcome]}」，档案同时保留这一判断。
+              {lookupAnswer.kind === "entity" ? lookupAnswer.limitation : `这个数字来自公开来源页面；主管部门原始发布与统计口径尚未完成独立核验，因此规则判断仍是「${outcomeText[verdict.outcome]}」，档案同时保留这一判断。`}
             </p>
           </div>
         ) : null}
@@ -235,7 +234,7 @@ export function Archive() {
 
       {versions.length ? (
         <details className="trace-details trace-versionbar">
-          <summary>版本与变化（{versions.length} 版，当前{showCurrent ? "查看未成档结论" : `查看第 ${shown?.revision} 版`}）{pending ? " · 有新证据尚未成档" : ""}</summary>
+          <summary>版本与变化（{versions.length} 版，当前{showCurrent ? "查看未成档结论" : `查看第 ${shown?.revision} 版`}）{pending ? " · 当前判断有变化尚未成档" : ""}</summary>
           <div className="trace-versionbar-head">
             <strong>
               {showCurrent
@@ -286,7 +285,7 @@ export function Archive() {
           ) : null}
           {pickedVersion === 0 ? (
             <p className="trace-hint">
-              这是第 {latest?.revision} 版交付之后、按新证据重算的结论，还没有生成档案。回到调查过程页点「重新确认」即可出新增版本。
+              这是按当前证据和判定规则重算的判断，还没有生成新档案。下方文件仍属于明确标注的冻结版本。
             </p>
           ) : null}
           {shown && shown.changes.length ? (
@@ -301,7 +300,7 @@ export function Archive() {
           ) : null}
           {pending && !pickedVersion ? (
             <div className="trace-versionbar-pending">
-              <strong>首版之后又有新证据，当前结论尚未成档</strong>
+              <strong>证据或判定规则已变化，当前判断尚未生成新档案</strong>
               <ul className="trace-verdict-changes">
                 {(revisionsQuery.data?.changes || []).map((item, index) => (
                   <li key={index}>{evidenceWording(item)}</li>
@@ -470,7 +469,7 @@ export function Archive() {
               download={file.filename}
             >
               {file.filename.endsWith(".json") ? <FileJson size={14} /> : <Download size={14} />}
-              {file.filename}（{(file.bytes / 1024).toFixed(1)} KB）
+              第 {shown?.revision ?? 1} 版 · {file.filename}（{(file.bytes / 1024).toFixed(1)} KB）
             </a>
           ))}
           {SHOWCASE ? null : (

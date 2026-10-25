@@ -16,6 +16,7 @@ import {
   emptyTraceConfig,
 } from "../adapters/trace/bundle.ts";
 import { planClueInvestigation } from "../src/clue-plan.ts";
+import { assertTraceInputScope, assertTraceScope } from "../adapters/trace/scope.ts";
 
 export default {
   id: "trace.clue.intake",
@@ -35,6 +36,7 @@ export default {
   idempotent: true,
   assets: [],
   async execute(input: any, _config, ctx) {
+    assertTraceInputScope(input);
     const payload = (input.payload || {}) as any;
     const question = String(payload.question ?? input.text ?? "").trim();
     if (question.length < 4)
@@ -52,6 +54,7 @@ export default {
     const clues = plan.clues.map((clue, index) => ({ id: `clue-${index + 1}`, ...clue }));
     if (!clues.length) throw new ExecutionError("CLUES_REQUIRED", "没有从描述里识别出可用线索，请补充更具体的特征。");
     const queries = plan.queries.slice(0, 4);
+    for (const query of queries) assertTraceScope(query, question);
     if (!queries.length) throw new ExecutionError("QUERY_REQUIRED", "没有生成可用检索式。");
 
     const config = searchConfiguration();

@@ -1,4 +1,6 @@
+import { traceDisplayRun } from "./trace-display.ts";
 import { searchConfiguration } from "../adapters/trace/searchpro.ts";
+import { assertTraceInputScope } from "../adapters/trace/scope.ts";
 import { registerTraceEndpoints } from "./trace-followup.ts";
 import { registerClueEndpoints } from "./trace-clue.ts";
 import { matchExperiences, registerTraceExperienceEndpoints } from "./trace-experiences.ts";
@@ -335,6 +337,7 @@ export async function createPlatform(
       // 调查经验：立案前在「已确认经验」里匹配检查提示，随输入带进上下文，
       // 只作为分析辅助，不参与来源判定，也不改动任何结论。
       const steps = (engine.project(req.params.id) as any).steps || [];
+      if (steps.some((step: any) => String(step.capabilityId).startsWith("trace."))) assertTraceInputScope(input);
       if (steps.some((step: any) => String(step.capabilityId) === "trace.evidence.verify")) {
         const payload: any = (input as any).payload || {};
         const claim = String(payload.claim ?? payload.question ?? "");
@@ -367,7 +370,7 @@ export async function createPlatform(
       return run;
     },
   );
-  app.get<{ Querystring: { projectId?: string } }>("/v1/runs", async (req) => {
+  app.get<{ Querystring: { projectId?: string; view?: string } }>("/v1/runs", async (req) => {
     const session = publicMode() ? sessionOfRequest(req) : null;
     // 公网模式下 owner 过滤必须始终生效：带 projectId 查询也一样，
     // 否则任意会话只要猜到项目 ID 就能列出别人的调查。
@@ -396,14 +399,14 @@ export async function createPlatform(
         ...run,
         evidence: [],
         modelCalls: [],
-        steps: run.steps.map((step) => ({ ...step, output: undefined })),
+        steps: run.steps.map((step) => ({ ...step, ...(req.query.view === "trace" ? { input: null } : {}), output: undefined })),
       };
     });
   });
-  app.get<{ Params: { id: string } }>("/v1/runs/:id", async (req) => {
+  app.get<{ Params: { id: string }; Querystring: { view?: string } }>("/v1/runs/:id", async (req) => {
     const run = store.run(req.params.id);
     if (!run) throw new ExecutionError("RUN_NOT_FOUND", "任务不存在。");
-    return run;
+    return req.query.view === "trace" && run.assembly.some((step) => step.capabilityId.startsWith("trace.")) ? traceDisplayRun(run) : run;
   });
   app.post<{ Params: { id: string } }>("/v1/runs/:id/cancel", async (req) =>
     engine.cancel(req.params.id),

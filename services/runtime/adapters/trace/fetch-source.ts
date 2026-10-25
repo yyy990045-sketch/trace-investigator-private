@@ -319,13 +319,16 @@ export async function fetchSource(url: string, options: FetchOptions = {}): Prom
     };
   } catch (error) {
     const aborted = options.signal?.aborted === true;
-    const reason = error as Error & { code?: string };
+    const reason = error as Error & { code?: string; cause?: { code?: string } };
+    const code = reason.cause?.code || reason.code || "FETCH_FAILED";
     return {
       ...base,
       durationMs: Date.now() - startedAt,
       error: {
-        code: aborted ? "FETCH_CANCELED" : reason.code || "FETCH_FAILED",
-        message: aborted ? "原文抓取已取消。" : reason.message || "无法访问原文。",
+        code: aborted ? "FETCH_CANCELED" : code,
+        message: aborted ? "原文抓取已取消。" : /SSL|TLS|CERT|EPROTO/.test(code)
+          ? `目标站点的 TLS 连接失败（${code}）；未关闭证书验证，也未自动改用 HTTP。`
+          : reason.message || "无法访问原文。",
       },
     };
   }

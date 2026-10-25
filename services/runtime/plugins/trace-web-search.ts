@@ -9,14 +9,15 @@
  */
 import { setTimeout as sleep } from "node:timers/promises";
 import { ExecutionError, type CapabilityDefinition } from "../src/contracts.ts";
-import { searchConfiguration, searchPro } from "../adapters/trace/searchpro.ts";
+import { searchConfiguration } from "../adapters/trace/searchpro.ts";
+import { traceSearch } from "../src/trace-search.ts";
+import { assertTraceScope } from "../adapters/trace/scope.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import {
   TRACE_VERSION,
   summarizeSearch,
   traceBundleSchema,
 } from "../adapters/trace/bundle.ts";
-import { guardReserveSearch } from "../src/public-guard.ts";
 
 const configSchema = {
   type: "object",
@@ -61,6 +62,9 @@ export default {
       );
 
     const plan = facts.flatMap((fact) => fact.queries.map((query) => ({ factId: fact.id, query })));
+    assertTraceScope(String(input.case?.question || input.text || ""));
+    for (const fact of facts) assertTraceScope(fact.text, input.case?.question);
+    for (const item of plan) assertTraceScope(item.query, input.case?.question);
     ctx.evidence("search.plan", {
       provider: searchConfig.provider,
       endpointHost: searchConfig.endpointHost,
@@ -73,16 +77,9 @@ export default {
       ctx.signal.throwIfAborted();
       // 公网受控：每次真实检索前先占预算（单次调查上限 + 全站每日上限）。
       // 超额直接抛出可理解错误，不静默跳过检索。
-      const budget = guardReserveSearch(ctx.runId);
-      if (budget && index === 0)
-        ctx.evidence("search.budget", {
-          usedInRun: budget.used,
-          runLimit: budget.runLimit,
-          dayUsed: budget.dayUsed,
-          dayLimit: budget.dayLimit,
-        });
       ctx.signal.throwIfAborted();
-      const attempt = await searchPro(item.query, {
+      const attempt = await traceSearch(ctx.runId, item.query, {
+        scopeContext: input.case?.question,
         signal: ctx.signal,
         timeoutMs: Number(config.requestTimeoutMs) || searchConfig.timeoutMs,
       });
@@ -100,6 +97,7 @@ export default {
         error: attempt.error,
         topUrls: attempt.pages.slice(0, 3).map((p) => p.url),
       });
+      if (attempt.error?.code === "SEARCH_LIMIT_PER_RUN" || attempt.error?.code === "SEARCH_BUDGET_EXHAUSTED") break;
       if (index < plan.length - 1) await sleep(Number(config.gapMs) || 0, undefined, { signal: ctx.signal });
     }
 

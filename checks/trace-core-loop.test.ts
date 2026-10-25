@@ -34,3 +34,9 @@ describe("侦探核心闭环：缺口能推动下一步行动", () => {
     }] })).toBe(false);
   });
 });
+
+import { investigationFlow } from "../packages/capability-sdk/src/investigation-intent.ts";
+it("已知作品的角色关系走出处回答，模糊片名仍走候选追查", () => {
+ expect(investigationFlow("动画电影《狮子王》中辛巴的父亲叫什么名字？", "clue")).toBe("verification");
+ expect(investigationFlow("火车八分钟反复爆炸的电影叫什么？", "clue")).toBe("clue");
+});

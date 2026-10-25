@@ -24,25 +24,31 @@ try {
   sessionToken = null;
 }
 
+/**
+ * 会话只保存在 HttpOnly Cookie 里。
+ *
+ * 这里返回的值仅用于排查与兼容：服务端不再把令牌下发到页面，浏览器脚本也读不到
+ * Cookie；页面里任何字符串都不能被拿去复刻别人的会话。
+ */
 export function currentSessionToken() {
-  return sessionToken;
+  return sessionToken || "";
 }
 
 function sessionHeaders(): Record<string, string> {
   return sessionToken ? { "x-trace-session": sessionToken } : {};
 }
 
-/** 确保本浏览器已有会话；失败时抛出可直接展示的错误。 */
+/**
+ * 确保本浏览器已有会话；失败时抛出可直接展示的错误。
+ *
+ * Cookie 是主路径（fetch 默认带同站 Cookie），请求头只为老页面兼容。
+ * 早先版本把令牌写进了 localStorage，这里主动清掉，避免继续留存可复制的凭证。
+ */
 export async function ensureSession(): Promise<void> {
   if (SHOWCASE) return;
   const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
-  // 请求头或 HttpOnly Cookie 任一有效就沿用现有会话（清空 localStorage 也不会丢记录）。
-  const probe = await fetch(root + "/v1/session", { headers: sessionHeaders() }).catch(() => null);
-  if (probe && probe.ok) return;
-  // 本机模式没有会话端点（404）：直接按无会话继续，本机不需要隔离。
-  if (probe && probe.status === 404) return;
-  if (probe && probe.status >= 500) throw new Error("运行服务暂时不可用，请稍后重试。");
   if (sessionToken) {
+    // 旧版本遗留：无论服务端是否还认这个令牌，都不再在页面里保留。
     sessionToken = null;
     try {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -50,30 +56,69 @@ export async function ensureSession(): Promise<void> {
       /* 忽略隐私模式下的存储失败 */
     }
   }
+  const probe = await fetch(root + "/v1/session", { credentials: "same-origin" }).catch(() => null);
+  if (probe && probe.ok) return;
+  // 本机模式没有会话端点（404）：直接按无会话继续，本机不需要隔离。
+  if (probe && probe.status === 404) return;
+  if (probe && probe.status >= 500) throw new Error("运行服务暂时不可用，请稍后重试。");
   const created = await fetch(root + "/v1/session", {
     method: "POST",
+    credentials: "same-origin",
     headers: { "content-type": "application/json", "x-platform-client": "workbench-v1" },
     body: "{}",
   }).catch(() => null);
-  if (!created)
-    throw new Error("无法连接调查服务，请检查网络后重试。");
-  const data = (await created.json().catch(() => null)) as
-    | { token?: string; message?: string }
-    | null;
+  if (!created) throw new Error("无法连接调查服务，请检查网络后重试。");
   if (created.status === 404) return;
-  if (!created.ok || !data?.token)
+  if (!created.ok) {
+    const data = (await created.json().catch(() => null)) as { message?: string } | null;
     throw new Error(data?.message || `建立会话失败（HTTP ${created.status}）。`);
-  sessionToken = data.token;
-  try {
-    window.localStorage.setItem(SESSION_STORAGE_KEY, data.token);
-  } catch {
-    /* 忽略 */
   }
+  // 会话已通过 Set-Cookie 下发，页面不再保存令牌。
 }
 
-const liveClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "/api", {
+/**
+ * 输入导入：读一个公开网页链接的标题与正文。
+ *
+ * 抓取在服务端完成（SSRF/重定向/超时/字节上限都在 fetch-source.ts 里），
+ * 短视频平台直接返回「读不到」的提示，不会伪造正文。
+ */
+export interface LinkImport {
+  url: string;
+  title: string;
+  text: string;
+  truncated: boolean;
+  note: string;
+}
+
+export async function importFromLink(url: string): Promise<LinkImport> {
+  const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
+  const response = await fetch(`${root}/v1/ingest/link`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-platform-client": "workbench-v1",
+      ...sessionHeaders(),
+    },
+    body: JSON.stringify({ url }),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | (LinkImport & { message?: string; httpAlternative?: string })
+    | null;
+  if (!response.ok) {
+    throw Object.assign(new Error(data?.message || `读取链接失败（HTTP ${response.status}）。`), { httpAlternative: data?.httpAlternative });
+  }
+  if (!data) throw new Error("读取链接失败：服务返回内容无法解析。");
+  return data;
+}
+
+const runtimeClient = createRuntimeClient(import.meta.env.VITE_RUNTIME_API_URL || "/api", {
   headers: sessionHeaders,
 });
+const liveClient = {
+  ...runtimeClient,
+  run: (id: string) => traceRequest<RunRecord>(`/v1/runs/${encodeURIComponent(id)}?view=trace`),
+  runs: (projectId?: string) => traceRequest<RunRecord[]>(`/v1/runs?view=trace${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ""}`),
+};
 
 /**
  * 只读静态展示模式：把同一套界面跑在「历史调查记录」上，不连 Runtime。
@@ -488,6 +533,8 @@ export interface TraceBundleView {
     lookup?: {
       note: string;
       answer?: {
+        /** entity = 实体答案（人名/机构/地点），缺省是数值或日期 */
+        kind?: "entity";
         value: string;
         label: string;
         limitation: string;
@@ -630,11 +677,12 @@ export function clueReportUrl(runId: string, format: "md" | "json" = "md") {
   return `${base}/v1/runs/${encodeURIComponent(runId)}/report.${format}`;
 }
 
-async function traceRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+async function traceRequest<T>(path: string, method = "GET", body?: unknown, retried = false): Promise<T> {
   let response: Response;
   try {
     response = await fetch(runtimeBase + path, {
       method,
+      credentials: "same-origin",
       headers: {
         "content-type": "application/json",
         "x-platform-client": "workbench-v1",
@@ -651,6 +699,11 @@ async function traceRequest<T>(path: string, method = "GET", body?: unknown): Pr
     data = JSON.parse(text);
   } catch {
     throw new Error(`运行服务返回异常（HTTP ${response.status}）。`);
+  }
+  // 会话过期：重新领一次会话，再重试一次；不把裸 401 抛给用户。
+  if (response.status === 401 && !retried && !SHOWCASE) {
+    await ensureSession().catch(() => undefined);
+    return traceRequest<T>(path, method, body, true);
   }
   if (!response.ok) throw new Error(data.message || "请求失败");
   return data as T;
@@ -795,6 +848,8 @@ export interface RevisionsView {
   deliveredRevision: number;
   /** 交付之后又有了新的追问/修正，当前结论尚未成档 */
   dirty: boolean;
+  /** Public demo runs are readable but belong to another session. */
+  readOnly?: boolean;
   pendingFollowups: number;
   pendingCorrections: number;
   current: NonNullable<TraceBundleView["assessment"]>;

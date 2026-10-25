@@ -16,8 +16,22 @@ import { ExecutionError } from "./contracts.ts";
 import { hash, id, now } from "./util.ts";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine.ts";
-import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
-import { collectLookupEvidence, findSourcedLookupAnswer, isLookupQuestion, lookupStatement } from "./lookup-answer.ts";
+import { searchConfiguration, type WebPage } from "../adapters/trace/searchpro.ts";
+import { traceSearch } from "./trace-search.ts";
+import { assertTraceScope, assertTraceInputScope } from "../adapters/trace/scope.ts";
+import { assessmentChanged, versionAssessment, TRACE_RULES_VERSION } from "../adapters/trace/assessment-version.ts";
+import { publicMode, sessionOfRequest } from "./public-guard.ts";
+import {
+  collectEntityEvidence,
+  collectLookupEvidence,
+  entityQuestionParts,
+  entityStatement,
+  findSourcedEntityAnswer,
+  findSourcedLookupAnswer,
+  isEntityQuestion,
+  isLookupQuestion,
+  lookupStatement,
+} from "./lookup-answer.ts";
 import { parseClaim } from "../adapters/trace/claim-semantics.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { renderArchive } from "../adapters/trace/archive.ts";
@@ -113,7 +127,7 @@ function correctionsOf(run: ReturnType<typeof traceRun>): (CorrectionRecord & { 
  * corrections 可覆盖：写入前试算（extra）与历史重放（useCorrections）都用这一条路径，
  * 保证「试算」「落库后」「补算影响」三处的口径完全一致。
  */
-export function buildAssessment(
+function computeAssessment(
   run: ReturnType<typeof traceRun>,
   option: { extra?: CorrectionRecord[]; useCorrections?: CorrectionRecord[] } = {},
 ) {
@@ -187,7 +201,24 @@ export function buildAssessment(
   // 与首版档案同一句结论，避免不同版本之间结论文本不可比对。
   // 查询型问题已经拿到带来源的数值时，结论句必须把数值写出来，而不是只说「证据不足」。
   const lookupBlock = (() => {
-    if (!isLookupQuestion(claim)) return {};
+    if (!isLookupQuestion(claim)) {
+      // 实体型问句：与首次核验用同一套抽取，刷新或补查后答案不能丢。
+      const parts = isEntityQuestion(claim) ? entityQuestionParts(claim) : null;
+      if (!parts) return {};
+      const evidence = collectEntityEvidence(pages, bodies, parts);
+      if (!evidence.length) return {};
+      const answer = findSourcedEntityAnswer(claim, evidence);
+      return {
+        answer,
+        block: {
+          note: answer
+            ? "已找到与所问对象直接对应的原句；答案是来源自己写的，不等同于已核实的唯一答案。"
+            : "找到了相关原句，但没有能直接回答这个问题的表述（或多处说法互相冲突），因此不给出答案。",
+          items: evidence,
+          ...(answer ? { answer } : {}),
+        },
+      };
+    }
     const evidence = collectLookupEvidence(pages, bodies);
     if (!evidence.length) return {};
     const answer = findSourcedLookupAnswer(claim, evidence);
@@ -200,14 +231,30 @@ export function buildAssessment(
       },
     };
   })() as { answer?: ReturnType<typeof findSourcedLookupAnswer> | null; block?: Record<string, unknown> };
+  const aggregatedOrAnswered =
+    lookupBlock.answer &&
+    (lookupBlock.answer as { kind?: string }).kind === "entity" &&
+    aggregated.outcome === "insufficient"
+      ? {
+          ...aggregated,
+          outcome: "partial" as const,
+          headline: "已找到来源中的对应答案，仍需人工核对。",
+          reasons: [
+            ...(aggregated.reasons || []).filter((reason: string) => !/改写成陈述句/.test(reason)),
+            `原句给出「${(lookupBlock.answer as { value: string }).value}」，但这只是该来源的表述，不等同于已核实的唯一答案。`,
+          ],
+        }
+      : aggregated;
   const verdict = {
-    ...aggregated,
+    ...aggregatedOrAnswered,
     statement:
-      lookupBlock.answer && aggregated.outcome !== "supported" && aggregated.outcome !== "contradicted"
-        ? lookupStatement(lookupBlock.answer)
-        : buildStatement(claim, aggregated),
+      lookupBlock.answer && aggregatedOrAnswered.outcome !== "supported" && aggregatedOrAnswered.outcome !== "contradicted"
+        ? "kind" in (lookupBlock.answer as object) && (lookupBlock.answer as { kind?: string }).kind === "entity"
+          ? entityStatement(lookupBlock.answer as Parameters<typeof entityStatement>[0])
+          : lookupStatement(lookupBlock.answer)
+        : buildStatement(claim, aggregatedOrAnswered),
   };
-  const assessment = {
+  const assessment = versionAssessment({
     facts: assessments,
     verdict,
     independentSources,
@@ -228,8 +275,21 @@ export function buildAssessment(
     unconfirmedPages: [...grouping.unconfirmed],
     clusterBasis: Object.fromEntries(grouping.clusterBasis),
     keySentenceSources,
-  };
+  });
   return { bundle, assessment };
+}
+
+/** Exact-content cache: edits, followups, corrections and rule changes invalidate it. */
+const assessmentCache = new Map<string, ReturnType<typeof computeAssessment>>();
+export function buildAssessment(run: ReturnType<typeof traceRun>, option: { extra?: CorrectionRecord[]; useCorrections?: CorrectionRecord[] } = {}) {
+  if (option.extra || option.useCorrections) return computeAssessment(run, option);
+  const key = hash({ rules: TRACE_RULES_VERSION, bundle: baseBundle(run), followups: followupsOf(run), corrections: correctionsOf(run) });
+  const hit = assessmentCache.get(key);
+  if (hit) return structuredClone(hit);
+  const result = computeAssessment(run, option);
+  if (assessmentCache.size >= 12) assessmentCache.delete(assessmentCache.keys().next().value!);
+  assessmentCache.set(key, structuredClone(result));
+  return result;
 }
 
 /**
@@ -350,8 +410,100 @@ function describeChanges(previous: any, current: any, context: { followups: numb
   }
   if (context.followups) changes.push(`首版之后新增 ${context.followups} 次追加检索（真实检索）。`);
   if (context.corrections) changes.push(`首版之后采纳 ${context.corrections} 条人工修正。`);
-  if (!changes.length) changes.push("与上一版相比，结论类型与来源统计都没有变化。");
+  if (!changes.length && assessmentChanged(previous, current)) changes.push("判定规则或关键证据绑定已变化；当前判断与上一版快照不同，旧档案不改写。");
+  if (!changes.length) changes.push("与上一版相比，结论和关键证据没有变化。");
   return changes;
+}
+
+const revisionLocks = new Set<string>();
+
+/** Shared by the owner-protected HTTP route and the explicit local maintenance command. */
+export async function redeliverArchive(store: Store, engine: Engine, runId: string, requestedActor: string) {
+  if (revisionLocks.has(runId)) throw new ExecutionError("REVISION_BUSY", "本次调查正在生成档案，请稍后再试。");
+  revisionLocks.add(runId);
+  try {
+    const run = traceRun(store, runId);
+    if (run.status !== "completed" && run.status !== "failed")
+      throw new ExecutionError("RUN_NOT_READY", "这次调查还没有稳定到可以出档案的状态。");
+    const actor = requestedActor.trim() || "本机操作者";
+    const revisions = revisionsOf(run);
+    const previous = revisions.pop();
+    if (!previous)
+      throw new ExecutionError("NO_BASELINE", "这次调查还没有可参照的首版交付记录。");
+    const followups = followupsOf(run);
+    const corrections = correctionsOf(run);
+    const pendingFollowups = followups.filter((item) => (item.requestedAt || "") > previous.at);
+    const pendingCorrections = corrections.filter((item) => item.at > previous.at);
+    const { bundle, assessment } = buildAssessment(run);
+    if (!assessmentChanged(previous.assessment, assessment))
+      throw new ExecutionError("NO_CHANGES", "当前判断与最新档案内容一致，无需生成重复版本。");
+    const revision = previous.revision + 1;
+    const changes = describeChanges(previous.assessment, assessment, {
+      followups: pendingFollowups.length,
+      corrections: pendingCorrections.length,
+    });
+    if (!pendingFollowups.length && !pendingCorrections.length)
+      changes.unshift("按更新后的证据判定规则重新计算；维护操作不代表新增人工事实背书，旧版档案不改写。");
+    const generatedAt = now();
+    const rendered = renderArchive({
+      runId: run.id,
+      bundle,
+      assessment,
+      revision,
+      generatedAt,
+      actor,
+      changes,
+    });
+    const stepId = stepIdFor(store, run.id);
+    const markdown = await engine.writeArtifact(
+      run.id,
+      stepId,
+      rendered.markdownFilename,
+      rendered.markdown,
+      "text/markdown; charset=utf-8",
+      new AbortController().signal,
+      { requireActive: false },
+    );
+    const json = await engine.writeArtifact(
+      run.id,
+      stepId,
+      rendered.jsonFilename,
+      rendered.json,
+      "application/json; charset=utf-8",
+      new AbortController().signal,
+      { requireActive: false },
+    );
+    const record: RevisionRecord = {
+      revision,
+      at: generatedAt,
+      actor,
+      artifacts: [markdown, json].map((artifact) => ({
+        id: artifact.id,
+        filename: artifact.filename,
+        bytes: artifact.bytes,
+        sha256: artifact.sha256,
+      })),
+      assessment,
+      followupCount: followups.length,
+      correctionCount: corrections.length,
+      changes,
+    };
+    recordEvidence(store, run.id, REVISION_KIND, record);
+    return {
+      revision: record.revision,
+      at: record.at,
+      actor: record.actor,
+      artifacts: record.artifacts,
+      changes,
+      verdict: {
+        outcome: assessment.verdict.outcome,
+        headline: assessment.verdict.headline,
+        counts: assessment.verdict.counts,
+      },
+    };
+  } finally {
+    revisionLocks.delete(runId);
+  }
 }
 
 export function registerTraceEndpoints(app: FastifyInstance, store: Store, engine: Engine) {
@@ -379,12 +531,14 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         throw new ExecutionError("RUN_BUSY", "调查仍在执行中，请等当前步骤结束再追加检索。");
       if (run.input?.dataConsent !== true)
         throw new ExecutionError("DATA_CONSENT_REQUIRED", "本次调查未授权外发检索，无法追加查询。");
+      assertTraceInputScope(run.input || {});
+      assertTraceScope(req.body.query, run.input?.text);
       const config = searchConfiguration();
       if (!config.available)
         throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
 
       if (req.body.sourceOnly && !req.body.sourceUrls?.length) throw new ExecutionError("SOURCE_REQUIRED", "请提供要取得原文的公开网址。");
-      const attempt = req.body.sourceOnly ? null : await searchPro(req.body.query);
+      const attempt = req.body.sourceOnly ? null : await traceSearch(run.id, req.body.query, { scopeContext: run.input?.text });
       const pages = (attempt?.pages || []).slice(0, MAX_FOLLOWUP_PAGES);
       const bodies: {
         pageId: string;
@@ -430,7 +584,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         durationMs: attempt?.durationMs || 0,
         resultCount: attempt?.resultCount || 0,
         error: attempt?.error || null,
-        searchExecuted: attempt !== null,
+        searchExecuted: (attempt?.attempts || 0) > 0,
         pages,
         bodies,
         suppliedSources,
@@ -465,6 +619,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         throw new ExecutionError("RUN_BUSY", "调查仍在执行中，请等当前步骤结束再自动补查。");
       if (run.input?.dataConsent !== true)
         throw new ExecutionError("DATA_CONSENT_REQUIRED", "本次调查未授权外发检索，无法自动补查。");
+      assertTraceInputScope(run.input || {});
       const config = searchConfiguration();
       if (!config.available)
         throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
@@ -573,7 +728,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         const next = askNext(current);
         if (!next) break;
         tried.add(next.query);
-        const attempt = await searchPro(next.query);
+        const attempt = await traceSearch(run.id, next.query, { scopeContext: run.input?.text });
         const pages = (attempt.pages || []).slice(0, MAX_FOLLOWUP_PAGES);
         const bodies: {
           pageId: string;
@@ -606,7 +761,7 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
           durationMs: attempt.durationMs || 0,
           resultCount: attempt.resultCount || 0,
           error: attempt.error || null,
-          searchExecuted: true,
+          searchExecuted: attempt.attempts > 0,
           autoReason: next.reason,
           autoQuestion: next.question,
           pages: pages.map((page) => ({
@@ -804,20 +959,19 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
     return {
       deliveredRevision: delivered?.revision || 0,
       ready: true,
-      dirty: !delivered || pendingFollowups > 0 || pendingCorrections > 0 || pendingReassessments > 0,
+      dirty: assessmentChanged(delivered?.assessment, assessment),
+      readOnly: publicMode() && store.get("SELECT owner FROM runs WHERE id=?", run.id)?.owner !== sessionOfRequest(req)?.id,
       pendingFollowups,
       pendingCorrections,
       pendingReassessments,
       current: assessment,
       changes:
-        delivered && (pendingFollowups > 0 || pendingCorrections > 0)
+        delivered && assessmentChanged(delivered.assessment, assessment)
           ? describeChanges(delivered.assessment, assessment as any, {
               followups: pendingFollowups,
               corrections: pendingCorrections,
             })
-          : delivered && pendingReassessments > 0
-            ? describeChanges(delivered.assessment, assessment as any, { followups: 0, corrections: 0 })
-            : [],
+          : [],
       revisions: revisions.map((item) => ({
         revision: item.revision,
         at: item.at,
@@ -881,90 +1035,6 @@ export function registerTraceEndpoints(app: FastifyInstance, store: Store, engin
         },
       },
     },
-    async (req) => {
-      const run = traceRun(store, req.params.id);
-      if (run.status !== "completed" && run.status !== "failed")
-        throw new ExecutionError("RUN_NOT_READY", "这次调查还没有稳定到可以出档案的状态。");
-      const actor = req.body.actor.trim() || "本机操作者";
-      const revisions = revisionsOf(run);
-      const previous = revisions.pop();
-      if (!previous)
-        throw new ExecutionError("NO_BASELINE", "这次调查还没有可参照的首版交付记录。");
-      const followups = followupsOf(run);
-      const corrections = correctionsOf(run);
-      const pendingFollowups = followups.filter((item) => (item.requestedAt || "") > previous.at);
-      const pendingCorrections = corrections.filter((item) => item.at > previous.at);
-      const pendingReassessments = run.evidence.filter(
-        (item) => item.kind === REASSESS_KIND && item.createdAt > previous.at,
-      );
-      if (!pendingFollowups.length && !pendingCorrections.length && !pendingReassessments.length)
-        throw new ExecutionError("NO_CHANGES", "首版之后没有新的检索、修正或重算，不需要重新确认。");
-
-      const { bundle, assessment } = buildAssessment(run);
-      const revision = previous.revision + 1;
-      const changes = describeChanges(previous.assessment, assessment, {
-        followups: pendingFollowups.length,
-        corrections: pendingCorrections.length,
-      });
-      if (!pendingFollowups.length && !pendingCorrections.length && pendingReassessments.length)
-        changes.unshift("按更新后的证据判定规则重新计算并确认；具体原因见本次重算记录，旧版档案不改写。");
-      const generatedAt = now();
-      const rendered = renderArchive({
-        runId: run.id,
-        bundle,
-        assessment,
-        revision,
-        generatedAt,
-        actor,
-        changes,
-      });
-      const stepId = stepIdFor(store, run.id);
-      const markdown = await engine.writeArtifact(
-        run.id,
-        stepId,
-        rendered.markdownFilename,
-        rendered.markdown,
-        "text/markdown; charset=utf-8",
-        new AbortController().signal,
-        { requireActive: false },
-      );
-      const json = await engine.writeArtifact(
-        run.id,
-        stepId,
-        rendered.jsonFilename,
-        rendered.json,
-        "application/json; charset=utf-8",
-        new AbortController().signal,
-        { requireActive: false },
-      );
-      const record: RevisionRecord = {
-        revision,
-        at: generatedAt,
-        actor,
-        artifacts: [markdown, json].map((artifact) => ({
-          id: artifact.id,
-          filename: artifact.filename,
-          bytes: artifact.bytes,
-          sha256: artifact.sha256,
-        })),
-        assessment,
-        followupCount: followups.length,
-        correctionCount: corrections.length,
-        changes,
-      };
-      recordEvidence(store, run.id, REVISION_KIND, record);
-      return {
-        revision: record.revision,
-        at: record.at,
-        actor: record.actor,
-        artifacts: record.artifacts,
-        changes,
-        verdict: {
-          outcome: assessment.verdict.outcome,
-          headline: assessment.verdict.headline,
-          counts: assessment.verdict.counts,
-        },
-      };
-    },
+    async (req) => redeliverArchive(store, engine, req.params.id, req.body.actor),
   );
 }

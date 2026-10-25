@@ -247,11 +247,13 @@ export function emptySearchStatus(config: SearchConfiguration): SearchStatus {
 }
 
 export function summarizeSearch(config: SearchConfiguration, attempts: SearchAttempt[]): SearchStatus {
+  const stopped = attempts.find((a) => a.error?.code === "SEARCH_LIMIT_PER_RUN" || a.error?.code === "SEARCH_BUDGET_EXHAUSTED");
   const failed = attempts.filter((a) => a.error && a.error.code !== "SEARCH_PROVIDER_ERROR").length;
   const empty = attempts.filter((a) => a.error?.message.includes("没有返回任何网页")).length;
   return {
     ...emptySearchStatus(config),
-    totalQueries: attempts.length,
+    ...(stopped ? { code: stopped.error!.code, reason: stopped.error!.message } : {}),
+    totalQueries: attempts.filter((a) => a.attempts > 0).length,
     failedQueries: failed,
     emptyQueries: empty,
     succeededQueries: attempts.filter((a) => !a.error).length,

@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { createPlatform } from "../services/runtime/src/app.ts";
 import { createGuard } from "../services/runtime/src/public-guard.ts";
 
+function sessionFrom(response: { json(): any; headers: Record<string, unknown> }) {
+  const cookie = String(response.headers["set-cookie"] || "").split(";")[0];
+  return { ...response.json(), token: cookie.slice(cookie.indexOf("=") + 1) };
+}
+
 /**
  * 公网会话隔离：两个互不相干的浏览器会话，B 即使拿到 A 的项目 ID、运行 ID、
  * 档案地址，也不能读取或改动 A 的任何数据。
@@ -49,8 +54,8 @@ describe("公网会话隔离", () => {
       const mintedB = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "B" } });
       expect(mintedA.statusCode).toBe(200);
       expect(mintedB.statusCode).toBe(200);
-      const a = mintedA.json() as { token: string; sessionId: string };
-      const b = mintedB.json() as { token: string; sessionId: string };
+      const a = sessionFrom(mintedA) as { token: string; sessionId: string };
+      const b = sessionFrom(mintedB) as { token: string; sessionId: string };
       expect(a.sessionId).not.toBe(b.sessionId);
 
       // A 的项目与调查（归属写成 A 的会话，相当于 A 通过接口建的那次调查）
@@ -120,7 +125,7 @@ describe("公网会话隔离", () => {
     const { platform, dir } = await setup();
     try {
       const minted = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "C" } });
-      const c = minted.json() as { token: string };
+      const c = sessionFrom(minted) as { token: string };
       const project = platform.engine.createProject({
         name: "无主项目",
         layout: "business",
@@ -170,7 +175,7 @@ describe("公网会话隔离", () => {
         url: "/v1/session",
         headers: { ...headers(), "user-agent": "quota" },
       });
-      const { token } = minted.json() as { token: string };
+      const { token } = sessionFrom(minted) as { token: string };
       const guard = createGuard(platform.store);
       const session = guard.sessionOf(token)!;
       const ip = "203.0.113.20";
@@ -235,7 +240,7 @@ describe("公网会话隔离", () => {
     const previous = process.env.PLATFORM_DEMO_RUNS;
     try {
       const minted = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "A" } });
-      const owner = (minted.json() as { sessionId: string }).sessionId;
+      const owner = (sessionFrom(minted) as { sessionId: string }).sessionId;
       const runId = "run_demo_public_1";
       const demoProject = platform.engine.createProject({
         name: "公开示例项目",
@@ -262,7 +267,7 @@ describe("公网会话隔离", () => {
       process.env.PLATFORM_DEMO_RUNS = runId;
 
       const anon = await platform.app.inject({ method: "POST", url: "/v1/session", headers: { ...headers(), "user-agent": "B" } });
-      const visitor = (anon.json() as { token: string }).token;
+      const visitor = (sessionFrom(anon) as { token: string }).token;
       const read = await platform.app.inject({ method: "GET", url: `/v1/runs/${runId}`, headers: headers(visitor) });
       expect(read.statusCode).toBe(200);
       // 写入仍然要求归属
@@ -306,7 +311,7 @@ describe("公网会话隔离", () => {
       expect(String(secure.headers["set-cookie"] || "")).toContain("Secure");
 
       // 只有 Cookie 也能读到自己的会话（档案下载走的就是这条路径）。
-      const token = (plain.json() as { token: string }).token;
+      const token = (sessionFrom(plain) as { token: string }).token;
       const viaCookie = await platform.app.inject({
         method: "GET",
         url: "/v1/session",

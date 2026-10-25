@@ -10,11 +10,12 @@ import type { FastifyInstance } from "fastify";
 import { ExecutionError } from "./contracts.ts";
 import { id, now } from "./util.ts";
 import type { Store } from "./store.ts";
-import { searchConfiguration, searchPro, type WebPage } from "../adapters/trace/searchpro.ts";
+import { searchConfiguration, type WebPage } from "../adapters/trace/searchpro.ts";
+import { traceSearch } from "./trace-search.ts";
+import { assertTraceInputScope } from "../adapters/trace/scope.ts";
 import { fetchSource } from "../adapters/trace/fetch-source.ts";
 import { nextClueSearch } from "./clue-investigation.ts";
 import { renderClueReport } from "../adapters/trace/clue-report.ts";
-import { guardReserveSearch } from "./public-guard.ts";
 import {
   detectTargetKind,
   evaluateCandidates,
@@ -178,13 +179,13 @@ export function clueAssessment(store: Store, runId: string): ClueAssessment {
 
 async function searchRound(store: Store, runId: string, query: string, reason: string, kind: string) {
   const run = store.run(runId)!;
+  assertTraceInputScope(run.input || {});
   if (run.input?.dataConsent !== true)
     throw new ExecutionError("DATA_CONSENT_REQUIRED", "本次调查未授权外发检索。");
   const config = searchConfiguration();
   if (!config.available) throw new ExecutionError(config.code || "SEARCH_NOT_CONFIGURED", config.reason);
   // 追加检索与初始检索使用相同预算，避免自动补查绕过公网额度限制。
-  guardReserveSearch(runId);
-  const attempt = await searchPro(query);
+  const attempt = await traceSearch(runId, query, { scopeContext: run.input?.text });
   const pages = (attempt.pages || []).slice(0, 5);
   const bodies: any[] = [];
   for (const page of pages.slice(0, 3)) {

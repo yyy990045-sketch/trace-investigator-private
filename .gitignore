@@ -19,3 +19,6 @@ logs/
 *.pem
 *.key
 .DS_Store
+
+# Recreated from locked npm OCR packages before dev/build
+/apps/trace/public/ocr/v7/runtime/
