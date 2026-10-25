@@ -1,12 +1,12 @@
 {
   "id": "trace-ocr-photo",
   "title": "修复照片中文字OCR失真并部署公网",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "high",
   "domain": "frontend",
-  "currentPhase": "review",
-  "nextAction": "公网AI识图已读出13行，核对三例截图及最终发布状态",
+  "currentPhase": "completed",
+  "nextAction": "已部署AI识图与恢复规则，三张真实截图已交付准备就绪",
   "createdAt": "2026-10-25",
   "branch": "fix/trace-ocr-photo"
 }
