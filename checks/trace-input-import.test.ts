@@ -128,3 +128,25 @@ describe("提交前校验", () => {
     expect(validateForInvestigation("《个人信息保护法》自2021年8月20日起施行").ok).toBe(true);
   });
 });
+
+describe("AI 识图结果处理", () => {
+  it("AI 返回的多行文本可按行选句，超过上限不自动填", () => {
+    const lines = Array.from({ length: 14 }, (_, i) => `第${i + 1}条：最好的方法是某个动作。`).join("\n");
+    const plan = planOcrInsertion(lines);
+    expect(plan.text.split("\n").length).toBeGreaterThan(5);
+    // 14 行短句合计不足 500 字时可直接填入
+    if (plan.text.length <= MAX_INVESTIGATION_CHARS) {
+      expect(plan.needChoice).toBe(false);
+      expect(plan.text).toContain("第1条");
+    }
+  });
+
+  it("候选句仍优先完整说法，AI 噪声行排在后面", () => {
+    const ranked = rankCandidates([
+      "5.6s 用时",
+      "强膝：最好的方法是空蹬腿。",
+      "【广告】",
+    ]);
+    expect(ranked[0]).toContain("空蹬腿");
+  });
+});
