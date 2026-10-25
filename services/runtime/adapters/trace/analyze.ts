@@ -15,6 +15,7 @@ import {
   type ClaimSemantics,
   type SentenceVerdict,
 } from "./claim-semantics.ts";
+import { comparePossession } from "./proposition.ts";
 
 /** 证据与事实的关系：支持 / 反对 / 无法确认 / 明显无关。 */
 export type Relation = "supports" | "contradicts" | "unclear" | "irrelevant";
@@ -870,6 +871,9 @@ export function scopeCompatibility(claim: string, evidence: string) {
 }
 
 const DATE_PATTERN = /((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日/g;
+// A title such as「实施情况报告」does not state when the law takes effect.
+const EFFECT_ACTION = /(?:正式|开始|起)?(?:施行|实施|生效)(?=[\s，,。；;、）)]|以来|的(?:《|相关规定|本法|法律|法规|条例)|$)|起适用(?=[\s，,。；;、）)]|$)/;
+const LEGAL_ACTION = new RegExp(`${EFFECT_ACTION.source}|通过|表决|审议|公布|发布|签署|颁布|公告`);
 const normalizedDateText = (text: string) => text.normalize("NFKC").replace(/[個護屆國華過佈會實於]/g,
   (s) => ({"個":"个","護":"护","屆":"届","國":"国","華":"华","過":"过","佈":"布","會":"会","實":"实","於":"于"}[s] || s));
 
@@ -891,15 +895,11 @@ export function dateRoles(text: string) {
     // A long law/committee name is allowed; another date's action is not.
     const after = text.slice(match.index! + match[0].length, match.index! + match[0].length + 100)
       .split(/(?:19|20)\d{2}年\d{1,2}月\d{1,2}日|[。；;\n\r！？]/)[0];
-    const action = after.match(/施行|实施|生效|起适用|通过|表决|审议|公布|发布|签署|颁布|公告/)?.[0];
+    const action = after.match(LEGAL_ACTION)?.[0];
     if (action && /施行|实施|生效|起适用/.test(action)) push(date, "effect");
     else if (action && /通过|表决|审议/.test(action)) push(date, "adopt");
     else if (action) push(date, "publish");
     else push(date, "unknown");
-  }
-  // 「自2021年1月1日起施行」的日期在动词之前，补一次前置判断
-  for (const match of text.matchAll(/(?:自|于)?\s*((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日\s*(?:起)?\s*(施行|实施|生效)/g)) {
-    push(`${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`, "effect");
   }
   return roles;
 }
@@ -952,7 +952,7 @@ function datedLawDecision(claim: string, page: AnalysablePage, body: string) {
         const legalNames = (text: string) => [...text.matchAll(/《([^》]+)》|([\p{Script=Han}]{1,40}?(?:法典|条例|规定|法))/gu)]
           .map((item) => (item[1] || item[2]).replace(/^中华人民共和国/, ""));
         const preceding = legalNames(before).at(-1);
-        const actionAt = after.search(/施行|实施|生效|起适用|通过|表决|审议|公布|发布|签署|颁布|公告/);
+        const actionAt = after.search(LEGAL_ACTION);
         const following = legalNames(actionAt < 0 ? after : after.slice(0, actionAt));
         if (preceding && !preceding.endsWith(law) && !preceding.endsWith("本法") || following.some((name) => !name.endsWith(law) && !name.endsWith("本法"))) continue;
         const [date, roles] = [...dateRoles(match[0] + after)][0];
@@ -1052,9 +1052,13 @@ function assessSourceOnce(
 
   if (factQuantities.length && bound.kind) {
     // 数量句绑定成功：只按这一句判断，不从别处拼数字；但明确否定（「说法不实」「并非…」）优先。
-    if (negation && bound.kind === "supports") {
-      relation = "contradicts";
-      reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
+    const refutation = numeric.evidence.find((item) => /(?:说法|数据).{0,6}(?:不实|错误)|(?:并非|不是|未达到|未达)\s*\d/.test(item.sentence));
+    if (negation && bound.kind === "supports" && refutation) {
+      relation = /(?:并非|不是|不等于)\s*\d/.test(options.fact.text) ? "supports" : "contradicts";
+      reasons.push("同一条已绑定主体、指标和数值的原句明确否定该数值表述。");
+    } else if (negation && bound.kind === "supports") {
+      relation = "unclear";
+      reasons.push("数值看似一致，但原句含尚未绑定否定对象的表述，暂不裁决。");
     } else {
       relation = bound.kind;
       reasons.push(numeric.reason);
@@ -1076,8 +1080,8 @@ function assessSourceOnce(
       relation = "supports";
       reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%，且出现同一表述片段「${sharedFragment}」，未发现否定表述。`);
     } else if (negation) {
-      relation = "contradicts";
-      reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
+      relation = "unclear";
+      reasons.push("原句出现否定词，但否定对象未绑定，不能据此视为反证。");
     } else if (relevance < 0.12) {
       relation = "irrelevant";
       reasons.push(`与该事实几乎无关（关键词重合度 ${(relevance * 100).toFixed(0)}%）。`);
@@ -1093,8 +1097,8 @@ function assessSourceOnce(
   } else if (relevance < 0.34) {
     reasons.push(`与事实主题的关键词重合度仅 ${(relevance * 100).toFixed(0)}%，不足以作为该事实的依据。`);
   } else if (negation) {
-    relation = "contradicts";
-    reasons.push(`命中事实关键词，但邻近出现否定表述「${negation}」。`);
+    relation = "unclear";
+    reasons.push("原句出现否定词，但否定对象未绑定，不能据此视为反证。");
   } else if ((dateConflict = dateRoleConflict(options.fact.text, `${scored} ${bodyText}`))) {
     relation = "contradicts";
     reasons.push(`日期角色不符：${dateConflict.note}。` + "该日期在本来源里不是施行日，不能作为支持依据。");
@@ -1115,9 +1119,9 @@ function assessSourceOnce(
   } else if (numeric.kind === "unclear" && relevance >= 0.6) {
     reasons.push(`关键词重合度 ${(relevance * 100).toFixed(0)}%。${numeric.reason}`);
   } else if (relevance >= 0.6 && sharedFragment) {
-    relation = "supports";
+    relation = "unclear";
     reasons.push(
-      `关键词重合度 ${(relevance * 100).toFixed(0)}%，且出现同一表述片段「${sharedFragment}」，未发现否定表述。`,
+      `关键词重合度 ${(relevance * 100).toFixed(0)}%，且出现片段「${sharedFragment}」，但尚未绑定同一主体、行为或属性，相关性不能代替支持证据。`,
     );
   } else if (relevance >= 0.6) {
     reasons.push(
@@ -1130,7 +1134,7 @@ function assessSourceOnce(
   // 语义层：说法带可识别谓词（停产/延长寿命…）时，用「主体+行为+型号+限定+因果」判断，
   // 而不是靠关键词覆盖率。法律日期、统计数字这类没有谓词的说法继续走原规则。
   const claimSemantics: ClaimSemantics = parseClaim(options.fact.text);
-  if (claimSemantics.predicate) {
+  if (claimSemantics.predicate || (!factQuantities.length && !dated && comparePossession(options.fact.text, ""))) {
     // 标题只是索引信息，不是「一句原始表述」：正文和摘要都没有时才退回到标题。
     // 否则页面标题（「暑运服务台 | 充电宝禁止登机怎么办」）会被当成证据句显示给用户。
     const prose = [body?.ok ? body.text : "", page.passage].filter(Boolean).join("。");
@@ -1258,7 +1262,7 @@ function assessSourceOnce(
   // 区分四件事：请求成功 / 正文抓到了 / 正文是样板 / 找到与该说法直接相关的句子。
   const cleanedBody = bodyText.replace(/\s+/g, " ").trim();
   const substance = cleanedBody.replace(/[\s\d\p{P}]/gu, "").length;
-  const bodyKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "body")?.sentence || null : dated ? dated.proof?.from === "body" ? dated.proof.sentence : null : body?.ok && substance >= 20
+  const bodyKeySentence = semantic ? !semantic.fromTitle && bodyText.includes(semantic.sentence) ? semantic.sentence : null : factQuantities.length ? numeric.evidence.find((item) => item.from === "body")?.sentence || null : dated ? dated.proof?.from === "body" ? dated.proof.sentence : null : body?.ok && substance >= 20
     ? keySentenceFor({
         factText: options.fact.text,
         text: cleanedBody,
@@ -1266,7 +1270,7 @@ function assessSourceOnce(
         quantities: factQuantities,
       })
     : null;
-  const passageKeySentence = factQuantities.length ? numeric.evidence.find((item) => item.from === "excerpt")?.sentence || null : dated ? dated.proof?.from === "excerpt" ? dated.proof.sentence : null : keySentenceFor({
+  const passageKeySentence = semantic ? !semantic.fromTitle && page.passage.includes(semantic.sentence) ? semantic.sentence : null : factQuantities.length ? numeric.evidence.find((item) => item.from === "excerpt")?.sentence || null : dated ? dated.proof?.from === "excerpt" ? dated.proof.sentence : null : keySentenceFor({
     factText: options.fact.text,
     text: page.passage,
     factTerms,
@@ -1605,7 +1609,7 @@ export function aggregateCase(input: {
   if (evaluative.length && evaluative.length === facts.length) {
     reasons.push(
       `问题「${evaluative[0].fact}」问的是具体取值，属于问句而不是可核查的说法：系统不会把问句当成断言去判真假。` +
-        "要得到真伪结论，请改写成陈述句再查（例如「…是…」「…在 2021 年施行」）；下列来源只作为相关材料，不构成结论。",
+        "系统会从原文寻找对应答案；未找到直接表述时保留未知，下列来源只作为相关材料，不据此判定问句真假。",
     );
     return {
       outcome: "insufficient",
@@ -1665,6 +1669,7 @@ export function aggregateCase(input: {
     }
     // 有相关表述，只是过不了范围/独立性核对时，不能写成「没有任何来源」。
     const allSources = facts.flatMap((fact) => fact.sources);
+    const limitedSources = allSources.filter((source) => source.scopeCompatible === false && source.keySentence && source.relation !== "irrelevant");
     const related = allSources.filter((source) => source.relation === "supports" || source.relation === "contradicts");
     if (related.length) {
       const sup = related.filter((source) => source.relation === "supports").length;
@@ -1679,7 +1684,9 @@ export function aggregateCase(input: {
       // 语义层判定为「只支持一部分 / 只是相关」的来源也要说清楚，不能写成「没有任何来源」。
       const partials = allSources.filter((source) => source.semantic && source.semantic.verdict !== "unrelated");
       reasons.push(
-        partials.length
+        limitedSources.length
+          ? `找到 ${limitedSources.length} 条局部范围的相关表述，但不能由局部事实推出整句说法。`
+          : partials.length
           ? `有 ${partials.length} 条来源与这句话有关，但都只支持其中一部分或只是相关（例如：${partials[0].semantic!.reason}），不足以定案。`
           : "没有任何来源与待核查事实形成可比对表述。",
       );
@@ -1689,6 +1696,7 @@ export function aggregateCase(input: {
     // 只支持一部分（例如「有条件限制」「只是相关」）的官方原句，也是用户已经查清的部分：
     // 这些句子必须显式给出来，否则用户只会看到「证据不足」，等于把查到的条件限制丢掉了。
     const partialAnswer = [
+      ...limitedSources.slice(0, 2).map((source) => `${source.site || "来源"}（${source.keySentenceFrom === "body" ? "正文原句" : "搜索摘要"}，仅涉及局部范围）：${source.keySentence!.slice(0, 140)}`),
       ...conditionSources
         .slice(0, 2)
         .map((source) => `${source.site || "来源"}：${source.semantic!.sentence.slice(0, 140)}`),
@@ -1702,7 +1710,7 @@ export function aggregateCase(input: {
     if (partialAnswer.length)
       return {
         outcome: "partial",
-        headline: conditionSources.length
+        headline: conditionSources.length || limitedSources.length
           ? "来源只支持说法中的一部分（条件、时间或范围不完全一致），不能按原说法成立。"
           : "已查到相关依据，但还不足以给出确定结论。",
         confidence: "low",
@@ -1815,8 +1823,8 @@ export function buildStatement(claim: string, verdict: CaseAssessment) {
     // 来源只覆盖说法里的一部分条件时，不能说成「已经拿到可直接引用的表述」——
     // 用户会以为整句说法已经被证实，这正是「部分限制被放大成全面限制」的来源。
     if (verdict.headline.includes("只支持说法中的一部分"))
-      return `关于「${claim}」：现有来源只支持说法中的一部分，不能按原说法成立。${got ? `查到的是：${got}。` : ""}结论停在「只支持一部分」，还需要官方原始页面或研究原文才能定案。`;
-    return `关于「${claim}」：已经查到可直接引用的表述${got ? `——${got}` : ""}；但还缺少能把它定案的依据（官方原始页面或研究原文），所以只回答到这里，不把它当成已确认的事实。`;
+      return `关于「${claim}」：现有来源只覆盖说法中的一部分，不能按完整说法成立。${got ? `查到的是：${got}。` : ""}${verdict.reasons[0] || "尚缺覆盖完整范围和条件的原始依据。"}`;
+    return `关于「${claim}」：已取得来源表述${got ? `——${got}` : ""}；${verdict.reasons[0] || "尚未取得足以确认完整说法的证据。"}因此只回答到这里，不把它当成已确认的事实。`;
   }
   return `就「${claim}」而言，证据不足，本档案拒绝给出确定结论。${suffix}`;
 }
