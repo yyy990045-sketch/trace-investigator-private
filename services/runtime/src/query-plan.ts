@@ -99,8 +99,33 @@ export function planFactQueries(text: string, provided: string[]): QueryPlan {
  *  - 「…是不是…？」→ 去掉疑问词，留下可判断的陈述；
  *  - 其余情况原样返回。
  */
+/**
+ * 去掉「这不是我在说，是我听来的」这类前缀。
+ *
+ * 长辈转发的原话几乎都带「网传 / 听说 / 群里在传 / 转发提醒」，把这些字当成
+ * 待核查说法的一部分，会让来源永远无法逐字对上（没有哪篇科普会写「网传…」）。
+ * 只删前缀与「是真的吗」这类问句尾巴，中间那个断言原样保留。
+ */
+const RUMOR_PREFIX =
+  /^\s*(?:网传|网上传|网上说|网上都在说|群里在传|群里的说法是|朋友圈在传|朋友圈都在传|转发提醒|听朋友说|听家里人说|听说|据说|有人说|有报道称|看到一条(?:视频|消息)(?:说|称)?|视频里说|抖音上说|抖音上有人|传言|传闻)\s*[，,：:！!]?\s*/;
+
+export function stripRumorWrapping(value: string): string {
+  let out = String(value || "").trim();
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(RUMOR_PREFIX, "").trim();
+    if (next === out) break;
+    out = next;
+  }
+  // 「…是真的吗 / 可信吗 / 靠谱吗 / 到底是不是真的」这类尾巴不是断言的一部分。
+  out = out
+    .replace(/[，,]?\s*(?:这是真的吗|是真的吗|是真的么|可信吗|靠谱吗|属实吗|到底是不是真的|真的假的|对不对|吗)\s*$/, "")
+    .replace(/^[，,。；;\s]+|[，,。；;\s]+$/g, "")
+    .trim();
+  return out || String(value || "").trim();
+}
+
 export function deriveClaims(question: string): { claims: string[]; note: string } {
-  const text = question.trim().replace(/[？?]+$/, "");
+  const text = stripRumorWrapping(question.trim().replace(/[？?]+$/, ""));
   const twoValues =
     /^(?:为什么|为何)?\s*(.+?)\s*(?:有|是|为)\s*([\d.]+\s*[辆台万亿万元人吨公里座条个项家倍%％]+)\s*(?:和|与|、)\s*([\d.]+\s*[辆台万亿万元人吨公里座条个项家倍%％]+)\s*(?:两种|两个|俩|不同)?(?:说法|数据|数字|口径)?$/.exec(
       text,
@@ -130,5 +155,13 @@ export function deriveClaims(question: string): { claims: string[]; note: string
       note: "已把「是不是…」问句改写为可核查的陈述，逐字核对这句话是否成立",
     };
   }
-  return { claims: [question.trim()], note: "按原句核查" };
+  // 兜底也要用去掉「网传/听说」后的句子，否则前缀会一直挂在待核查说法上。
+  const stripped = text.trim() || question.trim();
+  return {
+    claims: [stripped],
+    note:
+      stripped === question.trim()
+        ? "按原句核查"
+        : "已去掉「网传/听说」这类前缀，只核查中间那句可验证的说法",
+  };
 }

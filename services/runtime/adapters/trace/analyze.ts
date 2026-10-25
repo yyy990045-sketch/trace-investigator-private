@@ -14,6 +14,7 @@ import {
   parseClaim,
   type ClaimSemantics,
   type SentenceVerdict,
+  looksLikeDebunkPage,
 } from "./claim-semantics.ts";
 
 /** 证据与事实的关系：支持 / 反对 / 无法确认 / 明显无关。 */
@@ -1130,7 +1131,11 @@ function assessSourceOnce(
   // 语义层：说法带可识别谓词（停产/延长寿命…）时，用「主体+行为+型号+限定+因果」判断，
   // 而不是靠关键词覆盖率。法律日期、统计数字这类没有谓词的说法继续走原规则。
   const claimSemantics: ClaimSemantics = parseClaim(options.fact.text);
-  if (claimSemantics.predicate) {
+  // 辟谣/科普答疑页即使说法没有可识别谓词，也要走语义层：
+  // 长辈转发的说法（「手机充一整夜会严重损伤电池寿命」）本来就不在谓词表里，
+  // 不走语义层的话，页面只会因为关键词重合被当成「支持」。
+  const debunkPage = looksLikeDebunkPage(`${page.title} ${page.passage} ${body?.ok ? body.text : ""}`);
+  if (claimSemantics.predicate || debunkPage) {
     // 标题只是索引信息，不是「一句原始表述」：正文和摘要都没有时才退回到标题。
     // 否则页面标题（「暑运服务台 | 充电宝禁止登机怎么办」）会被当成证据句显示给用户。
     const prose = [body?.ok ? body.text : "", page.passage].filter(Boolean).join("。");
@@ -1203,12 +1208,21 @@ function assessSourceOnce(
         sentence: best.sentence.slice(0, 160),
         ...(prose ? {} : { fromTitle: true }),
       };
-      relation =
-        best.verdict.verdict === "direct_support"
-          ? "supports"
-          : best.verdict.verdict === "direct_refute"
-            ? "contradicts"
-            : "unclear";
+      // 没有谓词的说法（长辈传言这类）只在语义层抽出「相反/部分」时才覆盖关系；
+      // 辟谣页里抽不出方向时不能算支持——那通常只是复述传言。
+      const directional =
+        best.verdict.verdict === "direct_refute" || best.verdict.verdict === "partial";
+      if (!claimSemantics.predicate && !directional) {
+        relation = "unclear";
+        reasons.unshift("辟谣/答疑页里没有抽出可直接引用的相反结论，不能算作支持。");
+      } else {
+        relation =
+          best.verdict.verdict === "direct_support"
+            ? "supports"
+            : best.verdict.verdict === "direct_refute"
+              ? "contradicts"
+              : "unclear";
+      }
       reasons.unshift(`语义判断：${best.verdict.reason}。`);
       if (best.sentence) reasons.unshift(`对应原句：${best.sentence.slice(0, 120)}`);
     }
@@ -1678,11 +1692,27 @@ export function aggregateCase(input: {
     } else {
       // 语义层判定为「只支持一部分 / 只是相关」的来源也要说清楚，不能写成「没有任何来源」。
       const partials = allSources.filter((source) => source.semantic && source.semantic.verdict !== "unrelated");
-      reasons.push(
-        partials.length
-          ? `有 ${partials.length} 条来源与这句话有关，但都只支持其中一部分或只是相关（例如：${partials[0].semantic!.reason}），不足以定案。`
-          : "没有任何来源与待核查事实形成可比对表述。",
-      );
+      if (partials.length) {
+        reasons.push(
+          `有 ${partials.length} 条来源与这句话有关，但都只支持其中一部分或只是相关（例如：${partials[0].semantic!.reason}），不足以定案。`,
+        );
+      } else {
+        // 确实拿到了材料，只是没有可直接引用的原句：不能写成「没有任何来源」，
+        // 那会让用户以为检索失败，也会把已经找到的辟谣/科普页一起抹掉。
+        const unclearSources = allSources.filter((source) => source.relation === "unclear");
+        const debunkPages = unclearSources.filter((source) =>
+          /辟谣|科普|真相|求证|流言|是真的吗|科学解读/.test(
+            `${(source as { title?: string }).title || ""}${source.site || ""}`,
+          ),
+        );
+        reasons.push(
+          unclearSources.length
+            ? `已取得 ${allSources.length} 条材料，其中 ${unclearSources.length} 条与这句话相关${
+                debunkPages.length ? `（含 ${debunkPages.length} 条辟谣/科普答疑页）` : ""
+              }，但这些句子里没有能直接引用的相反结论，因此无法确认这句话是否成立。`
+            : "没有任何来源与待核查事实形成可比对表述。",
+        );
+      }
     }
     // 已经有支持性表述时，不能只丢一句「证据不足」：把已查清的部分先答给用户。
     const supportedFacts = facts.filter((fact) => fact.sources.some((source) => source.relation === "supports"));

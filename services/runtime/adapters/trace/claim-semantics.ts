@@ -92,6 +92,39 @@ export function modelTokens(text: string): string[] {
   return [...out];
 }
 
+/**
+ * 说法的核心词：主体/谓词/对象，加上原句的 2–4 字片段。
+ *
+ * 为什么需要片段：长辈转发的句子往往整句没有标点（「手机充一整夜会严重损伤电池寿命」），
+ * 按标点分词只会得到一个超长 token，跟任何真实句子都对不上。用 2–4 字片段
+ * 才能在「电池也不会过饱」这种句子里认出「电池」「整夜」，既不要求逐字，
+ * 也不至于因为太松而乱命中——真正决定方向的是后面那句否定信号。
+ */
+const CORE_STOP = /^(这个|那个|真的|到底|是不|不是|可以|已经|一直|严重|非常|特别|我们|你们|他们|什么|怎么|为什么|如果|但是|不过|而且|所以|还有|一个|这种|那种|有些|很多|可能|应该)$/;
+
+export function claimCoreTokens(claim: ClaimSemantics): string[] {
+  const out = new Set<string>();
+  for (const part of [claim.subject, claim.predicate, claim.object]) {
+    if (part && part.length >= 2 && part.length <= 8) out.add(part);
+  }
+  const value = claim.text.replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, " ").trim();
+  for (const part of value.split(/\s+/)) {
+    if (!part) continue;
+    for (let n = 2; n <= 4; n += 1) {
+      for (let i = 0; i + n <= part.length; i += 1) {
+        const token = part.slice(i, i + n);
+        if (CORE_STOP.test(token)) continue;
+        out.add(token);
+      }
+    }
+  }
+  return [...out].slice(0, 60);
+}
+
+function clip(text: string, max: number) {
+  return text.length <= max ? text : text.slice(0, max) + "…";
+}
+
 export function parseClaim(text: string): ClaimSemantics {
   const value = clean(text);
   const predicate = PREDICATES.find((item) => item.pattern.test(value))?.key || "";
@@ -210,6 +243,75 @@ function compareBanClaim(claim: ClaimSemantics, text: string): SentenceVerdict |
  * 比较一句真实原句和待核查说法。
  * 返回的每一档都带理由，页面上要能解释「为什么这句只能算相关」。
  */
+/**
+ * 辟谣/答疑类来源的判定。
+ *
+ * 长辈转发的说法，最好的来源往往不是"正面证明"，而是科普/辟谣页在回答同一个
+ * 问题后给出相反结论，例如：
+ *   「即便整夜插着充电器，电池也不会"过饱"」
+ *   「基本不会出现过度充电把电池充坏的现象」
+ *   「手机充一整夜会更伤电池吗？答案可能和你想的不一样」
+ * 这些句子在原句层面就是对该说法的否证，不应该因为"否定对象没逐字绑定"而一律
+ * 判成不确定。反过来，只要来源没给出相反结论（只是提到"谣言"两个字、或只是
+ * 复述这个说法），就仍然维持不确定 —— 不能靠标题猜方向。
+ */
+const DEBUNK_CONTEXT =
+  /(辟谣|求真|是真的吗|真相|流言|谣言|误区|答案可能和你想的不一样|别再被.{0,6}误导|不要被.{0,6}误导|别再信|科学解读|求证|打假)/;
+/** 「证据不足」类表述交给后面的 epistemic 分支，不能在这里当成否证。 */
+const EPISTEMIC_ONLY =
+  /(不能证明|无法证明|尚无证据|没有证据|缺乏证据|未证实|尚未证实|并不意味着|不代表|不能说明|无法说明|不能确定|无法确定)/;
+/** 页面级线索：这一页是在辟谣/科普答疑，而不是普通报道。 */
+export function looksLikeDebunkPage(text: string) {
+  return /辟谣|求证|是真的吗|真相|流言|谣言|误区|答案可能和你想的不一样|别再被.{0,6}误导|科学解读|打假/.test(
+    String(text || ""),
+  );
+}
+/** 明确的相反结论（原句级）。 */
+const REFUTE_SIGNAL =
+  /(不会|并不会|基本不会|不必|无需|没必要|并不需要|没有(?:科学)?(?:依据|证据|必要)|不成立|并非|不是真的|与.{0,6}无关|不受影响|不影响|无影响|没有关系|并不会造成)/;
+/** 削弱但没否定：「确实比…伤电池，但程度比掉根头发还轻」。 */
+/** 让步 + 削弱：整句同时出现「确实/但/不过」与「轻、小、有限、可忽略」。 */
+function looksWeakened(text: string) {
+  const concession = /(确实|的确|虽然|但|不过)/.test(text);
+  const mild = /(程度|幅度|轻微|很小|极小|极轻|非常轻|很轻|有限|忽略不计|可以忽略)/.test(text);
+  return concession && mild;
+}
+
+function debunkVerdict(claim: ClaimSemantics, text: string): SentenceVerdict | null {
+  // 「没有证据证明 X」不是「X 已被推翻」，交给后面的 epistemic 分支。
+  if (EPISTEMIC_ONLY.test(text)) return null;
+  const debunkContext = DEBUNK_CONTEXT.test(text);
+  const cores = claimCoreTokens(claim);
+  const hits = cores.filter((token) => text.includes(token));
+  // 辟谣上下文只需要核心词对上；没有上下文时要求更严：至少两个核心词同句出现。
+  if (debunkContext ? hits.length < 1 : hits.length < 2) return null;
+
+  const signal = REFUTE_SIGNAL.exec(text);
+  // 承认有影响但削弱：既没有否定信号，又有让步语气。
+  if (!signal) {
+    if (looksWeakened(text)) {
+      return {
+        verdict: "partial",
+        reason: `来源承认说法有一部分影响，但指出程度远小于原说法：${clip(text, 60)}`,
+        sufficient: false,
+      };
+    }
+    return null;
+  }
+  // 同一句既让步又削弱时只算部分，不整句否证（例如「确实更伤电池，但损伤很轻」）。
+  if (looksWeakened(text)) {
+    return {
+      verdict: "partial",
+      reason: `同一句既承认影响又指出程度有限（${signal[0]}），不足以整句否证：${clip(text, 60)}`,
+      sufficient: false,
+    };
+  }
+  return {
+    verdict: "direct_refute",
+    reason: `来源给出与说法相反的结论（${signal[0]}）：${clip(text, 60)}`,
+    sufficient: true,
+  };
+}
 export function compareSentence(claim: ClaimSemantics, sentence: string): SentenceVerdict {
   const text = clean(sentence);
   if (!text) return { verdict: "unrelated", reason: "空句子", sufficient: false };
@@ -217,6 +319,21 @@ export function compareSentence(claim: ClaimSemantics, sentence: string): Senten
   // 0) 禁令类说法先按「全面禁止 vs 有条件限制」判断。
   const banVerdict = compareBanClaim(claim, text);
   if (banVerdict) return banVerdict;
+
+  // 0.1) 问句/引述不是断言：辟谣页常先复述传言再反问
+  //      （「…这些说法是不是让你每次给手机充电都提心吊胆？」）。
+  //      这类句子既不能当支持，也不该当反证，只能算相关。
+  if (/[？?]\s*$/.test(text)) {
+    return {
+      verdict: "related_only",
+      reason: "这句是问句或引述，不是可直接引用的断言，不能当作支持或反证",
+      sufficient: false,
+    };
+  }
+
+  // 0.5) 辟谣/科普答疑来源：它回答的是同一个问题，只是结论相反。
+  const debunk = debunkVerdict(claim, text);
+  if (debunk) return debunk;
 
   // 1) 行为必须对得上：说法要「停产」，来源只说「发布」不算。
   const predicateHit = PREDICATES.find((item) => item.key === claim.predicate);
