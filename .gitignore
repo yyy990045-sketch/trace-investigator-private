@@ -19,3 +19,8 @@ logs/
 *.pem
 *.key
 .DS_Store
+
+# OCR 运行时二进制由 tooling/copy-ocr-assets.mjs 从依赖复制；只有语言包入库
+apps/trace/public/ocr/worker.min.js
+apps/trace/public/ocr/tesseract-core-*.wasm
+apps/trace/public/ocr/tesseract-core-*.wasm.js

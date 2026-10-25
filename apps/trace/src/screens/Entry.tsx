@@ -147,6 +147,8 @@ export function Entry() {
   const [linkPanelOpen, setLinkPanelOpen] = useState(false);
   const [linkPaste, setLinkPaste] = useState("");
   const [linkResult, setLinkResult] = useState<{ title: string; url: string; text: string } | null>(null);
+  /** 每次识别/提取递增；取消或重新发起后，旧任务的回调直接丢弃。 */
+  const importRun = useRef(0);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const modelBlocked = useModel && model.data?.available !== true;
   const routedFlow = investigationFlow(clueQuestion, heroMode);
@@ -254,17 +256,22 @@ export function Entry() {
       setImportError(check.reason || "这张图片不能用于识别。");
       return;
     }
+    const run = ++importRun.current;
     setImportBusy(true);
-    setImportStatus("正在加载识别引擎（首次约 10–30 秒）…");
+    setImportStatus(
+      "首次使用需要下载约 21MB 中英文识别资源（之后走浏览器缓存，约 8 秒）；识别在本机完成，截图不上传。",
+    );
     try {
       // 动态引入：不在首页首屏加载 OCR 依赖，也不上传原图。
       const { recognizeImage } = await import("../ocr");
       const result = await recognizeImage(file, ({ status, progress }) => {
+        if (run !== importRun.current) return;
         const percent = Math.round(progress * 100);
         setImportStatus(
           status === "recognizing text" ? `正在识别文字 ${percent}%` : `准备识别 ${percent}%`,
         );
       });
+      if (run !== importRun.current) return; // 已被取消或被新任务取代
       const cleaned = normalizeOcrText(result.text);
       if (!cleaned || looksUnreadable(cleaned)) {
         setImportStatus("");
@@ -294,12 +301,16 @@ export function Entry() {
       }
       applyImportedText(plan.text, "screenshot");
     } catch (e) {
+      if (run !== importRun.current) return;
+      const message = (e as Error)?.message || "";
       setImportStatus("");
       setImportError(
-        `识别引擎没能启动：${(e as Error).message}。可以重试，或直接把原话复制进来。`,
+        message === "OCR_ENGINE_TIMEOUT" || message === "OCR_RECOGNIZE_TIMEOUT"
+          ? "识别超时了（引擎资源或图片处理卡住）。可以重新上传一次，或直接把截图里的原话复制进来；也可以改用粘贴链接。"
+          : `识别引擎没能启动：${message || "未知原因"}。可以重试，或直接把原话复制进来。`,
       );
     } finally {
-      setImportBusy(false);
+      if (run === importRun.current) setImportBusy(false);
     }
   }
 
@@ -361,6 +372,14 @@ export function Entry() {
     } finally {
       setImportBusy(false);
     }
+  }
+
+  /** 手动取消：立刻解除忙碌状态，后台结果到达后也不会再改界面。 */
+  function cancelImport() {
+    importRun.current += 1;
+    setImportBusy(false);
+    setImportStatus("");
+    setImportError("已取消这次识别。你仍然可以直接粘贴原话或链接来调查。");
   }
 
   async function submitClue() {
@@ -563,7 +582,7 @@ export function Entry() {
                   type="button"
                   className="t-btn t-btn-quiet"
                   onClick={() => fileRef.current?.click()}
-                  disabled={SHOWCASE || clueBusy || importBusy}
+                  disabled={SHOWCASE || clueBusy}
                 >
                   <ImageIcon size={15} /> 上传截图
                 </button>
@@ -579,7 +598,7 @@ export function Entry() {
                   type="button"
                   className="t-btn t-btn-quiet"
                   onClick={() => setLinkPanelOpen((open) => !open)}
-                  disabled={SHOWCASE || clueBusy || importBusy}
+                  disabled={SHOWCASE || clueBusy}
                   aria-expanded={linkPanelOpen}
                 >
                   <Link2 size={15} /> 粘贴链接
@@ -587,10 +606,15 @@ export function Entry() {
                 {importSource !== "manual" ? (
                   <span className="t-import-tag">{importSourceLabel[importSource]}</span>
                 ) : null}
-                {importBusy && importStatus ? (
+                {importBusy ? (
                   <span className="t-hint" role="status">
-                    {importStatus}
+                    {importStatus || "正在处理…"}
                   </span>
+                ) : null}
+                {importBusy ? (
+                  <button type="button" className="t-btn t-btn-quiet" onClick={() => cancelImport()}>
+                    <X size={14} /> 取消识别
+                  </button>
                 ) : null}
               </div>
               {importSource !== "manual" ? (

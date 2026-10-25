@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prebuild": "node ../../tooling/copy-ocr-assets.mjs",
+    "predev": "node ../../tooling/copy-ocr-assets.mjs"
   },
   "dependencies": {
     "@personal/agent-ui": "*",
