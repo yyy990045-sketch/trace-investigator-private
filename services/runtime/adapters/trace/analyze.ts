@@ -230,10 +230,18 @@ const NEGATIONS = ["不是", "并非", "并没有", "没有", "尚未", "否认"
 // `(?=.)`：窗口正好截在「未」字后面时无法判断，不能当成否定。
 const BARE_WEI = /未(?![来知成年满免必曾婚育央])(?=.)/;
 
+/**
+ * 非否定用法：出现这些词时，「不是/不同」等并不在否定当前说法。
+ * 「不是……而是……」是对比结构（常见于介绍作品、区分版本），
+ * 「不仅/不但/不断/无论/无比」本身也不是否定。
+ */
+const NON_NEGATING = /(不是[^。；]{0,14}而是|不仅|不但|不断|不过|不同|不论|不管|无论|无比|无数|无疑|不禁)/;
+
 function negationHit(text: string) {
   const word = NEGATIONS.find((n) => text.includes(n));
-  if (word) return word;
-  return BARE_WEI.test(text) ? "未" : null;
+  if (!word) return BARE_WEI.test(text) ? "未" : null;
+  if (NON_NEGATING.test(text)) return null;
+  return word;
 }
 
 function negationNear(text: string, needles: string[]) {
@@ -243,7 +251,14 @@ function negationNear(text: string, needles: string[]) {
     if (index < 0) continue;
     const window = normalized.slice(Math.max(0, index - 24), index + term.length + 24);
     const hit = negationHit(window);
-    if (hit) return hit;
+    if (!hit) continue;
+    // 只有「否定词与被命中词处于同一个小句」时，才算在否定这句话。
+    // 隔着逗号或句号的否定（「……不是……，……三体……作者……」）不能当反证。
+    const clause = window
+      .split(/[，,。；;！!？?]/)
+      .find((part) => part.includes(term));
+    if (!clause || !clause.includes(hit)) continue;
+    return hit;
   }
   return null;
 }
@@ -265,8 +280,14 @@ const EVALUATIVE_WORDS =
 
 export function isEvaluativeQuestion(text: string): boolean {
   const value = text.trim();
-  if (!/[？?]\s*$/.test(value)) return false;
-  return EVALUATIVE_WORDS.test(value.replace(/[？?]\s*$/, ""));
+  // 问号不是前提：说法在解析时会被去掉句尾问号（「《三体》的作者是谁」），
+  // 如果只在带问号时才拦，这类问句会漏过护栏，被当成断言判成反证。
+  const bare = value.replace(/[？?]\s*$/, "");
+  if (/[？?]\s*$/.test(value)) return EVALUATIVE_WORDS.test(bare);
+  // 没有问号时，只有疑问词落在句尾附近才算问句，避免误伤陈述句。
+  const hit = EVALUATIVE_WORDS.exec(bare);
+  if (!hit) return false;
+  return bare.length - (hit.index + hit[0].length) <= 2;
 }
 
 const UP_WORDS = /超过|逾|以上|至少|不低于|突破|多于|高于/;

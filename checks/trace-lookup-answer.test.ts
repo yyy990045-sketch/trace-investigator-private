@@ -140,3 +140,83 @@ describe("实体型问句：有原句才回答", () => {
     expect(candidates.some((item) => item.value.includes("亲木"))).toBe(false);
   });
 });
+
+describe("实体型问句：紧邻同位语与否定误判", () => {
+  const base: LookupEvidence = {
+    quote: "",
+    url: "https://www.example.com/santi.html",
+    site: "央广网",
+    date: "2015-08-24",
+    from: "excerpt",
+    authoritative: false,
+  };
+
+  it("「《三体》作者刘慈欣(资料图)」这种紧邻同位语，单来源也能作答", async () => {
+    const { findSourcedEntityAnswer } = await import("../services/runtime/src/lookup-answer.ts");
+    const answer = findSourcedEntityAnswer("《三体》的作者是谁？", [
+      { ...base, quote: "《三体》作者刘慈欣(资料图) 央广网北京8月24日消息，第73届雨果奖揭晓。" },
+    ]);
+    expect(answer?.value).toBe("刘慈欣");
+  });
+
+  it("普通名词紧跟关系词时仍然不算答案", async () => {
+    const { findSourcedEntityAnswer } = await import("../services/runtime/src/lookup-answer.ts");
+    const answer = findSourcedEntityAnswer("《狮子王》里辛巴的父亲叫什么名字？", [
+      { ...base, quote: "辛巴在父亲的训练下学习成为国王，成为狮群未来的领袖。" },
+    ]);
+    expect(answer).toBeNull();
+  });
+
+  it("「不是……而是……」不算否定当前说法", async () => {
+    const { assessSource } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const { clusterSources } = await import("../services/runtime/adapters/trace/analyze.ts");
+    const pages = [{ id: "a", url: base.url, site: base.site, title: "《三体》作者", date: "2015-08-24",
+      passage: "《三体》作者刘慈欣，这不是他的第一部作品，而是让他走向世界的作品。", score: 0.9 }];
+    const result = assessSource(pages[0] as never, {
+      fact: { id: "f", text: "《三体》的作者是刘慈欣", queries: ["q"] },
+      pages: pages as never,
+      bodies: new Map(),
+      clusterOf: clusterSources(pages as never),
+      duplicatePages: new Set<string>(),
+    } as never);
+    expect(result.relation).not.toBe("contradicts");
+  });
+});
+
+describe("实体型问句：叙述动词不能当答案", () => {
+  it("「作者自曝曾是游戏迷」不产生候选，正确答案是刘慈欣", async () => {
+    const { collectEntityEvidence, entityQuestionParts, findSourcedEntityAnswer } = await import(
+      "../services/runtime/src/lookup-answer.ts"
+    );
+    const claim = "《三体》的作者是谁？";
+    const parts = entityQuestionParts(claim)!;
+    const passages = [
+      "《三体》获世界科幻最高奖 作者自曝曾是游戏迷 央广网。《三体》作者刘慈欣(资料图) 央广网北京8月24日消息。",
+      "《三体》作者刘慈欣 《三体》最初在2006年的《科幻世界》杂志上连载，由重庆出版社出版。",
+    ];
+    const pages = passages.map((t, i) => ({ id: "p" + i, url: "https://example.com/" + i, site: "示例" + i, date: "2015-08-24", passage: t, title: "三体" }));
+    const ev = collectEntityEvidence(pages, new Map(), parts);
+    const answer = findSourcedEntityAnswer(claim, ev);
+    expect(answer?.value).toBe("刘慈欣");
+  });
+});
+
+describe("实体型问句：异体写法不当作冲突", () => {
+  it("简体与繁体同时出现时归一到同一实体，而不是拒答", async () => {
+    const { findSourcedEntityAnswer } = await import("../services/runtime/src/lookup-answer.ts");
+    const base: LookupEvidence = {
+      quote: "",
+      url: "https://example.com/a",
+      site: "示例",
+      date: "2015-08-24",
+      from: "excerpt",
+      authoritative: false,
+    };
+    const answer = findSourcedEntityAnswer("《三体》的作者是谁？", [
+      { ...base, site: "央广网", quote: "《三体》作者刘慈欣(资料图) 央广网北京8月24日消息。" },
+      { ...base, site: "人民网", url: "https://example.com/b", quote: "劉慈欣:《三體》成功是個偶然難複制 劉慈欣的代表作《三體》。" },
+    ]);
+    expect(answer?.value).toBeTruthy();
+    expect(["刘慈欣", "劉慈欣"]).toContain(answer!.value);
+  });
+});
