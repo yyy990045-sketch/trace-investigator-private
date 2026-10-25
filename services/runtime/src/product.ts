@@ -18,6 +18,7 @@ import type { FastifyInstance } from "fastify";
 import { ExecutionError } from "./contracts.ts";
 import { id, now } from "./util.ts";
 import { registerLinkIntake } from "./link-intake.ts";
+import { registerImageIntake } from "./image-intake.ts";
 import type { Store } from "./store.ts";
 import type { Registry } from "./registry.ts";
 import type { Engine } from "./engine.ts";
@@ -231,6 +232,8 @@ export function registerProductEndpoints(
   // 输入导入（截图之外的另一种入口：粘贴公开网页链接读正文）。
   // 之所以挂在这里而不改 app.ts：app.ts 正被并行会话修改，避免把别人的未提交改动卷进来。
   registerLinkIntake(app);
+  // 输入导入（AI 识图）：仅当用户显式选择「AI 识别」时才会把截图发给模型。
+  registerImageIntake(app, store);
 
   /* ---------------------------------------------------------------- 项目应用 */
 

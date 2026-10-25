@@ -111,6 +111,43 @@ export interface LinkImport {
   note: string;
 }
 
+/**
+ * 输入导入：把截图交给平台已配置的模型读字（AI 识图）。
+ *
+ * 只有在用户显式选择「AI 识别」时才调用；图片会被发送到模型服务，
+ * 因此界面必须先说明这一点。原图不会落库。
+ */
+export interface ImageImport {
+  text: string;
+  model: string;
+  tookMs: number;
+  remainingToday: number;
+  note: string;
+}
+
+export async function importImageWithModel(
+  image: string,
+  mime: string,
+): Promise<ImageImport> {
+  const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");
+  const response = await fetch(`${root}/v1/ingest/image`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-platform-client": "workbench-v1",
+      ...sessionHeaders(),
+    },
+    body: JSON.stringify({ image, mime }),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | (ImageImport & { message?: string })
+    | null;
+  if (!response.ok)
+    throw new Error(data?.message || `AI 识图失败（HTTP ${response.status}）。`);
+  if (!data?.text) throw new Error("AI 识图没有返回文字，请换一张截图或改用本机识别。");
+  return data;
+}
+
 export async function importFromLink(url: string): Promise<LinkImport> {
   await ensureSession();
   const root = (import.meta.env.VITE_RUNTIME_API_URL || "/api").replace(/\/$/, "");

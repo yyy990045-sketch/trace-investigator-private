@@ -22,7 +22,7 @@ import { Tag, archiveHref, caseHref, formatTime } from "../components";
 import { Watershed } from "../Watershed";
 import { ensureClueProject, startClueInvestigation } from "../api";
 import { evidenceWording } from "../presentation";
-import { importFromLink } from "../api";
+import { importFromLink, importImageWithModel } from "../api";
 import {
   MAX_INVESTIGATION_CHARS,
   checkImage,
@@ -32,6 +32,7 @@ import {
   looksUnreadable,
   normalizeOcrText,
   parsePastedShare,
+  fileToUploadDataUrl,
   planOcrInsertion,
   rankCandidates,
   validateForInvestigation,
@@ -149,6 +150,9 @@ export function Entry() {
   const [linkResult, setLinkResult] = useState<{ title: string; url: string; text: string } | null>(null);
   /** 每次识别/提取递增；取消或重新发起后，旧任务的回调直接丢弃。 */
   const importRun = useRef(0);
+  /** 上一张选中的截图：本地识别不理想时可直接用 AI 再识别一次。
+   *  必须用 state：ref 变化不会触发重渲染，「AI 识别」按钮就永远不出现。 */
+  const [lastImage, setLastImage] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const modelBlocked = useModel && model.data?.available !== true;
   const routedFlow = investigationFlow(clueQuestion, heroMode);
@@ -243,6 +247,7 @@ export function Entry() {
   }
 
   /** 截图 OCR：本地识别，进度可见，失败就说失败。 */
+  /** 选到图片：默认用 AI 识别（更准），失败再回退本机识别（不上传）。 */
   async function onPickImage(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -251,11 +256,20 @@ export function Entry() {
     setImportNotice(null);
     setTooLongChoices(null);
     setImportConfirmed(false);
+    setLastImage(file);
     const check = checkImage(file);
     if (!check.ok) {
       setImportError(check.reason || "这张图片不能用于识别。");
       return;
     }
+    await recognizeWithModel(file, { fallbackToLocal: true });
+  }
+
+  /**
+   * 本机识别（不上传）：免费、离线可用，但对「照片背景 + 标签块」这类截图很弱。
+   * 现在是 AI 识别失败时（或用户主动选择时）的备选路径。
+   */
+  async function runLocalOcr(file: File) {
     const run = ++importRun.current;
     setImportBusy(true);
     setImportStatus(
@@ -276,7 +290,7 @@ export function Entry() {
       if (!cleaned || looksUnreadable(cleaned)) {
         setImportStatus("");
         setImportError(
-          "没能可靠识别出文字（截图可能太模糊、字太小或有遮挡）。请换一张清晰的截图，或直接把原话复制进来。",
+          "本机识别没读出可用文字（照片背景上的标签块最容易这样）。可以点「AI 识别这张图」让模型再读一次，或直接把原话复制进来。",
         );
         return;
       }
@@ -371,6 +385,68 @@ export function Entry() {
       setImportError((e as Error).message);
     } finally {
       setImportBusy(false);
+    }
+  }
+
+  /**
+   * 用 AI 识图（会把这张截图发给平台已配置的模型）。
+   *
+   * 与本地识别的差别必须让用户看得见：本地不上传、免费但识别弱；
+   * AI 上传、按次计费但能读「照片背景 + 标签块」这类截图。
+   */
+  async function recognizeWithModel(
+    file: File,
+    options: { fallbackToLocal?: boolean } = {},
+  ) {
+    const run = ++importRun.current;
+    setImportBusy(true);
+    setImportError(null);
+    setImportNotice(null);
+    setTooLongChoices(null);
+    setImportConfirmed(false);
+    setImportStatus("AI 正在读图（截图会发送给平台模型，原图不留存）…");
+    try {
+      const prepared = await fileToUploadDataUrl(file);
+      if (run !== importRun.current) return;
+      const result = await importImageWithModel(
+        prepared.dataUrl.replace(/^data:[^;]+;base64,/, ""),
+        prepared.mime,
+      );
+      if (run !== importRun.current) return;
+      const cleaned = normalizeOcrText(result.text);
+      if (!cleaned || looksUnreadable(cleaned)) {
+        setImportStatus("");
+        setImportError("AI 没有读出可用文字，请换一张更清晰的截图，或直接粘贴原话。");
+        return;
+      }
+      const plan = planOcrInsertion(cleaned);
+      setImportStatus(
+        `AI 识别完成：${cleaned.length} 个字（${result.model}，${(result.tookMs / 1000).toFixed(1)} 秒，今天还剩 ${result.remainingToday} 次）`,
+      );
+      if (plan.needChoice) {
+        setTooLongChoices(plan.candidates);
+        setClueQuestion("");
+        setImportSource("screenshot");
+        setImportNotice(
+          `识别到 ${plan.text.length} 个字，超过 ${MAX_INVESTIGATION_CHARS} 字上限：没有自动填写。请从下方挑一句要核查的说法。`,
+        );
+        return;
+      }
+      applyImportedText(plan.text, "screenshot", result.note);
+    } catch (error) {
+      if (run !== importRun.current) return;
+      setImportStatus("");
+      const message = (error as Error)?.message || "AI 识图失败";
+      // 默认路径是 AI：它不可用时自动回退本机识别，别让用户卡在报错上。
+      if (options.fallbackToLocal) {
+        setImportStatus("");
+        setImportNotice(`AI 识别不可用（${message}），已改用本机识别（截图不上传）。`);
+        await runLocalOcr(file);
+        return;
+      }
+      setImportError(`${message}可以改用本机识别，或直接粘贴原话。`);
+    } finally {
+      if (run === importRun.current) setImportBusy(false);
     }
   }
 
@@ -606,10 +682,35 @@ export function Entry() {
                 {importSource !== "manual" ? (
                   <span className="t-import-tag">{importSourceLabel[importSource]}</span>
                 ) : null}
+                <span className="t-hint t-import-note">
+                  上传截图默认用 AI 识别（更准）：截图会发给平台模型，原图不留存；不想上传就点「本机识别（不上传）」。
+                </span>
                 {importBusy ? (
                   <span className="t-hint" role="status">
                     {importStatus || "正在处理…"}
                   </span>
+                ) : null}
+                {lastImage ? (
+                  <button
+                    type="button"
+                    className="t-btn t-btn-quiet"
+                    onClick={() => lastImage && void recognizeWithModel(lastImage)}
+                    disabled={SHOWCASE || clueBusy}
+                    title="把这张截图发送给平台模型逐行读字（原图不留存）"
+                  >
+                    <ImageIcon size={15} /> 再让 AI 读一次
+                  </button>
+                ) : null}
+                {lastImage ? (
+                  <button
+                    type="button"
+                    className="t-btn t-btn-quiet"
+                    onClick={() => lastImage && void runLocalOcr(lastImage)}
+                    disabled={SHOWCASE || clueBusy || importBusy}
+                    title="在本机识别，截图不上传；照片背景上的字容易读不全"
+                  >
+                    <Search size={15} /> 本机识别（不上传）
+                  </button>
                 ) : null}
                 {importBusy ? (
                   <button type="button" className="t-btn t-btn-quiet" onClick={() => cancelImport()}>

@@ -203,6 +203,56 @@ export function planOcrInsertion(raw: string): {
   return { text, needChoice: true, candidates };
 }
 
+/**
+ * 把选中的图片压成可上传的 dataURL。
+ *
+ * 只做等比缩放（最长边 1600px）与 JPEG 质量压缩，不裁切、不改内容：
+ * 目的是把 5MB 的上传上限用在「够清楚」上，而不是原封不动传一张 4000px 的图。
+ */
+/** 大图的 base64 必须分块拼，直接 spread 上百万字节会爆调用栈。 */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+export async function fileToUploadDataUrl(
+  file: File | Blob,
+  options: { maxSide?: number; quality?: number } = {},
+): Promise<{ dataUrl: string; mime: string; bytes: number }> {
+  const maxSide = options.maxSide ?? 1600;
+  const quality = options.quality ?? 0.85;
+  const type = "image/jpeg";
+  if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
+    const buffer = await (file as Blob).arrayBuffer();
+    const base64 = bytesToBase64(new Uint8Array(buffer));
+    return { dataUrl: `data:${type};base64,${base64}`, mime: type, bytes: buffer.byteLength };
+  }
+  const bitmap = await createImageBitmap(file);
+  const longest = Math.max(bitmap.width, bitmap.height);
+  const ratio = Math.min(1, maxSide / Math.max(1, longest));
+  const width = Math.max(1, Math.round(bitmap.width * ratio));
+  const height = Math.max(1, Math.round(bitmap.height * ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("浏览器不支持图片预处理。");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(bitmap, 0, 0, width, height);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((value) => resolve(value), type, quality),
+  );
+  if (!blob) throw new Error("图片预处理失败，请换一张截图。");
+  const buffer = await blob.arrayBuffer();
+  const base64 = bytesToBase64(new Uint8Array(buffer));
+  return { dataUrl: `data:${type};base64,${base64}`, mime: type, bytes: buffer.byteLength };
+}
+
 /** 识别质量太差时的判断：几乎没有汉字/字母就当作识别失败，禁止拿去调查。 */
 export function looksUnreadable(text: string): boolean {
   const compact = String(text || "").replace(/\s+/g, "");
