@@ -818,3 +818,14 @@ describe("检索式规划（规则扩展）", () => {
     expect(new Set(plan.queries).size).toBe(2);
   });
 });
+
+describe("问句护栏：句尾问号缺失也要拦住", () => {
+  it("「《三体》的作者是谁」在去掉问号后仍按问句处理", async () => {
+    const { isEvaluativeQuestion } = await import("../services/runtime/adapters/trace/analyze.ts");
+    expect(isEvaluativeQuestion("《三体》的作者是谁")).toBe(true);
+    expect(isEvaluativeQuestion("《狮子王》里辛巴的父亲叫什么名字？")).toBe(true);
+    // 陈述句不能被误判
+    expect(isEvaluativeQuestion("辛巴的父亲是木法沙")).toBe(false);
+    expect(isEvaluativeQuestion("《民法典》自2021年1月1日起施行")).toBe(false);
+  });
+});

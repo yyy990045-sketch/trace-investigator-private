@@ -309,13 +309,30 @@ export function collectEntityEvidence(
   for (const page of pages) {
     const body = bodies.get(page.id);
     const text = body?.ok ? String(body.text || "") : "";
-    const source = text || String(page.passage || "");
+    // 正文与搜索摘要都要看：有的关键句只在摘要里（正文抓到了，但这段不在正文），
+    // 只取正文会漏掉「《三体》作者刘慈欣」这种一句话就能作答的句子。
+    const sources: { text: string; from: "body" | "excerpt" }[] = [];
+    if (text) sources.push({ text, from: "body" });
+    if (page.passage) sources.push({ text: String(page.passage), from: "excerpt" });
+    for (const { text: source, from } of sources)
     for (const sentence of source.split(ENTITY_QUOTE_SPLIT)) {
       const line = sentence.trim();
       if (line.length < 8 || line.length > 200) continue;
       const looseLine = loose(line);
       if (terms.length && !terms.some((term) => looseLine.includes(loose(term)))) continue;
-      if (relation && !relationForms(relation).some((form) => looseLine.includes(loose(form)))) continue;
+      if (!relation) {
+        // 问实体本身时不需要关系词
+      } else {
+        const forms = relationForms(relation).map(loose);
+        const relAt = forms.map((form) => looseLine.indexOf(form)).find((at) => at >= 0);
+        if (relAt === undefined) continue;
+        // 主语必须出现在关系词前后 24 字内：隔太远只是同一页上的两句话被拼在一起
+        const near = terms.some((term) => {
+          const at = looseLine.indexOf(loose(term));
+          return at >= 0 && Math.abs(at - relAt) <= 24;
+        });
+        if (terms.length && !near) continue;
+      }
       const key = line.slice(0, 30);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -325,7 +342,7 @@ export function collectEntityEvidence(
         site: page.site || "",
         date: page.date || "",
         title: page.title || "",
-        from: text ? "body" : "excerpt",
+        from,
         authoritative: false,
       });
       if (hits.length >= limit) break;
@@ -363,9 +380,20 @@ export function entityCandidatesIn(
     if (/^(一名|这个|那个|其|他|她|它)/.test(value)) return;
     // 否定表述不是答案：「父亲并非木法沙」不能读成「父亲是木法沙」。
     if (/^(并非|不是|没有|未曾|未|不再)/.test(value)) return;
-    // 叙述性片段不是实体：「讲述的是辛巴的父亲」不能把「讲述的」当成人名。
-    if (/[的了着们是]$/.test(value)) return;
-    if (/^(讲述|介绍|关于|说明|报道|描写|提到|表示|指出|认为|影片|故事|资料|文章|视频)/.test(value)) return;
+    // 叙述性片段不是实体：「讲述的是辛巴的父亲」不能把「讲述的」当成人名；
+    // 「父亲的训练下」也不该被读成名字——实体名不含结构助词「的」。
+    if (/[的了着们是曾将会要想说]$/.test(value) || value.includes("的")) return;
+    // 连接词说明抓到的是短语而不是实体：「刘慈欣与国内外出版界专家」不是一个人名。
+    if (/[与和及等或]/.test(value)) return;
+    // 中文人名/机构名的长度上限：超过 8 字基本是短语
+    if (value.length > 8) return;
+    // 叙述动词开头/结尾不是实体名：「作者自曝曾是游戏迷」不能把「自曝曾」当成作者。
+    if (
+      /^(讲述|介绍|关于|说明|报道|描写|提到|表示|指出|认为|影片|故事|资料|文章|视频|自曝|透露|坦言|回忆|写道|谈到|说起|称)/.test(
+        value,
+      )
+    )
+      return;
     out.push({ value, strong });
   };
 
@@ -382,10 +410,15 @@ export function entityCandidatesIn(
       push(matched[1], true);
     }
     // 强：倒装（「木法沙是……的父亲」）
-    for (const matched of line.matchAll(new RegExp("([\\u4e00-\\u9fa5A-Za-z·]{2,12})\\s*[，,]?\\s*(?:正是|就是|是)\\s*[^。]{0,6}" + escaped, "g"))) {
+    for (const matched of line.matchAll(new RegExp("([\\u4e00-\\u9fa5A-Za-z·]{2,12})\\s*[，,]?\\s*(?:正是|就是|是)\\s*[^。]{0,2}" + escaped, "g"))) {
       push(matched[1], true);
     }
-    // 弱：同位语（「父亲木法沙的训练下」）——只有前面没有强句式时才可能被采用
+    // 中强：紧邻同位语（「《三体》作者刘慈欣(资料图)」）——关系词后几乎无间隔地跟着实体，
+    // 这是中文里最常见的「甲的作者乙」写法；普通名词仍被 ENTITY_COMMON 挡掉。
+    for (const matched of line.matchAll(new RegExp(escaped + "([\\u4e00-\\u9fa5A-Za-z·]{2,12}?)(?=[（(《，,。；;、]|是|为)", "g"))) {
+      push(matched[1], true);
+    }
+    // 弱：同位语（「父亲木法沙的训练下」）——只有多来源或取得正文时才采用
     for (const matched of line.matchAll(new RegExp(escaped + "\\s*([\\u4e00-\\u9fa5A-Za-z·]{2,12}?)(?=[，,。；;、的（(]|是|为)", "g"))) {
       push(matched[1], false);
     }
@@ -437,18 +470,69 @@ export function findSourcedEntityAnswer(
       tally.set(candidate.value, entry);
     }
   }
-  for (const entry of tally.values()) {
-    entry.score =
-      (entry.strong ? 6 : 0) +
-      new Set(entry.items.map((item) => item.site || item.url)).size +
-      (entry.body ? 2 : 0);
+  /**
+   * 打分只用可核对的事实：句式强度、命中来源数、是否有正文、
+   * 是否出现在来源标题里（标题写「《三体》作者刘慈欣」比正文偶然一提更硬）、
+   * 以及在同一批材料里出现几次。用来在同分候选之间分出高低，而不是猜。
+   */
+  const subject = parts.subject;
+  const scoreOf = (
+    entry: { strong: boolean; items: LookupEvidence[]; body: boolean },
+    value: string,
+  ) =>
+    (entry.strong ? 6 : 0) +
+    new Set(entry.items.map((item) => item.site || item.url)).size +
+    (entry.body ? 2 : 0) +
+    (entry.items.some((item) => String(item.title || "").includes(value)) ? 3 : 0) +
+    // 与主语贴得越近越可信：「《三体》作者刘慈欣」这种同句紧邻，比「某研究部……作者」
+    // 这种隔了一段的搭配更可能是答案。
+    (entry.items.some((item) => {
+      const text = item.quote;
+      const at = text.indexOf(value);
+      if (at < 0) return false;
+      return subjectTerms(subject).some((term) => {
+        const pos = text.indexOf(term);
+        return pos >= 0 && Math.abs(pos - at) <= 12;
+      });
+    })
+      ? 3
+      : 0) +
+    Math.min(Math.max(entry.items.length - 1, 0), 3) * 0.5;
+
+  for (const [value, entry] of tally) entry.score = scoreOf(entry, value);
+  // 同一实体的异体写法（简体/繁体、带不带间隔号）不能算两个互相冲突的答案：
+  // 「刘慈欣」与「劉慈欣」在来源里同时出现时，原来会被判成「存在两说」而拒答。
+  type Entry = { strong: boolean; items: LookupEvidence[]; body: boolean; score: number };
+  const similar = (a: string, b: string) => {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 2) return false;
+    const shared = [...new Set(a)].filter((ch) => b.includes(ch)).length;
+    return shared >= Math.ceil(Math.min(a.length, b.length) * 0.6);
+  };
+  const grouped: [string, Entry][] = [];
+  for (const [value, entry] of tally) {
+    const hit = grouped.find(([kept]) => similar(kept, value));
+    if (!hit) {
+      grouped.push([value, entry]);
+      continue;
+    }
+    const merged = hit[1];
+    merged.strong = merged.strong || entry.strong;
+    merged.body = merged.body || entry.body;
+    merged.items = [...merged.items, ...entry.items];
+    merged.score = 0; // 统一在下方按 scoreOf 重算
+    // 展示时优先用出现次数更多的写法（通常是简体）
+    if (entry.items.length > hit[1].items.length - entry.items.length) hit[0] = value;
   }
-  const ranked = [...tally.entries()].sort((a, b) => b[1].score - a[1].score);
+
+  for (const [value, entry] of grouped) entry.score = scoreOf(entry, value);
+  const ranked = grouped.sort((a, b) => b[1].score - a[1].score);
   if (!ranked.length) return null;
   const [bestValue, best] = ranked[0];
   const rival = ranked.find(([value, entry]) => value !== bestValue && entry.score >= best.score);
   if (rival) return null;
   // 弱句式且只有一个来源、没拿到正文时不下结论：那可能只是叙述里的一句普通名词。
+  // 强句式（关系+是/为/叫、关系+引号、倒装、紧邻同位语）本身就是证据，不受此限。
   if (!best.strong && new Set(best.items.map((item) => item.url)).size < 2 && !best.body) return null;
   const top = best.items.find((item) => item.from === "body") || best.items[0];
   return {
